@@ -23,7 +23,7 @@
 #
 #=============================================================================
 
-cmake_minimum_required(VERSION 2.8.12 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5.1 FATAL_ERROR)
 
 project(pocl)
 
@@ -34,6 +34,7 @@ endif()
 
 include(CheckCCompilerFlag)
 
+#[[
 # don't allow implicit function declarations
 if(UNIX)
   if((CMAKE_C_COMPILER_ID STREQUAL "GNU") OR
@@ -51,7 +52,7 @@ if(UNIX)
   endif()
 
 endif()
-
+]]
 
 set(MAJOR_VERSION 1)
 set(MINOR_VERSION 5)
@@ -758,6 +759,7 @@ elseif(UNIX)
     message(STATUS "Cross-compiling without CPU/HSA devices -> skipping LIBDL search")
   else()
 
+  #[[
     find_library(DL_LIB "dl")
     find_file(DL_H "dlfcn.h")
     if(DL_LIB AND DL_H)
@@ -774,6 +776,7 @@ elseif(UNIX)
     else()
       message(FATAL_ERROR "Could not find DL library!")
     endif()
+  ]]
   endif()
 
 else()
@@ -782,19 +785,21 @@ endif()
 
 ######################################################################################
 
-set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
-set(THREADS_PREFER_PTHREAD_FLAG TRUE)
-find_package(Threads REQUIRED)
+if(NOT DEFINED HOST_DEVICE_BUILD_HASH)
+  set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
+  set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+  find_package(Threads REQUIRED)
 
-if(CMAKE_VERSION VERSION_GREATER "3.0.99")
-  set(PTHREAD_LIBRARY Threads::Threads)
-else()
-  set(PTHREAD_LIBRARY ${CMAKE_THREAD_LIBS_INIT})
+  if(CMAKE_VERSION VERSION_GREATER "3.0.99")
+    set(PTHREAD_LIBRARY Threads::Threads)
+  else()
+    set(PTHREAD_LIBRARY ${CMAKE_THREAD_LIBS_INIT})
+  endif()
 endif()
 
 ######################################################################################
 # LTTNG
-
+#[[
 if((NOT MSVC) AND (NOT ANDROID))
   pkg_check_modules(LTTNG_UST lttng-ust>=2.7)
   if(LTTNG_UST_FOUND)
@@ -803,7 +808,7 @@ if((NOT MSVC) AND (NOT ANDROID))
     set(HAVE_LTTNG_UST 0)
   endif()
 endif()
-
+]]
 ######################################################################################
 
 if(NOT DEFINED DEFAULT_ENABLE_ICD)

@@ -16,20 +16,26 @@
 
 SET(CMAKE_SYSTEM_NAME Linux)
 
+
+SET(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
+SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
+
 # specify the cross compiler
-SET(CMAKE_C_COMPILER   /usr/bin/arm-linux-gnueabihf-gcc)
-SET(CMAKE_CXX_COMPILER /usr/bin/arm-linux-gnueabihf-g++)
+SET(CMAKE_C_COMPILER /home/blaise/dev/riscv-gnu-toolchain/drops/bin/riscv32-unknown-elf-gcc)
+SET(CMAKE_CXX_COMPILER /home/blaise/dev/riscv-gnu-toolchain/drops/bin/riscv32-unknown-elf-g++)
 
 # should work, but does not yet. Instead set FIND_ROOT below
-# set(CMAKE_SYSROOT /home/a/zynq/ZYNQ_ROOT)
-# where is the target environment
-SET(CMAKE_FIND_ROOT_PATH  /path/to/target_ROOT)
-# where to find libraries in target environment
-SET(CMAKE_LIBRARY_PATH /path/to/target_ROOT/usr/lib/arm-linux-gnueabihf)
+# set(CMAKE_SYSROOT /home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf)
 
+# where is the target environment
+SET(CMAKE_FIND_ROOT_PATH  /home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf)
+
+# where to find libraries in target environment
+SET(CMAKE_LIBRARY_PATH /home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf/lib)
 
 # search for programs in the build host directories
 SET(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+
 # for libraries and headers in the target directories
 SET(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 SET(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

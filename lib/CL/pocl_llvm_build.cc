@@ -83,7 +83,7 @@ POP_COMPILER_DIAGS
 cl_device_id currentPoclDevice = NULL;
 
 
-//#define DEBUG_POCL_LLVM_API
+#define DEBUG_POCL_LLVM_API
 
 #if defined(DEBUG_POCL_LLVM_API) && defined(NDEBUG)
 #undef NDEBUG
@@ -351,7 +351,7 @@ int pocl_llvm_build_program(cl_program program,
   // This is required otherwise the initialization fails with
   // unknown triple ''
   ss << "-triple=" << device->llvm_target_triplet << " ";
-  if (device->llvm_cpu != NULL)
+  if (device->llvm_cpu != NULL && device->llvm_cpu[0] != 0)
     ss << "-target-cpu " << device->llvm_cpu << " ";
 
   POCL_MSG_PRINT_LLVM("all build options: %s\n", ss.str().c_str());

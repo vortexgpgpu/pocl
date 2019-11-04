@@ -62,7 +62,7 @@
 
 typedef struct pocl_kernel_metadata_s pocl_kernel_metadata_t;
 typedef pthread_mutex_t pocl_lock_t;
-#define POCL_LOCK_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+#define POCL_LOCK_INITIALIZER { { 0, 0, 0, 0, 0, {0, 0}, { 0, 0 } } }
 
 /* Generic functionality for handling different types of 
    OpenCL (host) objects. */
@@ -1213,7 +1213,7 @@ struct _cl_sampler {
 #elif defined(__FreeBSD__)
   #include <sys/endian.h>
 #else
-  #include <endian.h>
+  #include <machine/endian.h>
   #if defined(__GLIBC__) && __GLIBC__ == 2 && \
       defined(__GLIBC_MINOR__) && __GLIBC_MINOR__ < 9 && \
       defined(__x86_64__)

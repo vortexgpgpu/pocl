@@ -32,7 +32,7 @@
 
 static void get_binary_sizes(cl_program program, size_t *sizes)
 {
-#ifdef OCS_AVAILABLE
+#if defined(OCS_AVAILABLE) && !defined(HOST_DEVICE_BUILD_HASH)
   if (program_compile_dynamic_wg_binaries (program) != CL_SUCCESS)
     {
       memset(sizes, 0, program->num_devices * sizeof(size_t));
