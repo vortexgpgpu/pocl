@@ -31,7 +31,6 @@
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <string>
 
 #ifndef _MSC_VER

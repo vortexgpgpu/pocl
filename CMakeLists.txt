@@ -21,7 +21,7 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 #
-#=============================================================================
+#==============================================================================
 
 cmake_minimum_required(VERSION 3.5.1 FATAL_ERROR)
 
@@ -34,8 +34,6 @@ endif()
 
 include(CheckCCompilerFlag)
 
-#[[
-# don't allow implicit function declarations
 if(UNIX)
   if((CMAKE_C_COMPILER_ID STREQUAL "GNU") OR
      (CMAKE_C_COMPILER_ID STREQUAL "Clang"))
@@ -52,7 +50,6 @@ if(UNIX)
   endif()
 
 endif()
-]]
 
 set(MAJOR_VERSION 1)
 set(MINOR_VERSION 5)
@@ -65,7 +62,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 enable_testing()
 
-#####################################################
+###############################################################################
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
   set(DEFAULT_BUILD_TYPE "Debug")
@@ -82,7 +79,7 @@ if(NOT CMAKE_BUILD_TYPE)
     "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
-##################################################################################
+###############################################################################
 
 macro(set_expr VAR)
   if(${ARGN})
@@ -127,11 +124,15 @@ else()
   message(STATUS "No git and/or not a prerelease -> not adding git commit to version.")
 endif()
 
-##################################################################################
+###############################################################################
 
 option(OCS_AVAILABLE "Online compiler support available to build pocl with. Default is available." ON)
 
 option(BUILD_SHARED_LIBS "ON=Build shared libs, OFF=static libs" ON)
+
+option(STATIC_KERNEL_LIBS "Generate static libraries for kernels" OFF)
+
+option(ENABLE_PTHREAD "Enable threading library use for CPU devices" ON)
 
 option(POCL_DEBUG_MESSAGES
   "Enable debug messages from pocl (useful for OpenCL developers), must be enabled at runtime, with env var POCL_DEBUG"
@@ -159,7 +160,7 @@ option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic and pthre
 
 option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device driver." OFF)
 
-####
+###############################################################################
 
 # currently only works with gcc as host compiler
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
@@ -758,13 +759,10 @@ elseif(UNIX)
   if (CMAKE_CROSSCOMPILING AND (NOT ENABLE_HOST_CPU_DEVICES) AND (NOT ENABLE_HSA))
     message(STATUS "Cross-compiling without CPU/HSA devices -> skipping LIBDL search")
   else()
-
-  #[[
     find_library(DL_LIB "dl")
     find_file(DL_H "dlfcn.h")
     if(DL_LIB AND DL_H)
       message(STATUS "libdl found")
-
       get_filename_component(DL_H_INCLUDE_DIR "${DL_H}" DIRECTORY)
       string(FIND "${CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES}" "${DL_H_INCLUDE_DIR}" LTPOSITION)
       # include the directory of dlfcn.h, if its not in the default system include dirs
@@ -776,16 +774,14 @@ elseif(UNIX)
     else()
       message(FATAL_ERROR "Could not find DL library!")
     endif()
-  ]]
-  endif()
-
+  endif()  
 else()
   message(STATUS "Unknown OS, don't know how to load a dynamic library")
 endif()
 
 ######################################################################################
 
-if(NOT DEFINED HOST_DEVICE_BUILD_HASH)
+if (ENABLE_PTHREAD)
   set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
   set(THREADS_PREFER_PTHREAD_FLAG TRUE)
   find_package(Threads REQUIRED)
@@ -799,7 +795,7 @@ endif()
 
 ######################################################################################
 # LTTNG
-#[[
+
 if((NOT MSVC) AND (NOT ANDROID))
   pkg_check_modules(LTTNG_UST lttng-ust>=2.7)
   if(LTTNG_UST_FOUND)
@@ -808,7 +804,7 @@ if((NOT MSVC) AND (NOT ANDROID))
     set(HAVE_LTTNG_UST 0)
   endif()
 endif()
-]]
+
 ######################################################################################
 
 if(NOT DEFINED DEFAULT_ENABLE_ICD)

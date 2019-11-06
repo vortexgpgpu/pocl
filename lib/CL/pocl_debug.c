@@ -1,10 +1,10 @@
+#include "pocl_cl.h"
 #include "pocl_debug.h"
 #include "pocl_timing.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <pthread.h>
 #include <unistd.h>
 #include <stdarg.h>
 

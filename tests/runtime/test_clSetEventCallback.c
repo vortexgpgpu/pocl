@@ -26,8 +26,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include <pthread.h>
-
 #include "poclu.h"
 
 int submit = 0;

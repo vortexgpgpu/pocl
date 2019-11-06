@@ -69,6 +69,10 @@
 
 #cmakedefine OCS_AVAILABLE
 
+#cmakedefine STATIC_KERNEL_LIBS
+
+#cmakedefine ENABLE_PTHREAD
+
 /* this is used all over the runtime code */
 #define HOST_CPU_CACHELINE_SIZE @HOST_CPU_CACHELINE_SIZE@
 

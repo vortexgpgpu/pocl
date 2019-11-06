@@ -154,7 +154,7 @@ int pocl_gettimereal(int *year, int *mon, int *day, int *hour, int *min, int *se
   // TODO finish this
   return 1;
 #else
-#error Unknown system variant
+  //TODO: Unknown system variant
+  return 0;
 #endif
-
 }
