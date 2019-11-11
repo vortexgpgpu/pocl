@@ -937,12 +937,31 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
   
   ss << "#include <cstdint>\n"
         "namespace {\n"
-        "int _pocl_register_kernel(const char* name, const void* pfn);\n";
-  ss << "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"
-        "struct auto_register_kernel_t {\n"
-        "  auto_register_kernel_t() {\n"
-        "    _pocl_register_kernel(\"";
-  ss << kernel->name << "\", (void*)" << pfn_workgroup_string << ");\n"
+        "int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes);\n";
+  ss << "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n";  
+  ss << "struct auto_register_kernel_t {\n"
+        "  auto_register_kernel_t() {\n";
+  ss << "    static uint8_t arg_types[] = {";    
+  for (cl_uint i = 0; i < kernel->meta->num_args; ++i) {
+    if (i) ss << ", ";
+    uint32_t value = POCL_ARG_TYPE_NONE;
+    if (!ARG_IS_LOCAL(kernel->meta->arg_info[i]))
+      value = kernel->meta->arg_info[i].type;
+    ss << value;
+  }
+  ss << "};\n"; 
+  ss << "    static uint32_t local_sizes[] = {";
+    for (cl_uint i = 0; i < kernel->meta->num_locals; ++i) {
+      if (i) ss << ", ";
+      ss << kernel->meta->local_sizes[i];
+    }
+  ss << "};\n"; 
+  ss << "    _pocl_register_kernel(\"";
+  ss << kernel->name << "\", " 
+     << "(void*)" << pfn_workgroup_string << ", " 
+     << kernel->meta->num_args << ", " 
+     << kernel->meta->num_locals << ", " 
+     << "arg_types, local_sizes);\n"
         "  }\n"
         "};\n"
         "static auto_register_kernel_t __x__;\n"
@@ -970,7 +989,7 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
 
 {
   std::stringstream ss;
-  ss << LLVM_AR << " rc pocl_" << kernel->name << ".a " << kernel_objfile << " " << wrapper_obj;
+  ss << LLVM_AR << " rc lib" << kernel->name << ".a " << kernel_objfile << " " << wrapper_obj;
   std::string s = ss.str();
   err = system(s.c_str());
   if (err)
