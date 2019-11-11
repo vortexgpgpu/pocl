@@ -47,6 +47,8 @@
 
 #define POCL_FILENAME_LENGTH 1024
 
+#define WORKGROUP_STRING_LENGTH 1024
+
 typedef struct _mem_mapping mem_mapping_t;
 /* represents a single buffer to host memory mapping */
 struct _mem_mapping {
@@ -289,7 +291,7 @@ typedef struct
   unsigned  num_svm_pointers;
   void  **svm_pointers;
   void (CL_CALLBACK  *pfn_free_func) ( cl_command_queue queue,
-                                       unsigned num_svm_pointers,
+                                       cl_uint num_svm_pointers,
                                        void *svm_pointers[],
                                        void  *user_data);
 } _cl_command_svm_free;

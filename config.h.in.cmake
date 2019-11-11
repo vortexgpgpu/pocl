@@ -69,7 +69,7 @@
 
 #cmakedefine OCS_AVAILABLE
 
-#cmakedefine STATIC_KERNEL_LIBS
+#cmakedefine NEWLIB_BSP
 
 #cmakedefine ENABLE_PTHREAD
 
@@ -140,6 +140,8 @@
 #define CLANGXX "@CLANGXX@"
 
 #define LLVM_LLC "@LLVM_LLC@"
+
+#define LLVM_AR "@LLVM_AR@"
 
 #define LLVM_SPIRV "@LLVM_SPIRV@"
 

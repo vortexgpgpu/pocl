@@ -46,7 +46,7 @@ POname(clCreateContextFromType)(const cl_context_properties *properties,
 {
   cl_uint i, num_devices;
   cl_context context = NULL;
-  int errcode;
+  cl_int errcode;
   cl_device_id device_ptr;
 
   POCL_LOCK (pocl_context_handling_lock);

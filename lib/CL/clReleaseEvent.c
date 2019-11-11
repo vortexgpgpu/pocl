@@ -47,7 +47,9 @@ POname(clReleaseEvent)(cl_event event) CL_API_SUFFIX__VERSION_1_0
       if (event->command_type == CL_COMMAND_USER)
         {
           pocl_user_event_data *p = event->data;
+        #ifdef ENABLE_PTHREAD
           pthread_cond_destroy (&p->wakeup_cond);
+        #endif
           POCL_MEM_FREE (p);
         }
 
@@ -63,7 +65,6 @@ POname(clReleaseEvent)(cl_event event) CL_API_SUFFIX__VERSION_1_0
       POCL_DESTROY_OBJECT (event);
       pocl_mem_manager_free_event (event);
     }
-
   return CL_SUCCESS;
 }
 POsym(clReleaseEvent)

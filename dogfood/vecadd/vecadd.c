@@ -117,7 +117,7 @@ int main (int argc, char **argv) {
   }
 
   // Create program from kernel source
-  program = CL_CHECK2(clCreateProgramWithBinary(context, 1, &device_id, &binary_size, (const unsigned char **)&binary, NULL, &_err));	
+  program = CL_CHECK2(clCreateProgramWithBinary(context, 1, &device_id, &binary_size, NULL, NULL, &_err));	
 
   // Build program
   CL_CHECK(clBuildProgram(program, 1, &device_id, NULL, NULL, NULL));

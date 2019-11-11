@@ -48,10 +48,6 @@
 #include "pocl_llvm.h"
 #endif
 
-#ifndef HAVE_LIBDL
-#error Basic driver requires DL library
-#endif
-
 /* default WG size in each dimension & total WG size.
  * this should be reasonable for CPU */
 #define DEFAULT_WG_SIZE 4096
@@ -590,7 +586,7 @@ pocl_basic_run (void *data, _cl_command_node *cmd)
                  launcher. Let's pass only the sizes of the local args in
                  the arg buffer. */
               assert (sizeof (size_t) == sizeof (void *));
-              arguments[i] = (void *)al->size;
+              arguments[i] = (void *)(uintptr_t)al->size;
             }
           else
             {
@@ -655,7 +651,7 @@ pocl_basic_run (void *data, _cl_command_node *cmd)
   assert (pc->printf_buffer != NULL);
   pc->printf_buffer_capacity = cmd->device->printf_buffer_size;
   assert (pc->printf_buffer_capacity > 0);
-  uint32_t position = 0;
+  uint position = 0;
   pc->printf_buffer_position = &position;
 
   unsigned rm = pocl_save_rm ();

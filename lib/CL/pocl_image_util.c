@@ -213,8 +213,8 @@ pocl_check_device_supports_image (cl_device_id device,
 extern void
 pocl_get_image_information (cl_channel_order ch_order, 
                             cl_channel_type ch_type,
-                            int* channels_out,
-                            int* elem_size_out)
+                            cl_int* channels_out,
+                            cl_int* elem_size_out)
 {
   if (ch_type == CL_SNORM_INT8 || ch_type == CL_UNORM_INT8 ||
       ch_type == CL_SIGNED_INT8 || ch_type == CL_UNSIGNED_INT8)

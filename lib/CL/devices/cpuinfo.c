@@ -79,6 +79,7 @@ static int
 pocl_cpufreq_get_max()
 {
   int retval=-1;
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   if (access (cpufreq_file, R_OK) != 0)
     return -1;
 
@@ -92,6 +93,7 @@ pocl_cpufreq_get_max()
   retval /= 1000; 
 #ifdef DEBUG_POCL_CPUINFO
   printf("CPU max frequency (from cpufreq): %d\n", retval);
+#endif
 #endif
   return retval;
 }
@@ -108,6 +110,7 @@ pocl_cpufreq_get_max()
 static int
 pocl_cpuinfo_detect_max_clock_frequency()
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   int cpufreq=-1;
   
   // First try to get the result from cpufreq interface.
@@ -151,6 +154,7 @@ pocl_cpuinfo_detect_max_clock_frequency()
             }
         }
     } 
+#endif
   return -1;  
 }
 
@@ -164,6 +168,7 @@ pocl_cpuinfo_detect_max_clock_frequency()
 static int
 pocl_cpuinfo_detect_compute_unit_count()
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   if (access (cpuinfo, R_OK) != 0) 
       return -1;
   else 
@@ -230,6 +235,7 @@ pocl_cpuinfo_detect_compute_unit_count()
         return cores; /* only multicore, if not unicore*/
       }      
     } 
+#endif
   return -1;  
 }
 
@@ -292,6 +298,7 @@ static const part_tuple_t part_list_apm[] =
 static void
 pocl_cpuinfo_get_cpu_name_and_vendor(cl_device_id device)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   /* If something fails here, have this as backup solution.
    * short_name is in the .data anyways.*/
   device->long_name = device->short_name;
@@ -397,6 +404,7 @@ pocl_cpuinfo_get_cpu_name_and_vendor(cl_device_id device)
   char *new_name = (char*)malloc (len);
   snprintf (new_name, len, "%s-%s", device->short_name, start);
   device->long_name = new_name;
+#endif
 }
 
 /*

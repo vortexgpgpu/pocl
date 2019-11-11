@@ -69,12 +69,14 @@ POname(clWaitForEvents)(cl_uint              num_events ,
       pocl_user_event_data *p = e->data;
       if (e->command_type == CL_COMMAND_USER)
         {
+        #ifdef ENABLE_PTHREAD  
           while (e->status > CL_COMPLETE)
             {
-              time_to_wait.tv_sec = time (NULL) + 1;
+              time_to_wait.tv_sec = time (NULL) + 1;            
               pthread_cond_timedwait (&p->wakeup_cond, &e->pocl_lock,
-                                      &time_to_wait);
+                                      &time_to_wait);            
             }
+        #endif
           if (e->status < 0)
             ret = CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST;
         }

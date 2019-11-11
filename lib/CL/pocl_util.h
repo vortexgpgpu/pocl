@@ -45,17 +45,21 @@
 extern "C" {
 #endif
 
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
 #if defined(__GNUC__) || defined(__clang__)
-
 /* These return the new value. */
 /* See: https://gcc.gnu.org/onlinedocs/gcc-4.1.2/gcc/Atomic-Builtins.html */
 #define POCL_ATOMIC_INC(x) __sync_add_and_fetch (&x, 1)
 #define POCL_ATOMIC_DEC(x) __sync_sub_and_fetch (&x, 1)
 #define POCL_ATOMIC_CAS(ptr, oldval, newval)                                  \
   __sync_val_compare_and_swap (ptr, oldval, newval)
-
 #else
 #error Need basic atomics builtin support in the compiler.
+#endif
+#else
+#define POCL_ATOMIC_INC(x) (x+1)
+#define POCL_ATOMIC_DEC(x) (x-1)
+#define POCL_ATOMIC_CAS(ptr, oldval, newval)
 #endif
 
 uint32_t byteswap_uint32_t (uint32_t word, char should_swap);
@@ -210,8 +214,10 @@ pocl_status_to_str (int status);
 const char *
 pocl_command_to_str (cl_command_type cmd);
 
+#ifdef BUILD_HSA
 int
 pocl_run_command(char * const *args);
+#endif
 
 uint16_t float_to_half (float value);
 

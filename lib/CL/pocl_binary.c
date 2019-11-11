@@ -26,13 +26,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "config.h"
 #include "pocl_cl.h"
 #include "pocl_binary.h"
 #include "pocl_cache.h"
 #include "pocl_file_util.h"
 
 #include <sys/stat.h>
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
 #include <dirent.h>
+#endif
 #include <libgen.h>
 
 /* pocl binary identifier */
@@ -198,6 +201,7 @@ typedef struct pocl_binary_s
 static unsigned char*
 read_header(pocl_binary *b, const unsigned char *buffer)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   memset(b, 0, sizeof(pocl_binary));
   memcpy(b->pocl_id, buffer, POCLCC_STRING_ID_LENGTH);
   buffer += POCLCC_STRING_ID_LENGTH;
@@ -207,6 +211,7 @@ read_header(pocl_binary *b, const unsigned char *buffer)
   BUFFER_READ (b->flags, uint64_t);
   memcpy(b->program_build_hash, buffer, sizeof(SHA1_digest_t));
   buffer += sizeof(SHA1_digest_t);
+#endif
   return (unsigned char*)buffer;
 }
 
@@ -289,6 +294,7 @@ pocl_binary_get_kernel_count (cl_program program, unsigned device_i)
 static unsigned char*
 serialize_file(char* path, size_t basedir_offset, unsigned char* buffer)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   char* content;
   uint64_t fsize;
   char* p = path + basedir_offset;
@@ -296,6 +302,7 @@ serialize_file(char* path, size_t basedir_offset, unsigned char* buffer)
   pocl_read_file(path, &content, &fsize);
   BUFFER_STORE_STR2(content, fsize);
   free(content);
+#endif
   return buffer;
 }
 
@@ -306,6 +313,7 @@ recursively_serialize_path (char* path,
                             size_t basedir_offset,
                             unsigned char* buffer)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   struct stat st;
   stat (path, &st);
 
@@ -332,7 +340,7 @@ recursively_serialize_path (char* path,
         }
       closedir (d);
     }
-
+#endif
   return buffer;
 }
 
@@ -364,6 +372,7 @@ pocl_binary_serialize_kernel_to_buffer(cl_program program,
                                        unsigned device_i,
                                        unsigned char *buf)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   unsigned char *buffer = buf;
   unsigned i;
 
@@ -419,6 +428,9 @@ pocl_binary_serialize_kernel_to_buffer(cl_program program,
   BUFFER_STORE(arginfo_size, uint32_t);
 
   return end;
+#else 
+  return NULL;
+#endif
 }
 
 /**
@@ -431,6 +443,7 @@ deserialize_file (unsigned char* buffer,
                   char* basedir,
                   size_t offset)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   unsigned char* orig_buffer = buffer;
   size_t len;
 
@@ -461,6 +474,9 @@ deserialize_file (unsigned char* buffer,
 RET:
   free (content);
   return (buffer - orig_buffer);
+#else
+  return 0;
+#endif
 }
 
 /* Deserializes all files of a single pocl kernel cachedir.  */
@@ -500,6 +516,7 @@ pocl_binary_deserialize_kernel_from_buffer (pocl_binary *b,
                                             pocl_kernel_metadata_t *meta,
                                             char *basedir)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   unsigned i;
   unsigned char *buffer = *buf;
   uint64_t *dynarg_sizes;
@@ -588,8 +605,8 @@ pocl_binary_deserialize_kernel_from_buffer (pocl_binary *b,
 
   /* always skip to the next kernel */
   *buf = *buf + kernel->struct_size;
+#endif
   return CL_SUCCESS;
-
 }
 
 /***********************************************************/
@@ -597,6 +614,7 @@ pocl_binary_deserialize_kernel_from_buffer (pocl_binary *b,
 cl_int
 pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   unsigned char *buffer = program->pocl_binaries[device_i];
   size_t sizeof_buffer = program->pocl_binary_sizes[device_i];
   unsigned char *end_of_buffer = buffer + sizeof_buffer;
@@ -637,6 +655,7 @@ pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
 
   if (size)
     *size = (buffer - start);
+#endif
   return CL_SUCCESS;
 }
 
@@ -714,6 +733,7 @@ pocl_binary_sizeof_binary(cl_program program, unsigned device_i)
 cl_int
 pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   unsigned char *binary = program->pocl_binaries[device_i];
   cl_device_id device = program->devices[device_i];
 
@@ -767,6 +787,6 @@ pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
           km->reqd_wg_size[l] = k.reqd_wg_size[l];
         }
     }
-
+#endif
   return CL_SUCCESS;
 }

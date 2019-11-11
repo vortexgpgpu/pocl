@@ -42,8 +42,8 @@ pocl_check_image_origin_region (const cl_mem image,
 extern void
 pocl_get_image_information (cl_channel_order  ch_order, 
                             cl_channel_type   ch_type,
-                            int*           host_channels,
-                            int*           host_elem_size);
+                            cl_int*           host_channels,
+                            cl_int*           host_elem_size);
 
 extern cl_int
 pocl_check_device_supports_image (cl_device_id device,

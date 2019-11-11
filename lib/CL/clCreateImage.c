@@ -37,12 +37,12 @@ CL_API_SUFFIX__VERSION_1_2
     cl_mem mem = NULL;
     unsigned i, num_devices_supporting_image = 0;
     size_t size = 0;
-    int errcode = CL_SUCCESS;
+    cl_int errcode = CL_SUCCESS;
     int *device_image_support = NULL;
     size_t row_pitch;
     size_t slice_pitch;
-    int elem_size;
-    int channels;
+    cl_int elem_size;
+    cl_int channels;
     size_t elem_bytes;
     cl_int image_type_idx;
     cl_mem_object_type image_type;

@@ -115,6 +115,8 @@ else()
   set(ADD_LD_FLAGS "-Wl,-export-dynamic")
 endif()
 
+set_target_properties("llvmopencl" PROPERTIES COMPILE_FLAGS "-O0 -g")
+
 # TODO ENABLE_EXPORTS -> Wl,export_dynamic
 # http://www.cmake.org/cmake/help/v2.8.12/cmake.html#prop_tgt:ENABLE_EXPORTS
 # http://www.cmake.org/pipermail/cmake/2011-November/047708.html

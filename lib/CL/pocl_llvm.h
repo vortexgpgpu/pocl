@@ -126,6 +126,10 @@ int pocl_llvm_link_program(cl_program program,
 
 int pocl_invoke_clang(cl_device_id Device, const char** Args);
 
+int pocl_llvm_build_static_program(cl_kernel kernel, 
+                                   unsigned device_i, 
+                                   const char *kernel_objfile);
+
 #ifdef __GNUC__
 #pragma GCC visibility pop
 #endif

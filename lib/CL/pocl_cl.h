@@ -38,12 +38,6 @@
 #define __USE_GNU
 #endif
 
-#ifndef ENABLE_PTHREAD
-#include <pthread.h>
-#else
-  #define PTHREAD_MUTEX_INITIALIZER { { 0, 0, 0, 0, 0, {0, 0}, { 0, 0 } } }
-#endif
-
 #ifdef HAVE_CLOCK_GETTIME
 #include <time.h>
 #endif
@@ -67,6 +61,11 @@
 #endif
 
 typedef struct pocl_kernel_metadata_s pocl_kernel_metadata_t;
+
+#ifdef ENABLE_PTHREAD
+
+#include <pthread.h>
+
 typedef pthread_mutex_t pocl_lock_t;
 #define POCL_LOCK_INITIALIZER PTHREAD_MUTEX_INITIALIZER
 
@@ -104,10 +103,21 @@ typedef pthread_mutex_t pocl_lock_t;
     }                                                                         \
   while (0)
 
+#else
+
+typedef int pocl_lock_t;
+
+#define POCL_LOCK_INITIALIZER 0
+#define POCL_INIT_LOCK(__LOCK__) 
+#define POCL_LOCK(__LOCK__) 
+#define POCL_UNLOCK(__LOCK__)
+#define POCL_DESTROY_LOCK(__LOCK__)  
+
+#endif
 
 /* If available, use an Adaptive mutex for locking in the pthread driver,
    otherwise fallback to simple mutexes */
-#define POCL_FAST_LOCK_T pthread_mutex_t
+#define POCL_FAST_LOCK_T pocl_lock_t
 #define POCL_FAST_LOCK(l) POCL_LOCK(l)
 #define POCL_FAST_UNLOCK(l) POCL_UNLOCK(l)
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
@@ -121,11 +131,9 @@ typedef pthread_mutex_t pocl_lock_t;
       pthread_mutexattr_destroy(&attrs);\
     } while (0)
 #else
-  #define POCL_FAST_INIT(l) pthread_mutex_init(&l, NULL);
+  #define POCL_FAST_INIT(l) POCL_INIT_LOCK(l)
 #endif
 #define POCL_FAST_DESTROY(l) POCL_DESTROY_LOCK(l)
-
-
 
 #define POCL_LOCK_OBJ(__OBJ__)                                                \
   do                                                                          \
@@ -849,7 +857,7 @@ struct _cl_context {
   cl_device_id *devices;
   cl_context_properties *properties;
   /* implementation */
-  unsigned num_devices;
+  cl_uint num_devices;
   unsigned num_properties;
   /* some OpenCL apps (AMD OpenCL SDK at least) use a trial-error 
      approach for creating a context with a device type, and call 
@@ -1219,7 +1227,8 @@ struct _cl_sampler {
 
 #endif
 
-#ifdef __APPLE__
+#if WORDS_BIGENDIAN == 0
+#elif defined(__APPLE__)
   #include <libkern/OSByteOrder.h>
   #define htole16(x) OSSwapHostToLittleInt16(x)
   #define le16toh(x) OSSwapLittleToHostInt16(x)

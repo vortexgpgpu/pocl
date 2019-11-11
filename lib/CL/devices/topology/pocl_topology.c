@@ -266,6 +266,13 @@ pocl_topology_detect_device_info (cl_device_id device)
   return 0;
 }
 
+#elif defined(NEWLIB_BSP) && !defined(OCS_AVAILABLE)
+
+int pocl_topology_detect_device_info (cl_device_id device) {
+  //TODO: use global stub functions to set device hw info
+  return 0;
+}
+
 #else
 
 #error Dont know how to get HWLOC-provided values on this system!

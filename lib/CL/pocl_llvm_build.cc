@@ -60,6 +60,7 @@ IGNORE_COMPILER_WARNING("-Wstrict-aliasing")
 #endif
 
 #include <iostream>
+#include <fstream>
 #include <sstream>
 
 // For some reason including pocl.h before including CodeGenAction.h
@@ -892,7 +893,6 @@ void cleanKernelLibrary() {
  * @return 0 on success, error code otherwise.
  */
 int pocl_invoke_clang(cl_device_id Device, const char** Args) {
-
   // Borrowed from driver.cpp (clang driver). We do not really care about
   // diagnostics, but just want to get the compilation command invoked with
   // the target's toolchain as defined in Clang.
@@ -905,7 +905,7 @@ int pocl_invoke_clang(cl_device_id Device, const char** Args) {
 
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
 
-  driver::Driver TheDriver(CLANG, Device->llvm_target_triplet, Diags);
+  driver::Driver TheDriver(Args[0], Device->llvm_target_triplet, Diags);
 
   const char **ArgsEnd = Args;
   while (*ArgsEnd++ != nullptr) {}
@@ -921,5 +921,61 @@ int pocl_invoke_clang(cl_device_id Device, const char** Args) {
   } else {
     return -1;
   }
+}
 
+int pocl_llvm_build_static_program(cl_kernel kernel, 
+                                   unsigned device_i, 
+                                   const char *kernel_objfile) {
+  char wrapper_cc[POCL_FILENAME_LENGTH];
+  int err;
+{  
+  char pfn_workgroup_string[WORKGROUP_STRING_LENGTH];
+  std::stringstream ss;
+
+  snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
+            "_pocl_kernel_%s_workgroup", kernel->name);
+  
+  ss << "#include <cstdint>\n"
+        "namespace {\n"
+        "int _pocl_register_kernel(const char* name, const void* pfn);\n";
+  ss << "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"
+        "struct auto_register_kernel_t {\n"
+        "  auto_register_kernel_t() {\n"
+        "    _pocl_register_kernel(\"";
+  ss << kernel->name << "\", (void*)" << pfn_workgroup_string << ");\n"
+        "  }\n"
+        "};\n"
+        "static auto_register_kernel_t __x__;\n"
+        "}";
+  err = pocl_cache_tempname (wrapper_cc, ".cc", NULL);
+  if (err)
+    return err;
+  std::ofstream file;
+  file.open (wrapper_cc);
+  file << ss.str();
+  file.close();
+}
+  char wrapper_obj[POCL_FILENAME_LENGTH];
+{
+  std::stringstream ss;
+  err = pocl_cache_tempname (wrapper_obj, ".o", NULL);
+  if (err)
+    return err;
+  ss << CLANG << " -o " << wrapper_obj << " -c " << wrapper_cc;
+  std::string s = ss.str();
+  err = system(s.c_str());
+  if (err)
+    return err;
+}
+
+{
+  std::stringstream ss;
+  ss << LLVM_AR << " rc pocl_" << kernel->name << ".a " << kernel_objfile << " " << wrapper_obj;
+  std::string s = ss.str();
+  err = system(s.c_str());
+  if (err)
+    return err;
+}
+
+return 0;
 }

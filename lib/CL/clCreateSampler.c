@@ -33,7 +33,7 @@ POname(clCreateSampler)(cl_context          context,
                 cl_int *            errcode_ret)
 CL_API_SUFFIX__VERSION_1_0
 {
-  int errcode = CL_SUCCESS;
+  cl_int errcode = CL_SUCCESS;
   cl_sampler sampler = NULL;
 
   POCL_GOTO_ERROR_COND ((context == NULL), CL_INVALID_CONTEXT);

@@ -23,15 +23,21 @@
 
 ## Building LLVM for RiscV
 
-- git clone -b release_90 https://github.com/llvm-mirror/llvm.git llvm_riscv
-- git clone -b release_90 https://github.com/llvm-mirror/clang.git llvm_riscv/tools/clang
+- git clone -b release_90 https://github.com/llvm-mirror/llvm.git llvm
+- git clone -b release_90 https://github.com/llvm-mirror/clang.git llvm/tools/clang
 - cd llvm_riscv
 - mkdir build
 - cd build
-- newlib: cmake -G Ninja -DCMAKE_BUILD_TYPE="Debug" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=/home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
-- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE="Debug" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=/home/blaise/dev/riscv-gnu-toolchain/drops/sysroot  -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-linux-gnu" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
+- newlib: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops_riscv_newlib -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=/home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
+- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops_riscv_linux -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=/home/blaise/dev/riscv-gnu-toolchain/drops/sysroot  -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-linux-gnu" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
 - cmake --build . --target install
-- register llvm pretty print extension for gdb: add "source /home/blaise/dev/llvm/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit
+- register llvm pretty print extension for gdb: add "source /home/blaise/dev/llvm_riscv/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit
+
+## Building LLVM for x86
+
+- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops_x86 -DLLVM_OPTIMIZED_TABLEGEN=True ..
+- cmake --build . --target install
+- register llvm pretty print extension for gdb: add "source /home/blaise/dev/llvm_riscv/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit
 
 ## Sanity test your new RISC-V LLVM
 
@@ -48,14 +54,14 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - mkdir build
 - mkdir drop
 - cd build
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_poclcc -DCMAKE_BUILD_TYPE=Debug -DSTATIC_KERNEL_LIBS=ON -DWITH_LLVM_CONFIG=/home/blaise/dev/riscv-gnu-toolchain/drops/bin/llvm-config -DLLC_HOST_CPU= -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON  ..
-- runtime-linux: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=pthread-riscv32-unknown-linux-gnu -DCMAKE_TOOLCHAIN_FILE=../RISCV_linux.cmake -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DSTATIC_KERNEL_LIBS=ON -ENABLE_PTHREAD=OFF -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- poclcc-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_cc -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=/home/blaise/dev/riscv-gnu-toolchain/drops/bin/llvm-config -DLLC_HOST_CPU= -DNEWLIB_BSP=ON -DENABLE_ICD=OFF -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime-linux: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=pthread-riscv32-unknown-linux-gnu -DCMAKE_TOOLCHAIN_FILE=../RISCV_linux.cmake -DENABLE_ICD=OFF -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
 ## build pocl for x86
 
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_cc -DCMAKE_BUILD_TYPE=Debug -DSTATIC_KERNEL_LIBS=ON -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime-linux: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=pthread-riscv32-unknown-linux-gnu -DCMAKE_TOOLCHAIN_FILE=../RISCV_linux.cmake -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DSTATIC_KERNEL_LIBS=ON -ENABLE_PTHREAD=OFF -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- ubuntu dependencies: sudo apt install -y build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-dev clang llvm make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_cc -DWITH_LLVM_CONFIG=/home/blaise/dev/llvm_riscv/drops_x86/bin/llvm-config -DCMAKE_BUILD_TYPE=Debug -DNEWLIB_BSP=ON -DENABLE_ICD=OFF -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DNEWLIB_BSP=ON -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install

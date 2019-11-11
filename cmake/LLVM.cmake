@@ -267,6 +267,7 @@ endif()
 
 find_program_or_die(LLVM_OPT  "opt"       "LLVM optimizer")
 find_program_or_die(LLVM_LLC  "llc"       "LLVM static compiler")
+find_program_or_die(LLVM_AR   "llvm-ar"   "LLVM archiver")
 find_program_or_die(LLVM_AS   "llvm-as"   "LLVM assembler")
 find_program_or_die(LLVM_LINK "llvm-link" "LLVM IR linker")
 find_program_or_die(LLVM_LLI  "lli"       "LLVM interpreter")

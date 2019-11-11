@@ -37,7 +37,8 @@ POname (clLinkProgram) (cl_context context,
                         cl_int *errcode_ret)
 CL_API_SUFFIX__VERSION_1_2
 {
-  int errcode; unsigned i;
+  cl_int errcode; 
+  unsigned i;
   cl_program program = NULL;
   cl_device_id *unique_devlist = NULL;
 

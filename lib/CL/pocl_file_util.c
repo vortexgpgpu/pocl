@@ -1,3 +1,5 @@
+#include "config.h"
+
 #if !defined(_MSC_VER) && !defined(__MINGW32__)
 #define _GNU_SOURCE
 #define _DEFAULT_SOURCE
@@ -6,9 +8,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
 #include <dirent.h>
+#endif
 #else
-#include <io.h>
+#include <stdio.h>
 #endif
 
 #include <assert.h>
@@ -32,10 +36,11 @@ int pocl_mkstemp(char *path);
 int
 pocl_rm_rf(const char* path) 
 {
+  int error = -1;
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   DIR *d = opendir(path);
   size_t path_len = strlen(path);
-  int error = -1;
-  
+    
   if(d) 
     {
       struct dirent *p = readdir(d);
@@ -68,6 +73,7 @@ pocl_rm_rf(const char* path)
       if (!error)
         remove(path);
     }
+#endif
   return error;
 }
 
@@ -75,6 +81,7 @@ pocl_rm_rf(const char* path)
 int
 pocl_mkdir_p (const char* path)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   int error;
   int errno_tmp;
   error = mkdir (path, S_IRWXU);
@@ -93,6 +100,9 @@ pocl_mkdir_p (const char* path)
     error = 0;
 
   return error;
+#else
+  return 0;
+#endif
 }
 
 int
@@ -104,7 +114,11 @@ pocl_remove(const char* path)
 int
 pocl_exists(const char* path) 
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   return !access(path, R_OK);
+#else 
+  return 0;
+#endif
 }
 
 int 
@@ -302,6 +316,8 @@ pocl_mk_tempname (char *output, const char *prefix, const char *suffix,
 
   return err ? errno : 0;
 
+#elif defined(NEWLIB_BSP)
+  return 0;
 #else
 #error mkostemps() / mkstemps() both unavailable
 #endif
@@ -318,6 +334,8 @@ pocl_mk_tempdir (char *output, const char *prefix)
   size_t len = strlen (prefix);
   strncpy (output + len, "_XXXXXX", (POCL_FILENAME_LENGTH - len));
   return (mkdtemp (output) == NULL);
+#elif defined(NEWLIB_BSP)
+  return 0;
 #else
 #error mkdtemp() not available
 #endif

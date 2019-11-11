@@ -198,9 +198,15 @@ pocl_cache_final_binary_path (char *final_binary_path, cl_program program,
   if (kernel->program->devices[device_i]->spmd)
     bytes_written = snprintf (final_binary_name, POCL_FILENAME_LENGTH,
                               "%s.brig", POCL_PARALLEL_BC_FILENAME);
-  else
+  else {
+  #ifndef NEWLIB_BSP
     bytes_written = snprintf (final_binary_name, POCL_FILENAME_LENGTH,
                               "/%s.so", kernel->name);
+  #else
+    bytes_written = snprintf (final_binary_name, POCL_FILENAME_LENGTH,
+                              "/%s.a", kernel->name);
+  #endif
+  }
 
   assert (bytes_written > 0 && bytes_written < POCL_FILENAME_LENGTH);
 

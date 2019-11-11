@@ -48,9 +48,9 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 using namespace llvm;
 
-//#include <cstdio>
-//#define DB_PRINT(...) printf("linker:" __VA_ARGS__)
-#define DB_PRINT(...)
+#include <cstdio>
+#define DB_PRINT(...) printf("linker:" __VA_ARGS__)
+//#define DB_PRINT(...)
 
 extern cl_device_id currentPoclDevice;
 
@@ -257,7 +257,7 @@ copy_func_callgraph(const llvm::StringRef func_name,
     llvm::Function *RootFunc = from->getFunction(func_name);
     if (RootFunc == NULL)
       return -1;
-    DB_PRINT("copying function %s with callgraph\n", RootFunc.data());
+    DB_PRINT("copying function %s with callgraph\n", func_name.data());
 
     find_called_functions(RootFunc, callees);
 

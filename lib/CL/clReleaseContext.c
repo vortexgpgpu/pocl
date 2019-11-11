@@ -96,7 +96,9 @@ pocl_check_uninit_devices ()
   if (!do_uninit)
     return;
 
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   usleep (100000);
+#endif
 
   POCL_LOCK (pocl_context_handling_lock);
   int do_cleanup = (cl_context_count == 0);

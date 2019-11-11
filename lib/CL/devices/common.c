@@ -76,8 +76,6 @@
 #define CPU_IS_X86 1
 #endif
 
-#define WORKGROUP_STRING_LENGTH 1024
-
 /**
  * Generate code from the final bitcode using the LLVM
  * tools.
@@ -183,7 +181,11 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
     }
 
   /* temporary filename for kernel.so */
+#ifndef NEWLIB_BSP
   if (pocl_cache_tempname (tmp_module, ".so", NULL))
+#else
+  if (pocl_cache_tempname (tmp_module, ".a", NULL))  
+#endif
     {
       POCL_MSG_PRINT_LLVM ("Creating temporary kernel.so file"
                            " for kernel %s FAILED\n",
@@ -197,6 +199,7 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
 
   POCL_MSG_PRINT_INFO ("Linking final module\n");
 
+#ifndef NEWLIB_BSP
   /* Link through Clang driver interface who knows the correct toolchains
      for all of its targets.  */
   const char *cmd_line[64] =
@@ -205,8 +208,10 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
   const char **pos = &cmd_line[4];
   while ((*pos++ = *device_ld_arg++)) {}
 
-  error = pocl_invoke_clang (device, cmd_line);
-
+  error = pocl_invoke_clang (device, cmd_line);  
+#else
+  error = pocl_llvm_build_static_program (kernel, device, tmp_objfile); 
+#endif
   if (error)
     {
       POCL_MSG_PRINT_LLVM ("Linking kernel.so.o -> kernel.so has failed\n");
@@ -877,8 +882,10 @@ get_new_dlhandle_cache_item ()
   if ((handle_count >= MAX_CACHE_ITEMS) && ci && (ci != pocl_dlhandle_cache))
     {
       DL_DELETE (pocl_dlhandle_cache, ci);
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
       dlclose (ci->dlhandle);
       dl_error = dlerror ();
+#endif
       if (dl_error != NULL)
         POCL_ABORT ("dlclose() failed with error: %s\n", dl_error);
       memset (ci, 0, sizeof (pocl_dlhandle_cache_item));
@@ -1072,14 +1079,15 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
   ci->ref_count = initial_refcount;
 
   ci->goffs_zero = run_cmd->pc.global_offset[0] == 0
-                   && run_cmd->pc.global_offset[1] == 0
-                   && run_cmd->pc.global_offset[2] == 0;
+                && run_cmd->pc.global_offset[1] == 0
+                && run_cmd->pc.global_offset[2] == 0;
 
   size_t max_grid_width = pocl_cmd_max_grid_dim_width (run_cmd);
   ci->max_grid_dim_width = max_grid_width;
 
   char *module_fn = pocl_check_kernel_disk_cache (command, specialize);
 
+#if defined(OCS_AVAILABLE) && !defined(NEWLIB_BSP)
   ci->dlhandle = dlopen (module_fn, RTLD_NOW | RTLD_LOCAL);
   dl_error = dlerror ();
 
@@ -1100,6 +1108,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
       // Older OSX dyld APIs need the name without the underscore.
       snprintf (workgroup_string, WORKGROUP_STRING_LENGTH,
                 "pocl_kernel_%s_workgroup", run_cmd->kernel->name);
+
       ci->wg = dlsym (ci->dlhandle, workgroup_string);
       dl_error = dlerror ();
 
@@ -1111,6 +1120,8 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
     }
 
   run_cmd->wg = ci->wg;
+#endif
+
   DL_PREPEND (pocl_dlhandle_cache, ci);
 
   POCL_UNLOCK (pocl_dlhandle_lock);

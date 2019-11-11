@@ -21,15 +21,18 @@
    THE SOFTWARE.
 */
 
+#include "config.h"
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-
 #include <time.h>
 
+
 #ifndef _MSC_VER
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
 #include <dirent.h>
+#endif
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -39,7 +42,7 @@
 #include <unistd.h>
 #include <utime.h>
 #else
-#  include "vccompat.hpp"
+#include "vccompat.hpp"
 #endif
 
 #include "pocl_util.h"
@@ -1110,6 +1113,7 @@ pocl_command_to_str (cl_command_type cmd)
   return "unknown";
 }
 
+#ifdef BUILD_HSA
 /*
  * This replaces a simple system(), because:
  *
@@ -1154,6 +1158,7 @@ pocl_run_command (char *const *args)
         return EXIT_FAILURE;
     }
 }
+#endif
 
 // event locked
 void

@@ -280,6 +280,7 @@ poclu_load_program_multidev (cl_context context, cl_device_id *devices,
                              const char *explicit_binary,
                              const char *extra_build_opts, cl_program *p)
 {
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   cl_bool little_endian = 0;
   cl_uint address_bits = 0;
   char extensions[1024];
@@ -422,6 +423,9 @@ poclu_load_program_multidev (cl_context context, cl_device_id *devices,
 
   *p = program;
   return err;
+#else 
+  return 0;
+#endif
 }
 
 int

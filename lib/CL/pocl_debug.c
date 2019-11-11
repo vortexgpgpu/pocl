@@ -13,20 +13,20 @@
 uint64_t pocl_debug_messages_filter; /* Bitfield */
 int stderr_is_a_tty;
 
-static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pocl_lock_t console_mutex = POCL_LOCK_INITIALIZER;
 
   #if !defined(_MSC_VER) && !defined(__MINGW32__)
 
     void
     pocl_debug_output_lock ()
     {
-      pthread_mutex_lock (&console_mutex);
+      POCL_LOCK (console_mutex);
     }
 
     void
     pocl_debug_output_unlock ()
     {
-      pthread_mutex_unlock (&console_mutex);
+      POCL_UNLOCK (console_mutex);
     }
 
     void

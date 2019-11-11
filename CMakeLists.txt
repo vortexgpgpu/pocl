@@ -60,8 +60,6 @@ set(POCL_VERSION ${VERSION_STRING})
 # required b/c SHARED libs defaults to ON while OBJECT defaults to OFF
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-enable_testing()
-
 ###############################################################################
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
@@ -130,9 +128,13 @@ option(OCS_AVAILABLE "Online compiler support available to build pocl with. Defa
 
 option(BUILD_SHARED_LIBS "ON=Build shared libs, OFF=static libs" ON)
 
-option(STATIC_KERNEL_LIBS "Generate static libraries for kernels" OFF)
+option(NEWLIB_BSP "Target barebone Newlib CPU platforms" OFF)
 
 option(ENABLE_PTHREAD "Enable threading library use for CPU devices" ON)
+
+option(BUILD_TESTS "Build test suite" ON)
+
+option(ENABLE_TRACING "Enable api tracing" ON)
 
 option(POCL_DEBUG_MESSAGES
   "Enable debug messages from pocl (useful for OpenCL developers), must be enabled at runtime, with env var POCL_DEBUG"
@@ -161,6 +163,10 @@ option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic and pthre
 option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device driver." OFF)
 
 ###############################################################################
+
+if (NEWLIB_BSP AND CMAKE_CROSSCOMPILING)
+  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread on Newlib platforms")
+endif()
 
 # currently only works with gcc as host compiler
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
@@ -751,11 +757,11 @@ include_directories("include")
 
 set(HAVE_LIBDL OFF CACHE BOOL "dlopen" FORCE)
 
-if(WIN32)
+if (NEWLIB_BSP AND CMAKE_CROSSCOMPILING)
+  message(STATUS "Using statically linked kernels for Newlib CPU platforms")
+elseif(WIN32)
   message(STATUS "Using LoadLibrary/FreeLibrary in Windows, libltdl not needed.")
-
 elseif(UNIX)
-
   if (CMAKE_CROSSCOMPILING AND (NOT ENABLE_HOST_CPU_DEVICES) AND (NOT ENABLE_HSA))
     message(STATUS "Cross-compiling without CPU/HSA devices -> skipping LIBDL search")
   else()
@@ -796,7 +802,7 @@ endif()
 ######################################################################################
 # LTTNG
 
-if((NOT MSVC) AND (NOT ANDROID))
+if (ENABLE_TRACING AND (NOT MSVC) AND (NOT ANDROID))
   pkg_check_modules(LTTNG_UST lttng-ust>=2.7)
   if(LTTNG_UST_FOUND)
     set(HAVE_LTTNG_UST 1)
@@ -1052,13 +1058,16 @@ if(ENABLE_HSA OR ENABLE_HOST_CPU_DEVICES)
 endif()
 
 if(ENABLE_HOST_CPU_DEVICES)
-  set(OCL_TARGETS "host")
-  set(OCL_DRIVERS "basic pthreads")
+  set(OCL_TARGETS "host")  
+  set(OCL_DRIVERS "basic")
   # TODO OCL_KERNEL_TARGET -> CPU_TARGET_TRIPLE
   # TODO OCL_KERNEL_TARGET_CPU -> OCL_KERNEL_TARGET_CPU
   set(OCL_KERNEL_TARGET "${LLC_TRIPLE}") #The kernel target triplet.
   set(OCL_KERNEL_TARGET_CPU "${LLC_HOST_CPU}") #The kernel target CPU variant.
-  set(BUILD_PTHREAD 1)
+  if (ENABLE_PTHREAD)    
+    set(OCL_DRIVERS "${OCL_DRIVERS} pthreads")
+    set(BUILD_PTHREAD 1)  
+  endif()
 endif()
 
 # The accel device could be built by default, but it's implemented in C++,
@@ -1072,7 +1081,6 @@ endif()
 if(DEFINED EXTRA_OCL_TARGETS)
   set(OCL_TARGETS "${OCL_TARGETS} ${EXTRA_OCL_TARGETS}")
 endif()
-
 
 ####################################################################
 
@@ -1405,7 +1413,7 @@ endif()
 # this path later to point to an out-of-tree copy.
 set(OCML_SOURCE_DIR "${CMAKE_SOURCE_DIR}/lib/kernel/ocml")
 
-#############################################################
+###############################################################################
 
 add_subdirectory("include")
 
@@ -1415,24 +1423,31 @@ add_subdirectory("lib")
 message(STATUS "OPENCL_LIBS: ${OPENCL_LIBS}")
 message(STATUS "OPENCL_CFLAGS: ${OPENCL_CFLAGS}")
 
+if (OCS_AVAILABLE)
+  # poclcc bin
+  add_subdirectory("bin")
+endif()
+
 # for tests / examples
-set(POCLU_LINK_OPTIONS poclu ${OPENCL_LIBS} ${LIBMATH})
-message(STATUS "POCLU LINK OPTS: ${POCLU_LINK_OPTIONS}")
+if (BUILD_TESTS)
 
-# poclcc bin
-add_subdirectory("bin")
+  enable_testing()
 
-include(add_test_pocl)
+  set(POCLU_LINK_OPTIONS poclu ${OPENCL_LIBS} ${LIBMATH})
+  message(STATUS "POCLU LINK OPTS: ${POCLU_LINK_OPTIONS}")
 
-add_subdirectory("tests")
-add_subdirectory("examples")
+  include(add_test_pocl)
+  add_subdirectory("tests")
+  add_subdirectory("examples")
 
-# make check & make check_tier1
+  # make check & make check_tier1
 
-add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} "--output-on-failure" -j ${CORECOUNT} ${COMMAND_USES_TERMINAL})
-add_custom_target(check_tier1 COMMAND ${CMAKE_CTEST_COMMAND} "--output-on-failure" -L "'internal|amdsdk_30|piglit|PyOpenCL|conformance_suite_micro'" -j ${CORECOUNT} ${COMMAND_USES_TERMINAL})
+  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} "--output-on-failure" -j ${CORECOUNT} ${COMMAND_USES_TERMINAL})
+  add_custom_target(check_tier1 COMMAND ${CMAKE_CTEST_COMMAND} "--output-on-failure" -L "'internal|amdsdk_30|piglit|PyOpenCL|conformance_suite_micro'" -j ${CORECOUNT} ${COMMAND_USES_TERMINAL})
 
-##########################################################
+endif()
+
+###############################################################################
 
 MESSAGE(STATUS " ")
 MESSAGE(STATUS "*********************** SUMMARY ***************************")
@@ -1568,6 +1583,7 @@ MESSAGE(STATUS "ENABLE_TCE: ${ENABLE_TCE}")
 MESSAGE(STATUS "ENABLE_TCEMC: ${ENABLE_TCEMC}")
 MESSAGE(STATUS "ENABLE_HSA: ${ENABLE_HSA}")
 MESSAGE(STATUS "ENABLE_CUDA: ${ENABLE_CUDA}")
+MESSAGE(STATUS "NEWLIB_BSP: ${NEWLIB_BSP}")
 MESSAGE(STATUS "ENABLE_ASAN (address sanitizer): ${ENABLE_ASAN}")
 MESSAGE(STATUS "ENABLE_LSAN (leak sanitizer): ${ENABLE_LSAN}")
 MESSAGE(STATUS "ENABLE_TSAN (thread sanitizer): ${ENABLE_TSAN}")
