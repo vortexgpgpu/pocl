@@ -1085,9 +1085,8 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
   size_t max_grid_width = pocl_cmd_max_grid_dim_width (run_cmd);
   ci->max_grid_dim_width = max_grid_width;
 
-  char *module_fn = pocl_check_kernel_disk_cache (command, specialize);
-
 #if defined(OCS_AVAILABLE) && !defined(NEWLIB_BSP)
+  char *module_fn = pocl_check_kernel_disk_cache (command, specialize);
   ci->dlhandle = dlopen (module_fn, RTLD_NOW | RTLD_LOCAL);
   dl_error = dlerror ();
 
@@ -1119,17 +1118,16 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
                     module_fn, workgroup_string, dl_error);
     }
 
-  run_cmd->wg = ci->wg;
+  POCL_MEM_FREE (module_fn);
+#else
+  ci->wg = run_cmd->kernel->meta->data[0];  
 #endif
 
+  run_cmd->wg = ci->wg;
+
   DL_PREPEND (pocl_dlhandle_cache, ci);
-
-  POCL_UNLOCK (pocl_dlhandle_lock);
-  /***************************************************************************/
-  POCL_MEM_FREE (module_fn);
+  POCL_UNLOCK (pocl_dlhandle_lock);  
 }
-
-#define MIN_MAX_MEM_ALLOC_SIZE (128*1024*1024)
 
 /* accounting object for the main memory */
 static pocl_global_mem_t system_memory = {POCL_LOCK_INITIALIZER, 0, 0, 0};

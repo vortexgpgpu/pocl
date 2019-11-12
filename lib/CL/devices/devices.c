@@ -502,11 +502,15 @@ pocl_init_devices ()
     {
       pocl_devices_init_ops[i](&pocl_device_ops[i]);
       assert(pocl_device_ops[i].device_name != NULL);
-
+#ifndef NEWLIB_BSP
       /* Probe and add the result to the number of probed devices */
       assert(pocl_device_ops[i].probe);
       device_count[i] = pocl_device_ops[i].probe(&pocl_device_ops[i]);
       pocl_num_devices += device_count[i];
+#else
+      device_count[i] = 1;
+      pocl_num_devices += 1;
+#endif
     }
 
   const char *dev_env = pocl_get_string_option ("POCL_DEVICES", NULL);

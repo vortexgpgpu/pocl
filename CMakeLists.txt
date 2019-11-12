@@ -164,7 +164,7 @@ option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device drive
 
 ###############################################################################
 
-if (NEWLIB_BSP AND CMAKE_CROSSCOMPILING)
+if (NEWLIB_BSP AND (NOT OCS_AVAILABLE))
   set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread on Newlib platforms")
 endif()
 
@@ -330,7 +330,7 @@ endif()
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
-if(UNIX AND (NOT CMAKE_CROSSCOMPILING))
+if(UNIX AND (NOT (NEWLIB_BSP AND (NOT OCS_AVAILABLE))))
   find_package(PkgConfig MODULE REQUIRED)
   find_package(Hwloc)
 
@@ -802,7 +802,7 @@ endif()
 ######################################################################################
 # LTTNG
 
-if (ENABLE_TRACING AND (NOT MSVC) AND (NOT ANDROID))
+if (ENABLE_TRACING AND (NOT MSVC) AND (NOT ANDROID) AND (NOT (NEWLIB_BSP AND (NOT OCS_AVAILABLE))))
   pkg_check_modules(LTTNG_UST lttng-ust>=2.7)
   if(LTTNG_UST_FOUND)
     set(HAVE_LTTNG_UST 1)
@@ -822,7 +822,7 @@ if (MSVC)
 else()
 
   # pkg-config doesn't work with cross-compiling
-  if (NOT CMAKE_CROSSCOMPILING)
+  if (NOT (NEWLIB_BSP AND (NOT OCS_AVAILABLE)))
     pkg_check_modules(OCL_ICD ocl-icd>=1.3)
   endif()
 

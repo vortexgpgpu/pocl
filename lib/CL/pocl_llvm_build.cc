@@ -925,7 +925,7 @@ int pocl_invoke_clang(cl_device_id Device, const char** Args) {
 
 int pocl_llvm_build_static_program(cl_kernel kernel, 
                                    unsigned device_i, 
-                                   const char *kernel_objfile) {
+                                   const char *kernel_obj) {
   char wrapper_cc[POCL_FILENAME_LENGTH];
   int err;
 {  
@@ -935,13 +935,20 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
   snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
             "_pocl_kernel_%s_workgroup", kernel->name);
   
-  ss << "#include <cstdint>\n"
+  ss << "#include <cstdint>\n"   
+        "#ifdef __cplusplus\n"
+        "extern \"C\" {\n"
+        "#endif\n"
+        "int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes);\n"     
+        "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"  
+        "#ifdef __cplusplus\n"
+        "}\n"
+        "#endif\n"
         "namespace {\n"
-        "int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes);\n";
-  ss << "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n";  
-  ss << "struct auto_register_kernel_t {\n"
-        "  auto_register_kernel_t() {\n";
-  ss << "    static uint8_t arg_types[] = {";    
+        "class auto_register_kernel_t {\n"
+        "public:\n" 
+        "  auto_register_kernel_t() {\n"
+        "    static uint8_t arg_types[] = {";    
   for (cl_uint i = 0; i < kernel->meta->num_args; ++i) {
     if (i) ss << ", ";
     uint32_t value = POCL_ARG_TYPE_NONE;
@@ -989,7 +996,7 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
 
 {
   std::stringstream ss;
-  ss << LLVM_AR << " rc lib" << kernel->name << ".a " << kernel_objfile << " " << wrapper_obj;
+  ss << LLVM_AR << " rc lib" << kernel->name << ".a " << wrapper_obj << " " << kernel_obj;
   std::string s = ss.str();
   err = system(s.c_str());
   if (err)

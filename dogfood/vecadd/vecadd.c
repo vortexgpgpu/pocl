@@ -1,56 +1,73 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <CL/opencl.h>
+#include <string.h>
 
+#define MAX_KERNELS 1
 #define KERNEL_NAME "vecadd"
 #define KERNEL_FILE_NAME "vecadd.pocl"
 #define SIZE 128
 
-#define CL_CHECK(_expr)                                                         \
-   do {                                                                         \
-     cl_int _err = _expr;                                                       \
-     if (_err == CL_SUCCESS)                                                    \
-       break;                                                                   \
-     fprintf(stderr, "OpenCL Error: '%s' returned %d!\n", #_expr, (int)_err);   \
-	 cleanup();			                                                        \
-     exit(-1);                                                                  \
+#define CL_CHECK(_expr)                                                \
+   do {                                                                \
+     cl_int _err = _expr;                                              \
+     if (_err == CL_SUCCESS)                                           \
+       break;                                                          \
+     printf("OpenCL Error: '%s' returned %d!\n", #_expr, (int)_err);   \
+	 cleanup();			                                                     \
+     exit(-1);                                                         \
    } while (0)
 
-#define CL_CHECK2(_expr)                                                        \
-   ({                                                                           \
-     cl_int _err = CL_INVALID_VALUE;                                            \
-     typeof(_expr) _ret = _expr;                                                \
-     if (_err != CL_SUCCESS) {                                                  \
-       fprintf(stderr, "OpenCL Error: '%s' returned %d!\n", #_expr, (int)_err); \
-	   cleanup();			                                                    \
-       exit(-1);                                                                \
-     }                                                                          \
-     _ret;                                                                      \
+#define CL_CHECK2(_expr)                                               \
+   ({                                                                  \
+     cl_int _err = CL_INVALID_VALUE;                                   \
+     typeof(_expr) _ret = _expr;                                       \
+     if (_err != CL_SUCCESS) {                                         \
+       printf("OpenCL Error: '%s' returned %d!\n", #_expr, (int)_err); \
+	   cleanup();			                                                   \
+       exit(-1);                                                       \
+     }                                                                 \
+     _ret;                                                             \
    })
 
-void* read_file(const char* filename, size_t* length_out) {
-  void* buffer;
-  size_t length;
-  FILE *f;
+typedef struct {
+  const char* name;
+  const void* pfn;
+  uint32_t num_args;
+  uint32_t num_locals;
+  const uint8_t* arg_types;
+  const uint32_t* local_sizes;
+} kernel_info_t;
 
-  f = fopen(filename, "r");
-  if (!f) {
-    fprintf(stderr, "error: couldn't open file '%s'.\n", filename);
-	return NULL;
+static int g_num_kernels = 0;
+static kernel_info_t g_kernels [MAX_KERNELS];
+
+int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes) {
+  if (g_num_kernels == MAX_KERNELS)
+    return -1;
+  kernel_info_t* kernel = g_kernels + g_num_kernels++;
+  kernel->name = name;
+  kernel->pfn = pfn;
+  kernel->num_args = num_args;
+  kernel->num_locals = num_locals;
+  kernel->arg_types = arg_types;
+  kernel->local_sizes = local_sizes;
+  return 0;
+}
+
+int _pocl_query_kernel(const char* name, const void** p_pfn, uint32_t* p_num_args, uint32_t* p_num_locals, const uint8_t** p_arg_types, const uint32_t** p_local_sizes) {
+  for (int i = 0; i < g_num_kernels; ++i) {
+    kernel_info_t* kernel = g_kernels + i;
+    if (strcmp(kernel->name, name) != 0)
+      continue;
+    if (p_pfn) *p_pfn = kernel->pfn;
+    if (p_num_args) *p_num_args = kernel->num_args;
+    if (p_num_locals) *p_num_locals = kernel->num_locals;
+    if (p_arg_types) *p_arg_types = kernel->arg_types;
+    if (p_local_sizes) *p_local_sizes = kernel->local_sizes;
+    return 0;
   }
-
-  fseek(f, 0, SEEK_END);
-  length = ftell(f);
-  rewind(f);
-  
-  buffer = malloc(length);
-  fread(buffer, 1, length, f);
-  fclose(f);
-
-  if (length_out) {
-    *length_out = length;
-  }
-  return buffer;
+  return -1;
 }
 
 int exitcode = 0;
@@ -109,15 +126,8 @@ int main (int argc, char **argv) {
     B[i] = i*2+1;
   }
 
-  // Load kernel from file
-  binary = (char*)read_file(KERNEL_FILE_NAME, &binary_size);
-  if (!binary) {
-    cleanup();
-	exit(-1);
-  }
-
   // Create program from kernel source
-  program = CL_CHECK2(clCreateProgramWithBinary(context, 1, &device_id, &binary_size, NULL, NULL, &_err));	
+  program = CL_CHECK2(clCreateProgramWithBuiltInKernels(context, 1, &device_id, KERNEL_NAME, &_err));	
 
   // Build program
   CL_CHECK(clBuildProgram(program, 1, &device_id, NULL, NULL, NULL));
