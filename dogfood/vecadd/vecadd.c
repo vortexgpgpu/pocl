@@ -6,7 +6,7 @@
 #define MAX_KERNELS 1
 #define KERNEL_NAME "vecadd"
 #define KERNEL_FILE_NAME "vecadd.pocl"
-#define SIZE 128
+#define SIZE 4
 
 #define CL_CHECK(_expr)                                                \
    do {                                                                \
@@ -157,9 +157,11 @@ int main (int argc, char **argv) {
   CL_CHECK(clEnqueueReadBuffer(commandQueue, c_memobj, CL_TRUE, 0, SIZE * sizeof(float), C, 0, NULL, NULL));
 
   // Test if correct answer
+  int exitcode = 0;
   for (i=0; i<SIZE; ++i) {
     if (C[i] != (A[i] + B[i])) {
       printf("Failed!\n");
+      exitcode = 1;
       break;
     }
   }
@@ -170,5 +172,5 @@ int main (int argc, char **argv) {
   // Clean up		
   cleanup();  
 
-  return 0;
+  return exitcode;
 }

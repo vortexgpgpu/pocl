@@ -242,6 +242,7 @@ pocl_size_ceil2_64 (uint64_t x)
   return ++x;
 }
 
+#ifdef HAVE_ALIGNED_ALLOC 
 static void*
 pocl_memalign_alloc(size_t align_width, size_t size)
 {
@@ -254,17 +255,18 @@ pocl_memalign_alloc(size_t align_width, size_t size)
 #elif defined(HAVE_POSIX_MEMALIGN)
   status = posix_memalign (&ptr, align_width, size);
   return ((status == 0) ? ptr : NULL);
-#elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+#elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))  
   return aligned_alloc (align_width, size);
 #else
-#error Cannot find aligned malloc
+  #error Cannot find aligned malloc
 #endif
 }
+#endif
 
 void *
 pocl_aligned_malloc (size_t alignment, size_t size)
 {
-#ifdef HAVE_ALIGNED_ALLOC
+#ifdef HAVE_ALIGNED_ALLOC  
   assert (alignment > 0);
   /* make sure that size is a multiple of alignment, as posix_memalign
    * does not perform this test, whereas aligned_alloc does */
@@ -288,12 +290,7 @@ pocl_aligned_malloc (size_t alignment, size_t size)
     }
 
   return result;
-
-#else
-#error Cannot find aligned malloc
-#endif
-
-#if 0
+#else  
   /* this code works in theory, but there many places in pocl
    * where aligned memory is used in the same pointers
    * as memory allocated by other means */
@@ -321,24 +318,20 @@ pocl_aligned_malloc (size_t alignment, size_t size)
   void** address_ptr = (void **)(aligned_address - sizeof(void *));
   *address_ptr = (void *)address;
   return (void *)aligned_address;
-
 #endif
 }
 
-#if 0
 void
 pocl_aligned_free (void *ptr)
 {
 #ifdef HAVE_ALIGNED_ALLOC
   POCL_MEM_FREE (ptr);
 #else
-#error Cannot find aligned malloc
   /* extract pointer from original allocation and free it */
   if (ptr)
     free(*(void **)((uintptr_t)ptr - sizeof(void *)));
 #endif
 }
-#endif
 
 void
 pocl_lock_events_inorder (cl_event ev1, cl_event ev2)

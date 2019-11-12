@@ -31,7 +31,9 @@
 
 #if defined(HAVE_POSIX_MEMALIGN) || defined(__ANDROID__) \
      || (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
-#define HAVE_ALIGNED_ALLOC
+  #ifndef NEWLIB_BSP     
+    #define HAVE_ALIGNED_ALLOC
+  #endif
 #else
 #error aligned malloc unavailable
 #endif
@@ -93,7 +95,7 @@ uint64_t pocl_size_ceil2_64 (uint64_t x);
  */
 
 void *pocl_aligned_malloc(size_t alignment, size_t size);
-#define pocl_aligned_free(x) POCL_MEM_FREE(x)
+void pocl_aligned_free (void *ptr);
 
 /* locks / unlocks two events in order of their event-id.
  * This avoids any potential deadlocks of threads should

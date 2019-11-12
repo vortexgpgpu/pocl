@@ -1085,7 +1085,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
   size_t max_grid_width = pocl_cmd_max_grid_dim_width (run_cmd);
   ci->max_grid_dim_width = max_grid_width;
 
-#if defined(OCS_AVAILABLE) && !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   char *module_fn = pocl_check_kernel_disk_cache (command, specialize);
   ci->dlhandle = dlopen (module_fn, RTLD_NOW | RTLD_LOCAL);
   dl_error = dlerror ();
