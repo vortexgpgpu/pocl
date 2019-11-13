@@ -30,22 +30,28 @@
 
 #include "pocl_types.h"
 
-struct pocl_context32 {
+struct pocl_context {
+#if __INTPTR_WIDTH__ == 64
+  ulong num_groups[3];
+  ulong global_offset[3];
+  ulong local_size[3];
+#elif __INTPTR_WIDTH__ == 32
   uint num_groups[3];
   uint global_offset[3];
   uint local_size[3];
-  unsigned char *printf_buffer;
+#else 
+  #error unsupported architecture
+#endif
+  uchar *printf_buffer;
   uint *printf_buffer_position;
   uint printf_buffer_capacity;
   uint work_dim;
 };
 
-/* The default pocl_context is 64b. It should be copied to a 32b one
-   when launching a kernel for a 32b target. */
-struct pocl_context {
-  ulong num_groups[3];
-  ulong global_offset[3];
-  ulong local_size[3];
+struct pocl_context32 {
+  uint num_groups[3];
+  uint global_offset[3];
+  uint local_size[3];
   uchar *printf_buffer;
   uint *printf_buffer_position;
   uint printf_buffer_capacity;

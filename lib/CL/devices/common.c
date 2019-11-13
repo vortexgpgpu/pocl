@@ -1087,6 +1087,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
 
 #if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   char *module_fn = pocl_check_kernel_disk_cache (command, specialize);
+#ifndef NEWLIB_BSP
   ci->dlhandle = dlopen (module_fn, RTLD_NOW | RTLD_LOCAL);
   dl_error = dlerror ();
 
@@ -1117,7 +1118,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
                     " reported as 'file not found' errors.\n",
                     module_fn, workgroup_string, dl_error);
     }
-
+#endif
   POCL_MEM_FREE (module_fn);
 #else
   ci->wg = run_cmd->kernel->meta->data[0];  
@@ -1305,7 +1306,7 @@ pocl_free_global_mem(cl_device_id device, void* ptr, size_t size)
   mem->currently_allocated -= size;
   POCL_UNLOCK (mem->pocl_lock);
 
-  POCL_MEM_FREE(ptr);
+  pocl_aligned_free(ptr);
 }
 
 

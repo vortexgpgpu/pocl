@@ -291,33 +291,14 @@ pocl_aligned_malloc (size_t alignment, size_t size)
 
   return result;
 #else  
-  /* this code works in theory, but there many places in pocl
-   * where aligned memory is used in the same pointers
-   * as memory allocated by other means */
-  /* allow zero-sized allocations, force alignment to 1 */
-  if (!size)
-    alignment = 1;
-
-  /* make sure alignment is a non-zero power of two and that
-   * size is a multiple of alignment */
-  size_t mask = alignment - 1;
-  if (!alignment || ((alignment & mask) != 0) || ((size & mask) != 0))
-    {
-      errno = EINVAL;
-      return NULL;
-    }
-
-  /* allocate memory plus space for alignment header */
-  uintptr_t address = (uintptr_t)malloc(size + mask + sizeof(void *));
-  if (!address)
+  void* p1;
+  void** p2;
+  int offset = alignment - 1 + sizeof(void*);
+  if (NULL == (p1 = malloc(size + offset)))
     return NULL;
-
-  /* align the address, and store original pointer for future use
-   * with free in the preceding bytes */
-  uintptr_t aligned_address = (address + mask + sizeof(void *)) & ~mask;
-  void** address_ptr = (void **)(aligned_address - sizeof(void *));
-  *address_ptr = (void *)address;
-  return (void *)aligned_address;
+  p2 = (void**)(((size_t)(p1) + offset) & ~(alignment - 1));
+  p2[-1] = p1;
+  return p2;
 #endif
 }
 
@@ -329,7 +310,7 @@ pocl_aligned_free (void *ptr)
 #else
   /* extract pointer from original allocation and free it */
   if (ptr)
-    free(*(void **)((uintptr_t)ptr - sizeof(void *)));
+    free(((void**)ptr)[-1]);
 #endif
 }
 

@@ -987,7 +987,7 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
   err = pocl_cache_tempname (wrapper_obj, ".o", NULL);
   if (err)
     return err;
-  ss << CLANG << " -o " << wrapper_obj << " -c " << wrapper_cc;
+  ss << CLANG << " -fno-exceptions -o " << wrapper_obj << " -c " << wrapper_cc;
   std::string s = ss.str();
   err = system(s.c_str());
   if (err)

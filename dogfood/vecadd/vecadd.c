@@ -7,6 +7,7 @@
 #define KERNEL_NAME "vecadd"
 #define KERNEL_FILE_NAME "vecadd.pocl"
 #define SIZE 4
+#define NUM_WORK_GROUPS 2
 
 #define CL_CHECK(_expr)                                                \
    do {                                                                \
@@ -149,7 +150,7 @@ int main (int argc, char **argv) {
 
   // Execute the kernel
   size_t globalItemSize = SIZE;
-  size_t localItemSize = 64;
+  size_t localItemSize = SIZE/NUM_WORK_GROUPS;
   CL_CHECK(clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL, &globalItemSize, &localItemSize, 0, NULL, NULL));
   CL_CHECK(clFinish(commandQueue));
 

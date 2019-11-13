@@ -164,8 +164,11 @@ option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device drive
 
 ###############################################################################
 
-if (NEWLIB_BSP AND (NOT OCS_AVAILABLE))
-  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread on Newlib platforms")
+if (NEWLIB_BSP)
+  set(ENABLE_ICD OFF CACHE INTERNAL "Disable ICD on Newlib platforms")
+  if (NOT OCS_AVAILABLE)
+    set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread on Newlib platforms")
+  endif()
 endif()
 
 # currently only works with gcc as host compiler
@@ -206,35 +209,39 @@ endif()
 
 ##########################################################
 
-if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-  set(HOST_DEVICE_ADDRESS_BITS 64)
-elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
-  set(HOST_DEVICE_ADDRESS_BITS 32)
+if (NOT NEWLIB_BSP)
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(HOST_DEVICE_ADDRESS_BITS 64)
+  elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(HOST_DEVICE_ADDRESS_BITS 32)
+  else()
+    message(FATAL_ERROR "Cannot figure out HOST_DEVICE_ADDRESS_BITS")
+  endif()
+
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc")
+    set(POWERPC 1)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mips")
+    set(MIPS 1)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(arm|aarch64)")
+    set(ARM 1)
+    if(HOST_DEVICE_ADDRESS_BITS MATCHES "32")
+      set(ARM32 1)
+    else()
+      set(ARM64 1)
+    endif()
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(i.86|AMD64|x86_64|amd64)")
+    set(X86 1)
+    if(HOST_DEVICE_ADDRESS_BITS MATCHES "32")
+      set(I386 1)
+    else()
+      set(X86_64 1)
+    endif()
+  endif()
 else()
-  message(FATAL_ERROR "Cannot figure out HOST_DEVICE_ADDRESS_BITS")
+  set(HOST_DEVICE_ADDRESS_BITS 32)  
 endif()
 
 ##################################################################################
-
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc")
-  set(POWERPC 1)
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mips")
-  set(MIPS 1)
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(arm|aarch64)")
-  set(ARM 1)
-  if(HOST_DEVICE_ADDRESS_BITS MATCHES "32")
-    set(ARM32 1)
-  else()
-    set(ARM64 1)
-  endif()
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(i.86|AMD64|x86_64|amd64)")
-  set(X86 1)
-  if(HOST_DEVICE_ADDRESS_BITS MATCHES "32")
-    set(I386 1)
-  else()
-    set(X86_64 1)
-  endif()
-endif()
 
 if(CMAKE_MAJOR_VERSION GREATER 2)
   include(ProcessorCount)
@@ -740,8 +747,6 @@ if(ENABLE_SPIR)
 endif()
 
 set(ENABLE_SPIRV ${SPIRV} CACHE INTERNAL "SPIR-V enabled" FORCE)
-
-
 
 ######################################################################################
 
@@ -1611,3 +1616,9 @@ MESSAGE(STATUS "Kernel library CPU variants: ${KERNELLIB_HOST_CPU_VARIANTS}")
 MESSAGE(STATUS "Kernel library distro build: ${KERNELLIB_HOST_DISTRO_VARIANTS}")
 MESSAGE(STATUS "Use pocl custom memory allocator: ${USE_POCL_MEMMANAGER}")
 MESSAGE(STATUS "L1d cacheline size: ${HOST_CPU_CACHELINE_SIZE}")
+
+MESSAGE(STATUS "Build type: " ${CMAKE_BUILD_TYPE})
+MESSAGE(STATUS "C Compiler path:" ${CMAKE_C_COMPILER})
+MESSAGE(STATUS "C Compiler flags:" ${CMAKE_C_FLAGS})
+MESSAGE(STATUS "CXX Compiler path:" ${CMAKE_CXX_COMPILER})
+MESSAGE(STATUS "CXX Compiler flags:" ${CMAKE_CXX_FLAGS})

@@ -722,11 +722,12 @@ pocl_basic_run (void *data, _cl_command_node *cmd)
   unsigned ftz = pocl_save_ftz ();
   pocl_set_ftz (kernel->program->flush_denorms);
 
+  pocl_workgroup_func pfn = (pocl_workgroup_func)cmd->command.run.wg;
+
   for (z = 0; z < pc->num_groups[2]; ++z)
     for (y = 0; y < pc->num_groups[1]; ++y)
       for (x = 0; x < pc->num_groups[0]; ++x)
-        ((pocl_workgroup_func) cmd->command.run.wg)
-	  ((uint8_t *)arguments, (uint8_t *)pc, x, y, z);
+        (pfn)((uint8_t *)arguments, (uint8_t *)pc, x, y, z);
 
   pocl_restore_rm (rm);
   pocl_restore_ftz (ftz);

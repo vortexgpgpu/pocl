@@ -54,14 +54,14 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - mkdir build
 - mkdir drop
 - cd build
-- poclcc-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_cc -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=/home/blaise/dev/riscv-gnu-toolchain/drops/bin/llvm-config -DLLC_HOST_CPU= -DNEWLIB_BSP=ON -DENABLE_ICD=OFF -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime-linux: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=pthread-riscv32-unknown-linux-gnu -DCMAKE_TOOLCHAIN_FILE=../RISCV_linux.cmake -DENABLE_ICD=OFF -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- poclcc-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_cc -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=/home/blaise/dev/riscv-gnu-toolchain/drops/bin/llvm-config -DLLC_HOST_CPU= -DNEWLIB_BSP=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime-linux: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=pthread-riscv32-unknown-linux-gnu -DCMAKE_TOOLCHAIN_FILE=../RISCV_linux.cmake -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - runtime-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
 ## build pocl for x86
 
 - ubuntu dependencies: sudo apt install -y build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-dev clang llvm make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_cc -DWITH_LLVM_CONFIG=/home/blaise/dev/llvm_riscv/drops_x86/bin/llvm-config -DCMAKE_BUILD_TYPE=Debug -DNEWLIB_BSP=ON -DENABLE_ICD=OFF -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DNEWLIB_BSP=ON -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_cc -DWITH_LLVM_CONFIG=/home/blaise/dev/llvm_riscv/drops_x86/bin/llvm-config -DCMAKE_BUILD_TYPE=Debug -DNEWLIB_BSP=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DNEWLIB_BSP=ON -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
