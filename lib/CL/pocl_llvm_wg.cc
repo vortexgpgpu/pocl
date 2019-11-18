@@ -128,7 +128,7 @@ static TargetMachine *GetTargetMachine(cl_device_id device, Triple &triple) {
   std::string Error;
   // Triple TheTriple(device->llvm_target_triplet);
 
-  std::string MCPU = device->llvm_cpu ? device->llvm_cpu : "";
+  std::string MCPU = "generic-rv32";//device->llvm_cpu ? device->llvm_cpu : "";
 
   const Target *TheTarget = TargetRegistry::lookupTarget("", triple, Error);
 
@@ -147,7 +147,7 @@ static TargetMachine *GetTargetMachine(cl_device_id device, Triple &triple) {
       CodeModel::Default, CodeGenOpt::Aggressive);
 #else
   TargetMachine *TM = TheTarget->createTargetMachine(
-      triple.getTriple(), MCPU, StringRef(""), GetTargetOptions(), Reloc::PIC_,
+      triple.getTriple(), MCPU, StringRef("+m"), GetTargetOptions(), Reloc::PIC_,
       CodeModel::Small, CodeGenOpt::Aggressive);
 #endif
 
@@ -598,23 +598,20 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
   llvm::Triple Triple(Device->llvm_target_triplet);
   llvm::TargetMachine *Target = GetTargetMachine(Device, Triple);
 
-  // First try direct object code generation from LLVM, if supported by the
-  // LLVM backend for the target.
-  bool LLVMGeneratesObjectFiles = true;
-
   SmallVector<char, 4096> Data;
   llvm::raw_svector_ostream SOS(Data);
-  bool cannotEmitFile;
-
+  
 #ifdef LLVM_OLDER_THAN_7_0
-  cannotEmitFile = Target->addPassesToEmitFile(PMObj, SOS,
+  bool cannotEmitFile = Target->addPassesToEmitFile(PMObj, SOS,
                                   TargetMachine::CGFT_ObjectFile);
 #else
-  cannotEmitFile = Target->addPassesToEmitFile(PMObj, SOS, nullptr,
+  bool cannotEmitFile = Target->addPassesToEmitFile(PMObj, SOS, nullptr,
                                   TargetMachine::CGFT_ObjectFile);
 #endif
 
-  LLVMGeneratesObjectFiles = !cannotEmitFile;
+  // First try direct object code generation from LLVM, 
+  // if supported by the LLVM backend for the target.
+  bool LLVMGeneratesObjectFiles = !cannotEmitFile;
 
   if (LLVMGeneratesObjectFiles) {
     POCL_MSG_PRINT_LLVM("Generating an object file directly.\n");
