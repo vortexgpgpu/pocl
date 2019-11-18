@@ -128,8 +128,6 @@ option(OCS_AVAILABLE "Online compiler support available to build pocl with. Defa
 
 option(BUILD_SHARED_LIBS "ON=Build shared libs, OFF=static libs" ON)
 
-option(NEWLIB_BSP "Target barebone Newlib CPU platforms" OFF)
-
 option(ENABLE_PTHREAD "Enable threading library use for CPU devices" ON)
 
 option(BUILD_TESTS "Build test suite" ON)
@@ -158,17 +156,17 @@ option(USE_POCL_MEMMANAGER "Enables custom memory manager. Except for special ci
 
 option(EXAMPLES_USE_GIT_MASTER "If enabled, some of the external testsuites in examples/ will try to use sources from Git master, instead of releases. This may result in failure to build or run the examples" OFF)
 
-option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic and pthread)." ON)
+option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic, newlib, and pthread)." ON)
 
 option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device driver." OFF)
+
+option(NEWLIB_BSP "Enable Newlib-based device" OFF)
 
 ###############################################################################
 
 if (NEWLIB_BSP)
-  set(ENABLE_ICD OFF CACHE INTERNAL "Disable ICD on Newlib platforms")
-  if (NOT OCS_AVAILABLE)
-    set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread on Newlib platforms")
-  endif()
+  set(ENABLE_ICD OFF CACHE INTERNAL "Disable ICD for Newlib targets")
+  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Newlib targets")
 endif()
 
 # currently only works with gcc as host compiler
@@ -238,7 +236,10 @@ if (NOT NEWLIB_BSP)
     endif()
   endif()
 else()
-  set(HOST_DEVICE_ADDRESS_BITS 32)  
+  if(NOT DEFINED NEWLIB_DEVICE_ADDRESS_BIT)
+    message(FATAL_ERROR "should set 'NEWLIB_DEVICE_ADDRESS_BIT' option")
+  endif()
+  set(HOST_DEVICE_ADDRESS_BITS ${NEWLIB_DEVICE_ADDRESS_BIT})
 endif()
 
 ##################################################################################
@@ -946,7 +947,7 @@ file(WRITE "${CMAKE_BINARY_DIR}/pocl_build_timestamp.h" "#define POCL_BUILD_TIME
 
 ####################################################################
 
-# Host (basic/pthread) driver setup
+# Host (basic/newlib/pthread) driver setup
 
 set(DEFAULT_HOST_CLANG_FLAGS "${CLANG_TARGET_OPTION}${LLC_TRIPLE}")
 set(DEFAULT_HOST_LLC_FLAGS "-relocation-model=pic -mtriple=${LLC_TRIPLE}")

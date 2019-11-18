@@ -4,6 +4,7 @@
 #cmakedefine BUILD_BASIC
 #cmakedefine BUILD_PTHREAD
 #cmakedefine BUILD_ACCEL
+#cmakedefine NEWLIB_BSP
 
 #define BUILDDIR "@BUILDDIR@"
 
@@ -68,8 +69,6 @@
 #cmakedefine HAVE_UTIME
 
 #cmakedefine OCS_AVAILABLE
-
-#cmakedefine NEWLIB_BSP
 
 #cmakedefine ENABLE_PTHREAD
 

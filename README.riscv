@@ -54,9 +54,8 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - mkdir build
 - mkdir drop
 - cd build
-- poclcc-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_cc -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=/home/blaise/dev/riscv-gnu-toolchain/drops/bin/llvm-config -DLLC_HOST_CPU= -DNEWLIB_BSP=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime-linux: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=pthread-riscv32-unknown-linux-gnu -DCMAKE_TOOLCHAIN_FILE=../RISCV_linux.cmake -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime-newlib: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_cc -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=/home/blaise/dev/riscv-gnu-toolchain/drops/bin/llvm-config -DLLC_HOST_CPU= -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
 ## build pocl for x86

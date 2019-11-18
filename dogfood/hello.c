@@ -1,2 +1,7 @@
 #include <stdio.h>
-int main(int argc, char **argv) { printf("hello world\n"); }
+
+void _exit(int x) {}
+
+int main(int argc, char **argv) { 
+  return (argc * argc);
+}

@@ -35,6 +35,10 @@ if(BUILD_ACCEL)
   add_subdirectory("accel")
 endif()
 
+if(NEWLIB_BSP)
+  add_subdirectory("newlib")
+endif()
+
 add_subdirectory("topology")
 if(Hwloc_LDFLAGS)
   set(POCL_DEVICES_LINK_LIST ${Hwloc_LDFLAGS})
@@ -58,6 +62,11 @@ endif()
 if(BUILD_ACCEL)
   set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
     "$<TARGET_OBJECTS:pocl-devices-accel>")
+endif()
+
+if(NEWLIB_BSP)
+  set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
+    "$<TARGET_OBJECTS:pocl-devices-newlib>")
 endif()
 
 if(ENABLE_TCE)

@@ -100,68 +100,10 @@ static const cl_image_format supported_image_formats[] = {
     { CL_BGRA, CL_UNSIGNED_INT8 }
  };
 
-#if defined(NEWLIB_BSP) && !defined(OCS_AVAILABLE)
-
-int _pocl_query_kernel(const char* name, const void** pfn, uint32_t* num_args, uint32_t* num_locals, const uint8_t** arg_types, const uint32_t** local_sizes);
-
-static cl_int pocl_newlib_supports_builtin_kernel(void *data, const char *kernel_name) {
-  int err = _pocl_query_kernel(kernel_name, NULL, NULL, NULL, NULL, NULL);
-  if (0 == err)
-    return 1;
-  return 0;
-}
-
-static cl_int pocl_newlib_get_builtin_kernel_metadata(void *data,
-                                                      const char *kernel_name,
-                                                      pocl_kernel_metadata_t *target) {
-  const void* pfn;  
-  uint32_t num_args, num_locals;
-  const uint8_t* arg_types;
-  const uint32_t* local_sizes;
-    
-  int err = _pocl_query_kernel(kernel_name, &pfn, &num_args, &num_locals, &arg_types, &local_sizes);
-  if (err)
-    err;
-
-  target->name = strdup(kernel_name);
-  target->data = (void**)calloc(1, sizeof(void*));
-  target->data[0] = pfn;
-  target->num_args = num_args;
-  target->num_locals = num_locals;
-  
-  if (num_args) {
-    target->arg_info = (struct pocl_argument_info *)calloc(
-          num_args, sizeof(struct pocl_argument_info));
-    for (uint32_t i = 0; i < num_args; ++i) {
-      target->arg_info[i].type = arg_types[i];
-      if (POCL_ARG_TYPE_NONE == arg_types[i]) {
-         target->arg_info[i].address_qualifier = CL_KERNEL_ARG_ADDRESS_LOCAL;
-      }
-    }
-  }
-
-  if (num_locals) {    
-    target->local_sizes = (size_t *)calloc(
-          num_locals, sizeof(size_t));
-    for (uint32_t i = 0; i < num_locals; ++i) {
-      target->local_sizes[i] = local_sizes[i];
-    }
-  }  
-
-  return 0;
-}
-
-#endif
-
 void
 pocl_basic_init_device_ops(struct pocl_device_ops *ops)
 {
   ops->device_name = "basic";
-
-#if defined(NEWLIB_BSP) && !defined(OCS_AVAILABLE)
-  ops->supports_builtin_kernel = pocl_newlib_supports_builtin_kernel;
-  ops->get_builtin_kernel_metadata = pocl_newlib_get_builtin_kernel_metadata;
-#endif
 
   ops->probe = pocl_basic_probe;
   ops->uninit = pocl_basic_uninit;
@@ -464,7 +406,6 @@ pocl_basic_init (unsigned j, cl_device_id device, const char* parameters)
 
   pocl_init_cpu_device_infos (device);
 
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
   /* hwloc probes OpenCL device info at its initialization in case
      the OpenCL extension is enabled. This causes to printout 
      an unimplemented property error because hwloc is used to
@@ -474,11 +415,6 @@ pocl_basic_init (unsigned j, cl_device_id device, const char* parameters)
   err = pocl_topology_detect_device_info(device);
   if (err)
     ret = CL_INVALID_DEVICE;
-#else
-  device->global_mem_size = 2 * MIN_MAX_MEM_ALLOC_SIZE;
-  device->global_mem_cache_size = 1;  
-  device->max_compute_units = 1;
-#endif
 
   POCL_INIT_LOCK (d->cq_lock);
 
