@@ -92,7 +92,6 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
   int error = 0;
   void *llvm_module = NULL;
 
-  char tmp_module[POCL_FILENAME_LENGTH];
   char tmp_objfile[POCL_FILENAME_LENGTH];
 
   char *objfile = NULL;
@@ -182,10 +181,8 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
 
   /* temporary filename for kernel.so */
 #ifndef NEWLIB_BSP
+  char tmp_module[POCL_FILENAME_LENGTH];
   if (pocl_cache_tempname (tmp_module, ".so", NULL))
-#else
-  if (pocl_cache_tempname (tmp_module, ".a", NULL))  
-#endif
     {
       POCL_MSG_PRINT_LLVM ("Creating temporary kernel.so file"
                            " for kernel %s FAILED\n",
@@ -199,7 +196,6 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
 
   POCL_MSG_PRINT_INFO ("Linking final module\n");
 
-#ifndef NEWLIB_BSP
   /* Link through Clang driver interface who knows the correct toolchains
      for all of its targets.  */
   const char *cmd_line[64] =
@@ -209,23 +205,35 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
   while ((*pos++ = *device_ld_arg++)) {}
 
   error = pocl_invoke_clang (device, cmd_line);  
-#else
-  error = pocl_llvm_build_static_program (kernel, device, tmp_objfile); 
-#endif
   if (error)
     {
       POCL_MSG_PRINT_LLVM ("Linking kernel.so.o -> kernel.so has failed\n");
       goto FINISH;
     }
 
-  /* rename temporary kernel.so */
+   /* rename temporary kernel.so */
   error = pocl_rename (tmp_module, final_binary_path);
   if (error)
     {
       POCL_MSG_PRINT_LLVM ("Renaming temporary kernel.so to final has failed.\n");
       goto FINISH;
     }
+#else
+  error = pocl_llvm_build_static_program (kernel, device, tmp_objfile, final_binary_path); 
+  if (error)
+    {
+      POCL_MSG_PRINT_LLVM ("Linking kernel.o -> libkernel.a has failed\n");
+      goto FINISH;
+    }
 
+  error = pocl_read_file(final_binary_path, (char**)&program->pocl_binaries[0], &program->pocl_binary_sizes[0]);
+  if (error)
+    {
+      POCL_MSG_PRINT_LLVM ("reading kernel binary has failed\n");
+      goto FINISH;
+    }
+
+#endif
   /* if LEAVE_COMPILER_FILES, rename temporary kernel.so.o, else delete it */
   if (pocl_get_bool_option ("POCL_LEAVE_KERNEL_COMPILER_TEMP_FILES", 0))
     {

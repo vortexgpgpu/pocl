@@ -204,7 +204,7 @@ pocl_cache_final_binary_path (char *final_binary_path, cl_program program,
                               "/%s.so", kernel->name);
   #else
     bytes_written = snprintf (final_binary_name, POCL_FILENAME_LENGTH,
-                              "/%s.a", kernel->name);
+                              "/lib%s.a", kernel->name);
   #endif
   }
 

@@ -46,10 +46,15 @@
 
 #ifdef OCS_AVAILABLE
 #include "pocl_llvm.h"
+#else
+#include "vx_api.h"
 #endif
 
 #include "prototypes.inc"
 GEN_PROTOTYPES (basic)
+
+/* Maximum kernels occupancy */
+#define MAX_KERNELS 16
 
 /* default WG size in each dimension & total WG size.
  * this should be reasonable for CPU */
@@ -104,9 +109,63 @@ static const cl_image_format supported_image_formats[] = {
 
 #if !defined(OCS_AVAILABLE)
 
-int _pocl_query_kernel(const char *name, const void **pfn, uint32_t *num_args,
-                       uint32_t *num_locals, const uint8_t **arg_types,
-                       const uint32_t **local_sizes);
+typedef struct {
+  const char* name;
+  const void* pfn;
+  uint32_t num_args;
+  uint32_t num_locals;
+  const uint8_t* arg_types;
+  const uint32_t* local_sizes;
+} kernel_info_t;
+
+static int g_num_kernels = 0;
+static kernel_info_t g_kernels [MAX_KERNELS];
+
+int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes) {
+  //printf("******** _pocl_register_kernel\n");
+  //printf("Name to register: %s\n", name);
+  //printf("PTR of name: %x\n", name);
+  if (g_num_kernels == MAX_KERNELS)
+  {
+    //printf("ERROR: REACHED MAX KERNELS\n");
+    return -1;  
+  }
+
+  //printf("Going to register at index: %d\n", g_num_kernels);
+
+  kernel_info_t* kernel = g_kernels + g_num_kernels++;
+  kernel->name = name;
+  kernel->pfn = pfn;
+  kernel->num_args = num_args;
+  kernel->num_locals = num_locals;
+  kernel->arg_types = arg_types;
+  kernel->local_sizes = local_sizes;
+  //printf("New kernel name: %s\n", kernel->name);
+  return 0;
+}
+
+int _pocl_query_kernel(const char* name, const void** p_pfn, uint32_t* p_num_args, uint32_t* p_num_locals, const uint8_t** p_arg_types, const uint32_t** p_local_sizes) {
+  //printf("********* Inside _pocl_query_kernel\n");
+  //printf("name: %s\n", name);
+  //printf("g_num_kernels: %d\n", g_num_kernels);
+  for (int i = 0; i < g_num_kernels; ++i) {
+    //printf("Currently quering index %d\n", i);
+    kernel_info_t* kernel = g_kernels + i;
+    if (strcmp(kernel->name, name) != 0)
+    {
+      //printf("STR CMP failed! kernel->name = %s \t name: %s\n", kernel->name, name);
+      continue;
+    }
+    //printf("!!!!!!!!!STR CMP PASSED\n");
+    if (p_pfn) *p_pfn = kernel->pfn;
+    if (p_num_args) *p_num_args = kernel->num_args;
+    if (p_num_locals) *p_num_locals = kernel->num_locals;
+    if (p_arg_types) *p_arg_types = kernel->arg_types;
+    if (p_local_sizes) *p_local_sizes = kernel->local_sizes;
+    return 0;
+  }
+  return -1;
+}
 
 cl_int pocl_newlib_supports_builtin_kernel(void *data,
                                                   const char *kernel_name) {
@@ -365,10 +424,14 @@ void pocl_newlib_run(void *data, _cl_command_node *cmd) {
 
   pocl_workgroup_func pfn = (pocl_workgroup_func)cmd->command.run.wg;
 
+#if defined(OCS_AVAILABLE)
   for (z = 0; z < pc->num_groups[2]; ++z)
     for (y = 0; y < pc->num_groups[1]; ++y)
       for (x = 0; x < pc->num_groups[0]; ++x)
         (pfn)((uint8_t *)arguments, (uint8_t *)pc, x, y, z);
+#else
+  pocl_spawn(pc, pfn, (void *)arguments);  
+#endif
 
   pocl_restore_rm(rm);
   pocl_restore_ftz(ftz);

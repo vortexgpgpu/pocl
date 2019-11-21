@@ -61,6 +61,6 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 ## build pocl for x86
 
 - ubuntu dependencies: sudo apt install -y build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-dev clang llvm make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_cc -DWITH_LLVM_CONFIG=/home/blaise/dev/llvm_riscv/drops_x86/bin/llvm-config -DCMAKE_BUILD_TYPE=Debug -DNEWLIB_BSP=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DNEWLIB_BSP=ON -DPOCL_DEBUG_MESSAGES=ON ..
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_cc -DWITH_LLVM_CONFIG=/home/blaise/dev/llvm_riscv/drops_x86/bin/llvm-config -DCMAKE_BUILD_TYPE=Debug -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=64 -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=64 -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install

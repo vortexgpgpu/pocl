@@ -704,6 +704,7 @@ pocl_binary_sizeof_binary(cl_program program, unsigned device_i)
     return program->pocl_binary_sizes[device_i];
 
   assert(program->pocl_binaries[device_i] == NULL);
+
   /* dumb solution, but
        * 1) it's simple,
        * 2) we'll likely need the binary itself soon anyway,
@@ -725,7 +726,6 @@ pocl_binary_sizeof_binary(cl_program program, unsigned device_i)
   memcpy(program->pocl_binaries[device_i], temp_buf, res);
   free(temp_buf);
   return res;
-
 }
 
 /***********************************************************/

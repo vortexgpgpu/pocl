@@ -24,6 +24,6 @@
 #=============================================================================
 
 if(MSVC)
-  set_source_files_properties( newlib.h newlib.c PROPERTIES LANGUAGE CXX )
+  set_source_files_properties( newlib.c vx_api.c vx_intrisincs.s PROPERTIES LANGUAGE CXX )
 endif(MSVC)
 add_library("pocl-devices-newlib" OBJECT newlib.h newlib.c)

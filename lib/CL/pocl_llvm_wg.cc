@@ -128,7 +128,7 @@ static TargetMachine *GetTargetMachine(cl_device_id device, Triple &triple) {
   std::string Error;
   // Triple TheTriple(device->llvm_target_triplet);
 
-  std::string MCPU = "generic-rv32";//device->llvm_cpu ? device->llvm_cpu : "";
+  std::string MCPU = device->llvm_cpu ? device->llvm_cpu : "";
 
   const Target *TheTarget = TargetRegistry::lookupTarget("", triple, Error);
 

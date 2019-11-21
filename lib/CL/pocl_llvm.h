@@ -128,7 +128,8 @@ int pocl_invoke_clang(cl_device_id Device, const char** Args);
 
 int pocl_llvm_build_static_program(cl_kernel kernel, 
                                    unsigned device_i, 
-                                   const char *kernel_obj);
+                                   const char *kernel_obj,
+                                   char *kernel_out);
 
 #ifdef __GNUC__
 #pragma GCC visibility pop

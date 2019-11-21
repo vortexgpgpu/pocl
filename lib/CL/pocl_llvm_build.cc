@@ -925,7 +925,8 @@ int pocl_invoke_clang(cl_device_id Device, const char** Args) {
 
 int pocl_llvm_build_static_program(cl_kernel kernel, 
                                    unsigned device_i, 
-                                   const char *kernel_obj) {
+                                   const char *kernel_obj,
+                                   char *kernel_out) {
   char wrapper_cc[POCL_FILENAME_LENGTH];
   int err;
 {  
@@ -996,7 +997,7 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
 
 {
   std::stringstream ss;
-  ss << LLVM_AR << " rc lib" << kernel->name << ".a " << wrapper_obj << " " << kernel_obj;
+  ss << LLVM_AR << " rc " << kernel_out << " " << wrapper_obj << " " << kernel_obj;
   std::string s = ss.str();
   err = system(s.c_str());
   if (err)
