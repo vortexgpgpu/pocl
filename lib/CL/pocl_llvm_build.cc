@@ -929,6 +929,7 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
                                    char *kernel_out) {
   char wrapper_cc[POCL_FILENAME_LENGTH];
   int err;
+  cl_program program = kernel->program;
 {  
   char pfn_workgroup_string[WORKGROUP_STRING_LENGTH];
   std::stringstream ss;
@@ -995,14 +996,32 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
     return err;
 }
 
-{
-  std::stringstream ss;
-  ss << LLVM_AR << " rc " << kernel_out << " " << wrapper_obj << " " << kernel_obj;
-  std::string s = ss.str();
-  err = system(s.c_str());
-  if (err)
-    return err;
-}
+  if (program->pocl_binaries[device_i]) {
+    err = pocl_write_file(kernel_out, (char*)program->pocl_binaries[device_i], program->pocl_binary_sizes[device_i], 0, 0);
+    if (err) {
+      POCL_MSG_PRINT_LLVM ("dumping previous library to file failed\n");
+      return err;
+    }
+    free(program->pocl_binaries[device_i]);
+    program->pocl_binary_sizes[device_i] = 0;
+  }
 
-return 0;
+  {
+    std::stringstream ss;
+    ss << LLVM_AR << " rc " << kernel_out << " " << wrapper_obj << " " << kernel_obj;
+    std::string s = ss.str();
+    err = system(s.c_str());
+    if (err)
+      return err;
+  }
+
+  {
+    err = pocl_read_file(kernel_out, (char**)&program->pocl_binaries[device_i], &program->pocl_binary_sizes[device_i]);
+    if (err) {
+      POCL_MSG_PRINT_LLVM ("reading kernel binary has failed\n");
+      return err;
+    }
+  }
+  
+  return 0;
 }
