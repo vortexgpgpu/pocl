@@ -1087,8 +1087,18 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
   ci->max_grid_dim_width = max_grid_width;
 
 #if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
-  char *module_fn = pocl_check_kernel_disk_cache (command, specialize);
-#ifndef NEWLIB_BSP
+  char *module_fn = pocl_check_kernel_disk_cache (command, specialize); 
+#ifdef NEWLIB_BSP
+  {
+    cl_program p = run_cmd->kernel->program;
+    unsigned dev_i = command->device_i;
+    int err = pocl_read_file(module_fn, (char**)&p->pocl_binaries[dev_i], &p->pocl_binary_sizes[dev_i]);
+    if (err) {
+      POCL_MSG_PRINT_LLVM ("loading kernel binary has failed\n");
+      return err;
+    }
+  }
+#else
   ci->dlhandle = dlopen (module_fn, RTLD_NOW | RTLD_LOCAL);
   dl_error = dlerror ();
 

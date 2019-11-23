@@ -954,7 +954,9 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
   for (cl_uint i = 0; i < kernel->meta->num_args; ++i) {
     if (i) ss << ", ";
     uint32_t value = POCL_ARG_TYPE_NONE;
-    if (!ARG_IS_LOCAL(kernel->meta->arg_info[i]))
+    if (ARG_IS_LOCAL(kernel->meta->arg_info[i]))
+      value = 4;
+    else
       value = kernel->meta->arg_info[i].type;
     ss << value;
   }
@@ -1013,14 +1015,6 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
     err = system(s.c_str());
     if (err)
       return err;
-  }
-
-  {
-    err = pocl_read_file(kernel_out, (char**)&program->pocl_binaries[device_i], &program->pocl_binary_sizes[device_i]);
-    if (err) {
-      POCL_MSG_PRINT_LLVM ("reading kernel binary has failed\n");
-      return err;
-    }
   }
   
   return 0;

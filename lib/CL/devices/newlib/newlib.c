@@ -196,10 +196,12 @@ cl_int pocl_newlib_get_builtin_kernel_metadata(void *data, const char *kernel_na
   if (num_args) {
     target->arg_info = (struct pocl_argument_info *)calloc(
         num_args, sizeof(struct pocl_argument_info));
-    for (uint32_t i = 0; i < num_args; ++i) {
-      target->arg_info[i].type = arg_types[i];
-      if (POCL_ARG_TYPE_NONE == arg_types[i]) {
+    for (uint32_t i = 0; i < num_args; ++i) {      
+      if (arg_types[i] == 4) {
         target->arg_info[i].address_qualifier = CL_KERNEL_ARG_ADDRESS_LOCAL;
+        target->arg_info[i].type = 0;
+      } else {
+        target->arg_info[i].type = arg_types[i];
       }
     }
   }
