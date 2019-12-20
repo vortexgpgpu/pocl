@@ -31,7 +31,9 @@
 - newlib: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops_riscv_newlib -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=/home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
 - linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops_riscv_linux -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=/home/blaise/dev/riscv-gnu-toolchain/drops/sysroot  -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-linux-gnu" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
 - cmake --build . --target install
-- register llvm pretty print extension for gdb: add "source /home/blaise/dev/llvm_riscv/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit
+- copy the llvm drop to gnu tools: 
+  cp -rf /home/blaise/dev/llvm_riscv/drops_riscv_newlib /home/blaise/dev/riscv-gnu-toolchain/drops
+- register llvm pretty print extension for gdb: add "source /home/blaise/dev/llvm_riscv/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit 
 
 ## Building LLVM for x86
 
