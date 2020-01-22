@@ -17,8 +17,9 @@
 - git submodule update --init --recursive
 - mkdir build
 - cd build
-- newlib: ../configure --prefix=/home/blaise/dev/riscv-gnu-toolchain/drops --with-arch=rv32im --with-abi=ilp32
-- linux: ../configure --prefix=/home/blaise/dev/riscv-gnu-toolchain/drops --with-arch=rv32ima --with-abi=ilp32
+- export RISC_GNU_TOOLS_PATH=$PWD/../drops
+- newlib: ../configure --prefix=$RISC_GNU_TOOLS_PATH --with-arch=rv32im --with-abi=ilp32
+- linux: ../configure --prefix=$RISC_GNU_TOOLS_PATH --with-arch=rv32ima --with-abi=ilp32
 - make -j`nproc` && make -j`nproc` build-qemu
 
 ## Building LLVM for RiscV
@@ -28,18 +29,21 @@
 - cd llvm_riscv
 - mkdir build
 - cd build
-- newlib: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops_riscv_newlib -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=/home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
-- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops_riscv_linux -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=/home/blaise/dev/riscv-gnu-toolchain/drops/sysroot  -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-linux-gnu" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
+- export LLVM_RISCV_PATH=$PWD/../drops_riscv
+- newlib: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_RISCV_PATH -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
+- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_RISCV_PATH -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/sysroot  -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-linux-gnu" -DLLVM_TARGETS_TO_BUILD="RISCV" ..
 - cmake --build . --target install
-- copy the llvm drop to gnu tools: 
-  cp -rf /home/blaise/dev/llvm_riscv/drops_riscv_newlib /home/blaise/dev/riscv-gnu-toolchain/drops
-- register llvm pretty print extension for gdb: add "source /home/blaise/dev/llvm_riscv/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit 
+
+## copy the llvm drop to gnu tools: 
+- cp -rf $LLVM_PATH $RISC_GNU_TOOLS_PATH
 
 ## Building LLVM for x86
 
-- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/llvm_riscv/drops_x86 -DLLVM_OPTIMIZED_TABLEGEN=True ..
+- export LLVM_X86_PATH=$PWD/../drops_x86
+- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_X86_PATH -DLLVM_OPTIMIZED_TABLEGEN=True ..
 - cmake --build . --target install
-- register llvm pretty print extension for gdb: add "source /home/blaise/dev/llvm_riscv/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit
+
+## (optional) register llvm pretty print extension for gdb: add "source $LLVM_PATH/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit 
 
 ## Sanity test your new RISC-V LLVM
 
@@ -54,15 +58,18 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - git clone https://github.com/pocl/pocl.git
 - cd pocl
 - mkdir build
-- mkdir drop
 - cd build
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_cc -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=/home/blaise/dev/riscv-gnu-toolchain/drops/bin/llvm-config -DLLC_HOST_CPU= -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_riscv_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- export POCL_CC_PATH=$PWD/../drops_riscv_cc
+- export POCL_RT_PATH=$PWD/../drops_riscv_rt
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=$RISC_GNU_TOOLS_PATH/bin/llvm-config -DLLC_HOST_CPU= -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
 ## build pocl for x86
 
-- ubuntu dependencies: sudo apt install -y build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-dev clang llvm make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_cc -DWITH_LLVM_CONFIG=/home/blaise/dev/llvm_riscv/drops_x86/bin/llvm-config -DCMAKE_BUILD_TYPE=Debug -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=64 -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/home/blaise/dev/pocl/drops_x86_rt -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=64 -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DPOCL_DEBUG_MESSAGES=ON ..
+- export POCL_CC_PATH=$PWD/../drops_x86_cc
+- export POCL_RT_PATH=$PWD/../drops_x896_rt
+- install linux dependencies: sudo apt install -y build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-dev clang llvm make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DWITH_LLVM_CONFIG=$LLVM_X86_PATH/bin/llvm-config -DCMAKE_BUILD_TYPE=Debug -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=64 -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DNEWLIB_BSP=ON -DNEWLIB_DEVICE_ADDRESS_BIT=64 -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install

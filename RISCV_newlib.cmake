@@ -21,17 +21,17 @@ SET(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
 SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
 # specify the cross compiler
-SET(CMAKE_C_COMPILER /home/blaise/dev/riscv-gnu-toolchain/drops/bin/riscv32-unknown-elf-gcc)
-SET(CMAKE_CXX_COMPILER /home/blaise/dev/riscv-gnu-toolchain/drops/bin/riscv32-unknown-elf-g++)
+SET(CMAKE_C_COMPILER $PWD/../riscv-gnu-toolchain/drops/bin/riscv32-unknown-elf-gcc)
+SET(CMAKE_CXX_COMPILER $PWD/../riscv-gnu-toolchain/drops/bin/riscv32-unknown-elf-g++)
 
 # should work, but does not yet. Instead set FIND_ROOT below
-# set(CMAKE_SYSROOT /home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf)
+# set(CMAKE_SYSROOT $PWD/../riscv-gnu-toolchain/drops/riscv32-unknown-elf)
 
 # where is the target environment
-SET(CMAKE_FIND_ROOT_PATH  /home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf)
+SET(CMAKE_FIND_ROOT_PATH  $PWD/../riscv-gnu-toolchain/drops/riscv32-unknown-elf)
 
 # where to find libraries in target environment
-SET(CMAKE_LIBRARY_PATH /home/blaise/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf/lib)
+SET(CMAKE_LIBRARY_PATH $PWD/../riscv-gnu-toolchain/drops/riscv32-unknown-elf/lib)
 
 # search for programs in the build host directories
 SET(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
