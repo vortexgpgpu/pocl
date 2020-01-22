@@ -35,7 +35,7 @@
 - cmake --build . --target install
 
 ## copy the llvm drop to gnu tools: 
-- cp -rf $LLVM_PATH $RISC_GNU_TOOLS_PATH
+- cp -rf $LLVM_RISCV_PATH $RISC_GNU_TOOLS_PATH
 
 ## Building LLVM for x86
 
