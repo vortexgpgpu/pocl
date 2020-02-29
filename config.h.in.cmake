@@ -157,6 +157,8 @@
 
 #cmakedefine LLVM_10_0
 
+#cmakedefine LLVM_OLDER_THAN_10_0
+
 #cmakedefine LLVM_BUILD_MODE_DEBUG
 
 #ifndef LLVM_VERSION

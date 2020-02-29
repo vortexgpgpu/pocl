@@ -447,7 +447,7 @@ if(NOT DEFINED CLANG_NEEDS_RTLIB)
   set(NEEDS_RTLIB_FLAG OFF)
 
   # on 32bit systems, we need 64bit emulation
-  if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+  if(HOST_DEVICE_ADDRESS_BITS MATCHES "32")
     set(INC "#include <stdint.h>\n#include <stddef.h>")
     set(SRC "int64_t a = argc; int64_t b = argc-1; int64_t c = a / b; return (int)c; ")
     custom_try_link_clang("${INC}" "${SRC}" RES)

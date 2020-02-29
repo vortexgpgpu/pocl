@@ -23,6 +23,11 @@
 #
 #=============================================================================
 
+# this is required, because we're compiling the C++ files of this directory
+# with LLVM-provided flags, which usually contain their own setting of
+# C++ standard, which may be in conflict with pocl's default C++ standard.
+unset(CMAKE_CXX_STANDARD)
+
 if(SANITIZER_OPTIONS)
   add_compile_options(${SANITIZER_OPTIONS})
 endif()
@@ -219,5 +224,8 @@ set_target_properties("${POCL_LIBRARY_NAME}" PROPERTIES SOVERSION "${LIB_API_VER
 
 target_link_libraries("${POCL_LIBRARY_NAME}" PUBLIC ${POCL_PUBLIC_LINK_LIST} PRIVATE ${POCL_PRIVATE_LINK_LIST} )
 install(TARGETS "${POCL_LIBRARY_NAME}"
+        ARCHIVE DESTINATION ${POCL_INSTALL_PUBLIC_LIBDIR}/static
+        COMPONENT "dev"
         LIBRARY DESTINATION ${POCL_INSTALL_PUBLIC_LIBDIR}
-        ARCHIVE DESTINATION ${POCL_INSTALL_PUBLIC_LIBDIR}/static)
+        COMPONENT "lib"
+)

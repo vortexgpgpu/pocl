@@ -33,7 +33,6 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/StringMap.h>
 
-#include <llvm/Support/MutexGuard.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/SourceMgr.h>
@@ -56,6 +55,11 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #include <llvm/IR/LegacyPassManager.h>
 #define PassManager legacy::PassManager
+
+#ifndef LLVM_OLDER_THAN_10_0
+  #include <llvm/InitializePasses.h>
+  #include <llvm/Support/CommandLine.h>
+#endif
 
 using namespace llvm;
 

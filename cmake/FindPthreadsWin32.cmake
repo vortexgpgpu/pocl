@@ -30,7 +30,7 @@ find_path(Pthreads_INCLUDE_DIR
     include
 )
 
-if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+if(HOST_DEVICE_ADDRESS_BITS MATCHES "64")
   set(LIB_PATH lib/x64)
 else()
   set(LIB_PATH lib/x86)

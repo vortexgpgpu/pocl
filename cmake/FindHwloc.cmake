@@ -77,7 +77,7 @@ if(WIN32)
   )
 
   IF(NOT _LINK_SUCCESS)
-    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    if(HOST_DEVICE_ADDRESS_BITS MATCHES "64")
       message(STATUS "You are building 64bit target.")
     ELSE()
       message(STATUS "You are building 32bit code. If you like to build x64 use e.g. -G 'Visual Studio 12 Win64' generator." )
@@ -119,7 +119,7 @@ if(WIN32)
   find_package_handle_standard_args(
     Hwloc
     FOUND_VAR Hwloc_FOUND
-    REQUIRED_VARS Hwloc_LIBRARY Hwloc_INCLUDE_DIR
+    REQUIRED_VARS Hwloc_LIBRARY Hwloc_INCLUDE_DIR Hwloc_VERSION_PARSED Hwloc_VERSION_MAJOR Hwloc_VERSION_MINOR
     VERSION_VAR Hwloc_VERSION)
 
   mark_as_advanced(
@@ -188,6 +188,13 @@ else()
   endif()
 
   if(Hwloc_FOUND)
+    string(REPLACE "." ";" Hwloc_VERSION_PARSED "${Hwloc_VERSION}")
+    set(Hwloc_VERSION "${Hwloc_VERSION}" CACHE STRING "version of Hwloc as a list")
+    list(GET Hwloc_VERSION_PARSED 0 Hwloc_VERSION_MAJOR)
+    set(Hwloc_VERSION_MAJOR "${Hwloc_VERSION_MAJOR}" CACHE STRING "Major version of Hwloc")
+    list(GET Hwloc_VERSION_PARSED 1 Hwloc_VERSION_MINOR)
+    set(Hwloc_VERSION_MINOR "${Hwloc_VERSION_MINOR}" CACHE STRING "Minor version of Hwloc")
+
     include(FindPackageHandleStandardArgs)
     find_package_handle_standard_args(Hwloc DEFAULT_MSG Hwloc_LIBRARIES)
 
