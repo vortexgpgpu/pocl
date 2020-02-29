@@ -1,7 +1,0 @@
-putenv("POCL_VERBOSE=1");
-putenv("POCL_DEVICES=basic");
-putenv("POCL_LEAVE_TEMP_DIRS=1");
-putenv("POCL_LEAVE_KERNEL_COMPILER_TEMP_FILES=1");
-putenv("POCL_TEMP_DIR=pocl");
-putenv("POCL_CACHE_DIR=pocl");
-putenv("POCL_WORK_GROUP_METHOD=spmd");

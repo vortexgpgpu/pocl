@@ -461,26 +461,25 @@ if (OCS_AVAILABLE)
   endif()
 
   if(ENABLE_HOST_CPU_DEVICES)
-  if(NOT DEFINED HOST_DEVICE_BUILD_HASH)
-    if(KERNELLIB_HOST_CPU_VARIANTS STREQUAL "distro")
-      set(HOST_DEVICE_BUILD_HASH "${LLC_TRIPLE}")
-    else()
-      set(HOST_DEVICE_BUILD_HASH "${LLC_TRIPLE}-${LLC_HOST_CPU}")
+    if(NOT DEFINED HOST_DEVICE_BUILD_HASH)
+      if(KERNELLIB_HOST_CPU_VARIANTS STREQUAL "distro")
+        set(HOST_DEVICE_BUILD_HASH "${LLC_TRIPLE}")
+      else()
+        set(HOST_DEVICE_BUILD_HASH "${LLC_TRIPLE}-${LLC_HOST_CPU}")
+      endif()
     endif()
-  endif()
 
-  if(INTEL_SDE_AVX512)
-    set(HOST_CPU_FORCED 1 CACHE INTERNAL "CPU is forced by user" FORCE)
-    set(LLC_HOST_CPU "skylake-avx512" CACHE STRING "The Host CPU to use with llc" FORCE)
+    if(INTEL_SDE_AVX512)
+      set(HOST_CPU_FORCED 1 CACHE INTERNAL "CPU is forced by user" FORCE)
+      set(LLC_HOST_CPU "skylake-avx512" CACHE STRING "The Host CPU to use with llc" FORCE)
+    endif()    
+    
   endif()
-  endif()
-
 else()
 
   if(ENABLE_HOST_CPU_DEVICES AND (NOT DEFINED HOST_DEVICE_BUILD_HASH))
     message(FATAL_ERROR "For compiler-less builds of CPU backend, you must define HOST_DEVICE_BUILD_HASH")
   endif()
-
 endif()
 
 ######################################################################################
