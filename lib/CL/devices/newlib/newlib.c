@@ -422,8 +422,8 @@ void pocl_newlib_run(void *data, _cl_command_node *cmd) {
   unsigned rm = pocl_save_rm();
   pocl_set_default_rm();
   unsigned ftz = pocl_save_ftz();
-  pocl_set_ftz(kernel->program->flush_denorms);
-
+  pocl_set_ftz(kernel->program->flush_denorms);  
+  
   pocl_workgroup_func pfn = (pocl_workgroup_func)cmd->command.run.wg;
 
 #if defined(OCS_AVAILABLE)
