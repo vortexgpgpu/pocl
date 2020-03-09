@@ -1,9 +1,9 @@
-
 #cmakedefine BUILD_HSA
 #cmakedefine BUILD_CUDA
 #cmakedefine BUILD_BASIC
 #cmakedefine BUILD_PTHREAD
 #cmakedefine BUILD_ACCEL
+
 #cmakedefine NEWLIB_BSP
 
 #define BUILDDIR "@BUILDDIR@"
@@ -76,7 +76,6 @@
 #define HOST_CPU_CACHELINE_SIZE @HOST_CPU_CACHELINE_SIZE@
 
 
-
 #if defined(BUILD_BASIC) || defined(BUILD_PTHREAD)
 
 #define HOST_AS_FLAGS  "@HOST_AS_FLAGS@"
@@ -98,7 +97,6 @@
 #endif
 
 
-
 #ifdef BUILD_HSA
 
 #cmakedefine HAVE_HSA_EXT_AMD_H
@@ -114,16 +112,9 @@
 #endif
 
 
-
-
-
 #define CMAKE_BUILD_TYPE "@CMAKE_BUILD_TYPE@"
 
 #define LINK_COMMAND "@LINK_COMMAND@"
-
-
-
-
 
 
 #ifdef OCS_AVAILABLE
@@ -165,10 +156,7 @@
 #define LLVM_VERSION "@LLVM_VERSION_FULL@"
 #endif
 
-
 #endif
-
-
 
 /* Defined to greatest expected alignment for extended types, in bytes. */
 #define MAX_EXTENDED_ALIGNMENT @MAX_EXTENDED_ALIGNMENT@

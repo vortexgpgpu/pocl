@@ -219,7 +219,7 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
       goto FINISH;
     }
 #else
-  error = pocl_llvm_build_static_program (kernel, device_i, tmp_objfile, final_binary_path); 
+  error = pocl_llvm_build_static_program (kernel, device_i, device, tmp_objfile, final_binary_path); 
   if (error)
     {
       POCL_MSG_PRINT_LLVM ("Linking kernel.o -> libkernel.a has failed\n");
@@ -1095,7 +1095,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
     int err = pocl_read_file(module_fn, (char**)&p->pocl_binaries[dev_i], &p->pocl_binary_sizes[dev_i]);
     if (err) {
       POCL_MSG_PRINT_LLVM ("loading kernel binary has failed\n");
-      return err;
+      return;
     }
   }
 #else

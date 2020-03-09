@@ -110,7 +110,6 @@ int getModuleTriple(const char *input_stream, size_t size,
 char *
 get_llvm_cpu_name ()
 {
-
   StringRef r = llvm::sys::getHostCPUName();
 
 #ifndef KERNELLIB_HOST_DISTRO_VARIANTS

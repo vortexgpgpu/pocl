@@ -355,10 +355,15 @@ pocl_init_cpu_device_infos (cl_device_id dev)
 #ifdef OCS_AVAILABLE
 
   dev->llvm_target_triplet = OCL_KERNEL_TARGET;
+
+#ifndef NEWLIB_BSP
 #ifdef HOST_CPU_FORCED
   dev->llvm_cpu = OCL_KERNEL_TARGET_CPU;
 #else
-  dev->llvm_cpu = get_llvm_cpu_name ();
+  dev->llvm_cpu = get_llvm_cpu_name();
+#endif
+#else
+  dev->llvm_cpu = "";
 #endif
 
   dev->spirv_version = "SPIR-V_1.2";
@@ -366,7 +371,6 @@ pocl_init_cpu_device_infos (cl_device_id dev)
   dev->llvm_cpu = NULL;
   dev->llvm_target_triplet = "";
 #endif
-
 }
 
 unsigned int

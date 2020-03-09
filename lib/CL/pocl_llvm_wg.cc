@@ -641,7 +641,6 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
   // Have to emit the text first and then call the assembler from the command line
   // to produce the binary.
 
-
   if (Target->addPassesToEmitFile(PMAsm, SOS,
 #ifndef LLVM_OLDER_THAN_7_0
                                   nullptr,
@@ -649,9 +648,6 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
                                   CODEGEN_FILE_TYPE_NS::CGFT_AssemblyFile)) {
     POCL_ABORT("The target supports neither obj nor asm emission!");
   }
-
-
-
 
 #ifdef DUMP_LLVM_PASS_TIMINGS
   llvm::TimePassesIsEnabled = true;

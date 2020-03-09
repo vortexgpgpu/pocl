@@ -187,7 +187,7 @@ option(USE_POCL_MEMMANAGER "Enables custom memory manager. Except for special ci
 
 option(EXAMPLES_USE_GIT_MASTER "If enabled, some of the external testsuites in examples/ will try to use sources from Git master, instead of releases. This may result in failure to build or run the examples" OFF)
 
-option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic, newlib, and pthread)." ON)
+option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic, and pthread)." ON)
 
 option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device driver." OFF)
 
@@ -196,6 +196,12 @@ option(NEWLIB_BSP "Enable Newlib-based device" OFF)
 ###############################################################################
 
 if (NEWLIB_BSP)
+  if(NOT DEFINED NEWLIB_DEVICE_ADDRESS_BIT)
+    message(FATAL_ERROR "should set 'NEWLIB_DEVICE_ADDRESS_BIT' option")
+  endif()  
+  if(NOT DEFINED NEWLIB_DEVICE_MARCH)
+    message(FATAL_ERROR "should set 'NEWLIB_DEVICE_MARCH' option")
+  endif()
   set(ENABLE_ICD OFF CACHE INTERNAL "Disable ICD for Newlib targets")
   set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Newlib targets")
 endif()
@@ -267,9 +273,6 @@ if (NOT NEWLIB_BSP)
     endif()
   endif()
 else()
-  if(NOT DEFINED NEWLIB_DEVICE_ADDRESS_BIT)
-    message(FATAL_ERROR "should set 'NEWLIB_DEVICE_ADDRESS_BIT' option")
-  endif()
   set(HOST_DEVICE_ADDRESS_BITS ${NEWLIB_DEVICE_ADDRESS_BIT})
 endif()
 
@@ -472,7 +475,7 @@ if (OCS_AVAILABLE)
     if(INTEL_SDE_AVX512)
       set(HOST_CPU_FORCED 1 CACHE INTERNAL "CPU is forced by user" FORCE)
       set(LLC_HOST_CPU "skylake-avx512" CACHE STRING "The Host CPU to use with llc" FORCE)
-    endif()    
+    endif()
     
   endif()
 else()
@@ -1104,7 +1107,13 @@ if(ENABLE_HOST_CPU_DEVICES)
   # TODO OCL_KERNEL_TARGET -> CPU_TARGET_TRIPLE
   # TODO OCL_KERNEL_TARGET_CPU -> OCL_KERNEL_TARGET_CPU
   set(OCL_KERNEL_TARGET "${LLC_TRIPLE}") #The kernel target triplet.
-  set(OCL_KERNEL_TARGET_CPU "${LLC_HOST_CPU}") #The kernel target CPU variant.
+  
+  if (NEWLIB_BSP)
+    set(OCL_KERNEL_TARGET_CPU "${NEWLIB_DEVICE_MARCH}") #The kernel target CPU variant.
+  else()
+    set(OCL_KERNEL_TARGET_CPU "${LLC_HOST_CPU}") #The kernel target CPU variant.
+  endif()
+
   if (ENABLE_PTHREAD)    
     set(OCL_DRIVERS "${OCL_DRIVERS} pthreads")
     set(BUILD_PTHREAD 1)  

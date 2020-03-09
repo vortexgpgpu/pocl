@@ -943,81 +943,89 @@ int pocl_invoke_clang(cl_device_id Device, const char** Args) {
 
 int pocl_llvm_build_static_program(cl_kernel kernel, 
                                    unsigned device_i, 
+                                   cl_device_id device,
                                    const char *kernel_obj,
                                    char *kernel_out) {
   char wrapper_cc[POCL_FILENAME_LENGTH];
+  char wrapper_obj[POCL_FILENAME_LENGTH];
   int err;
   cl_program program = kernel->program;
-{  
-  char pfn_workgroup_string[WORKGROUP_STRING_LENGTH];
-  std::stringstream ss;
 
-  snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
-            "_pocl_kernel_%s_workgroup", kernel->name);
-  
-  ss << "#include <cstdint>\n"   
-        "#ifdef __cplusplus\n"
-        "extern \"C\" {\n"
-        "#endif\n"
-        "int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes);\n"     
-        "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"  
-        "#ifdef __cplusplus\n"
-        "}\n"
-        "#endif\n"
-        "namespace {\n"
-        "class auto_register_kernel_t {\n"
-        "public:\n" 
-        "  auto_register_kernel_t() {\n"
-        "    static uint8_t arg_types[] = {";    
-  for (cl_uint i = 0; i < kernel->meta->num_args; ++i) {
-    if (i) ss << ", ";
-    uint32_t value = POCL_ARG_TYPE_NONE;
-    if (ARG_IS_LOCAL(kernel->meta->arg_info[i]))
-      value = 4;
-    else
-      value = kernel->meta->arg_info[i].type;
-    ss << value;
-  }
-  ss << "};\n"; 
-  ss << "    static uint32_t local_sizes[] = {";
-    for (cl_uint i = 0; i < kernel->meta->num_locals; ++i) {
+  {  
+    char pfn_workgroup_string[WORKGROUP_STRING_LENGTH];
+    std::stringstream ss;
+
+    snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
+              "_pocl_kernel_%s_workgroup", kernel->name);
+    
+    ss << "#include <cstdint>\n"   
+          "#ifdef __cplusplus\n"
+          "extern \"C\" {\n"
+          "#endif\n"
+          "int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes);\n"     
+          "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"  
+          "#ifdef __cplusplus\n"
+          "}\n"
+          "#endif\n"
+          "namespace {\n"
+          "class auto_register_kernel_t {\n"
+          "public:\n" 
+          "  auto_register_kernel_t() {\n"
+          "    static uint8_t arg_types[] = {";  
+
+    for (cl_uint i = 0; i < kernel->meta->num_args; ++i) {
       if (i) ss << ", ";
-      ss << kernel->meta->local_sizes[i];
+      uint32_t value = POCL_ARG_TYPE_NONE;
+      if (ARG_IS_LOCAL(kernel->meta->arg_info[i]))
+        value = 4;
+      else
+        value = kernel->meta->arg_info[i].type;
+      ss << value;
     }
-  ss << "};\n"; 
-  ss << "    _pocl_register_kernel(\"";
-  ss << kernel->name << "\", " 
-     << "(void*)" << pfn_workgroup_string << ", " 
-     << kernel->meta->num_args << ", " 
-     << kernel->meta->num_locals << ", " 
-     << "arg_types, local_sizes);\n"
-        "  }\n"
-        "};\n"
-        "static auto_register_kernel_t __x__;\n"
-        "}";
-  err = pocl_cache_tempname (wrapper_cc, ".cc", NULL);
-  if (err)
-    return err;
-  std::ofstream file;
-  file.open (wrapper_cc);
-  file << ss.str();
-  file.close();
-}
-  char wrapper_obj[POCL_FILENAME_LENGTH];
-{
-  std::stringstream ss;
-  err = pocl_cache_tempname (wrapper_obj, ".o", NULL);
-  if (err)
-    return err;
-  ss << CLANG << " -fno-exceptions -o " << wrapper_obj << " -c " << wrapper_cc;
-  std::string s = ss.str();
-  err = system(s.c_str());
-  if (err)
-    return err;
-}
+    ss << "};\n"; 
+
+    ss << "    static uint32_t local_sizes[] = {";
+      for (cl_uint i = 0; i < kernel->meta->num_locals; ++i) {
+        if (i) ss << ", ";
+        ss << kernel->meta->local_sizes[i];
+      }
+    ss << "};\n"; 
+
+    ss << "    _pocl_register_kernel(\"";
+    ss << kernel->name << "\", " 
+      << "(void*)" << pfn_workgroup_string << ", " 
+      << kernel->meta->num_args << ", " 
+      << kernel->meta->num_locals << ", " 
+      << "arg_types, local_sizes);\n"
+          "  }\n"
+          "};\n"
+          "static auto_register_kernel_t __x__;\n"
+          "}";
+
+    auto content = ss.str();
+    err = pocl_write_tempfile(wrapper_cc, "/tmp/pocl_register_kernel", ".cc",
+                              content.c_str(), content.size(), nullptr);
+    if (err)
+      return err;
+  } 
+
+  {
+    err = pocl_mk_tempname(wrapper_obj, "/tmp/pocl_register_kernel", ".o", nullptr);
+    if (err)
+      return err;
+
+    std::stringstream march_ss;
+    march_ss << "-march=" << OCL_KERNEL_TARGET_CPU;
+
+    const char *cmd_args[] = {CLANG, march_ss.str().c_str(), "-fno-rtti" ,"-fno-exceptions", wrapper_cc, "-c", "-o", wrapper_obj, nullptr};
+    err = pocl_invoke_clang(device, cmd_args);
+    if (err)
+      return err;
+  }
 
   if (program->pocl_binaries[device_i]) {
-    err = pocl_write_file(kernel_out, (char*)program->pocl_binaries[device_i], program->pocl_binary_sizes[device_i], 0, 0);
+    err = pocl_write_file(kernel_out, (char*)program->pocl_binaries[device_i], 
+                          program->pocl_binary_sizes[device_i], 0, 0);
     if (err) {
       POCL_MSG_PRINT_LLVM ("dumping previous library to file failed\n");
       return err;
@@ -1028,7 +1036,7 @@ int pocl_llvm_build_static_program(cl_kernel kernel,
 
   {
     std::stringstream ss;
-    ss << LLVM_AR << " rc " << kernel_out << " " << wrapper_obj << " " << kernel_obj;
+    ss << LLVM_AR << " rc " << kernel_out << " " << kernel_obj << " " << wrapper_obj;
     std::string s = ss.str();
     err = system(s.c_str());
     if (err)
