@@ -199,12 +199,16 @@ pocl_cache_final_binary_path (char *final_binary_path, cl_program program,
     bytes_written = snprintf (final_binary_name, POCL_FILENAME_LENGTH,
                               "%s.brig", POCL_PARALLEL_BC_FILENAME);
   else {
-  #ifndef NEWLIB_BSP
+
+  #if defined(BUILD_NEWLIB)
     bytes_written = snprintf (final_binary_name, POCL_FILENAME_LENGTH,
-                              "/%s.so", kernel->name);
+                              "/%s.a", kernel->name);
+  #elif defined(BUILD_VORTEX)
+    bytes_written = snprintf (final_binary_name, POCL_FILENAME_LENGTH,
+                              "/%s.bin", kernel->name);
   #else
     bytes_written = snprintf (final_binary_name, POCL_FILENAME_LENGTH,
-                              "/lib%s.a", kernel->name);
+                              "/%s.so", kernel->name);    
   #endif
   }
 

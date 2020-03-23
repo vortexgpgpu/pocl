@@ -180,7 +180,19 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
     }
 
   /* temporary filename for kernel.so */
-#ifndef NEWLIB_BSP
+#if defined(BUILD_NEWLIB)
+  error = pocl_llvm_build_newlib_program (kernel, device_i, device, tmp_objfile, final_binary_path); 
+  if (error) {
+    POCL_MSG_PRINT_LLVM ("Static linking kernel.o -> libkernel.a has failed\n");
+    goto FINISH;
+  }
+#elif defined(BUILD_VORTEX)
+  error = pocl_llvm_build_vortex_program (kernel, device_i, device, tmp_objfile, final_binary_path); 
+  if (error) {
+    POCL_MSG_PRINT_LLVM ("Vortex compilation kernel.o -> kernel.hex has failed\n");
+    goto FINISH;
+  }
+#else
   char tmp_module[POCL_FILENAME_LENGTH];
   if (pocl_cache_tempname (tmp_module, ".so", NULL))
     {
@@ -218,15 +230,8 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
       POCL_MSG_PRINT_LLVM ("Renaming temporary kernel.so to final has failed.\n");
       goto FINISH;
     }
-#else
-  error = pocl_llvm_build_static_program (kernel, device_i, device, tmp_objfile, final_binary_path); 
-  if (error)
-    {
-      POCL_MSG_PRINT_LLVM ("Linking kernel.o -> libkernel.a has failed\n");
-      goto FINISH;
-    }
-
 #endif
+
   /* if LEAVE_COMPILER_FILES, rename temporary kernel.so.o, else delete it */
   if (pocl_get_bool_option ("POCL_LEAVE_KERNEL_COMPILER_TEMP_FILES", 0))
     {
@@ -883,7 +888,7 @@ get_new_dlhandle_cache_item ()
   if ((handle_count >= MAX_CACHE_ITEMS) && ci && (ci != pocl_dlhandle_cache))
     {
       DL_DELETE (pocl_dlhandle_cache, ci);
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
       dlclose (ci->dlhandle);
       dl_error = dlerror ();
 #endif
@@ -1086,9 +1091,15 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
   size_t max_grid_width = pocl_cmd_max_grid_dim_width (run_cmd);
   ci->max_grid_dim_width = max_grid_width;
 
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(BUILD_NEWLIB) && !defined(OCS_AVAILABLE)
+
+  ci->wg = run_cmd->kernel->meta->data[0];  
+  
+#else
+
   char *module_fn = pocl_check_kernel_disk_cache (command, specialize); 
-#ifdef NEWLIB_BSP
+
+#if defined(BUILD_NEWLIB)
   {
     cl_program p = run_cmd->kernel->program;
     unsigned dev_i = command->device_i;
@@ -1098,6 +1109,20 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
       return;
     }
   }
+#elif defined(BUILD_VORTEX)  
+  #if defined(OCS_AVAILABLE)
+  { 
+    // override program.bc with binrary content
+    uint64_t content_size;
+    char *content;
+    char program_bc_path[POCL_FILENAME_LENGTH];
+    cl_program p = run_cmd->kernel->program;
+    unsigned dev_i = command->device_i;
+    pocl_cache_program_bc_path(program_bc_path, p, dev_i);
+    pocl_read_file(module_fn, &content, &content_size);        
+    pocl_write_file(program_bc_path, content, content_size, 0, 0);
+  }
+  #endif
 #else
   ci->dlhandle = dlopen (module_fn, RTLD_NOW | RTLD_LOCAL);
   dl_error = dlerror ();
@@ -1130,9 +1155,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
                     module_fn, workgroup_string, dl_error);
     }
 #endif
-  POCL_MEM_FREE (module_fn);
-#else
-  ci->wg = run_cmd->kernel->meta->data[0];  
+  POCL_MEM_FREE (module_fn);  
 #endif
 
   run_cmd->wg = ci->wg;

@@ -191,11 +191,13 @@ option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic, and pthr
 
 option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device driver." OFF)
 
-option(NEWLIB_BSP "Enable Newlib-based device" OFF)
+option(ENABLE_NEWLIB "Enable Newlib-based device" OFF)
+
+option(ENABLE_VORTEX "Enable the Vortex device driver" OFF)
 
 ###############################################################################
 
-if (NEWLIB_BSP)
+if (ENABLE_NEWLIB)
   if(NOT DEFINED NEWLIB_DEVICE_ADDRESS_BIT)
     message(FATAL_ERROR "should set 'NEWLIB_DEVICE_ADDRESS_BIT' option")
   endif()  
@@ -204,6 +206,17 @@ if (NEWLIB_BSP)
   endif()
   set(ENABLE_ICD OFF CACHE INTERNAL "Disable ICD for Newlib targets")
   set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Newlib targets")
+  set(BUILD_NEWLIB 1)
+endif()
+
+if(ENABLE_VORTEX)
+  set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
+  set(OCL_TARGETS "${OCL_TARGETS} vortex")
+  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Vortex targets")
+  if (OCS_AVAILABLE)
+    set(HOST_DEVICE_BUILD_HASH "${LLC_TRIPLE}")
+  endif()
+  set(BUILD_VORTEX 1)
 endif()
 
 # currently only works with gcc as host compiler
@@ -244,7 +257,7 @@ endif()
 
 ##########################################################
 
-if (NOT NEWLIB_BSP)
+if (NOT ENABLE_NEWLIB)
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(HOST_DEVICE_ADDRESS_BITS 64)
   elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
@@ -372,7 +385,7 @@ endif()
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
-if(UNIX AND (NOT (NEWLIB_BSP AND (NOT OCS_AVAILABLE))))
+if(UNIX AND (NOT (ENABLE_NEWLIB AND (NOT OCS_AVAILABLE))))
   find_package(PkgConfig MODULE REQUIRED)
   find_package(Hwloc)
 
@@ -801,7 +814,7 @@ include_directories("include")
 
 set(HAVE_LIBDL OFF CACHE BOOL "dlopen" FORCE)
 
-if (NEWLIB_BSP AND CMAKE_CROSSCOMPILING)
+if (ENABLE_NEWLIB AND CMAKE_CROSSCOMPILING)
   message(STATUS "Using statically linked kernels for Newlib CPU platforms")
 elseif(WIN32)
   message(STATUS "Using LoadLibrary/FreeLibrary in Windows, libltdl not needed.")
@@ -846,7 +859,7 @@ endif()
 ######################################################################################
 # LTTNG
 
-if (ENABLE_TRACING AND (NOT MSVC) AND (NOT ANDROID) AND (NOT (NEWLIB_BSP AND (NOT OCS_AVAILABLE))))
+if (ENABLE_TRACING AND (NOT MSVC) AND (NOT ANDROID) AND (NOT (ENABLE_NEWLIB AND (NOT OCS_AVAILABLE))))
   pkg_check_modules(LTTNG_UST lttng-ust>=2.7)
   if(LTTNG_UST_FOUND)
     set(HAVE_LTTNG_UST 1)
@@ -866,7 +879,7 @@ if (MSVC)
 else()
 
   # pkg-config doesn't work with cross-compiling
-  if (NOT (NEWLIB_BSP AND (NOT OCS_AVAILABLE)))
+  if (NOT (ENABLE_NEWLIB AND (NOT OCS_AVAILABLE)))
     pkg_check_modules(OCL_ICD ocl-icd>=1.3)
   endif()
 
@@ -1108,7 +1121,7 @@ if(ENABLE_HOST_CPU_DEVICES)
   # TODO OCL_KERNEL_TARGET_CPU -> OCL_KERNEL_TARGET_CPU
   set(OCL_KERNEL_TARGET "${LLC_TRIPLE}") #The kernel target triplet.
   
-  if (NEWLIB_BSP)
+  if (ENABLE_NEWLIB)
     set(OCL_KERNEL_TARGET_CPU "${NEWLIB_DEVICE_MARCH}") #The kernel target CPU variant.
   else()
     set(OCL_KERNEL_TARGET_CPU "${LLC_HOST_CPU}") #The kernel target CPU variant.
@@ -1659,7 +1672,8 @@ MESSAGE(STATUS "ENABLE_TCE: ${ENABLE_TCE}")
 MESSAGE(STATUS "ENABLE_TCEMC: ${ENABLE_TCEMC}")
 MESSAGE(STATUS "ENABLE_HSA: ${ENABLE_HSA}")
 MESSAGE(STATUS "ENABLE_CUDA: ${ENABLE_CUDA}")
-MESSAGE(STATUS "NEWLIB_BSP: ${NEWLIB_BSP}")
+MESSAGE(STATUS "ENABLE_VORTEX: ${ENABLE_VORTEX}")
+MESSAGE(STATUS "ENABLE_NEWLIB: ${ENABLE_NEWLIB}")
 MESSAGE(STATUS "ENABLE_ASAN (address sanitizer): ${ENABLE_ASAN}")
 MESSAGE(STATUS "ENABLE_LSAN (leak sanitizer): ${ENABLE_LSAN}")
 MESSAGE(STATUS "ENABLE_TSAN (thread sanitizer): ${ENABLE_TSAN}")

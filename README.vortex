@@ -32,12 +32,6 @@
 - linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$RISC_GNU_TOOLS_PATH -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/sysroot  -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-linux-gnu" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
 - cmake --build . --target install
 
-## Building LLVM for x86
-
-- export LLVM_X86_PATH=$PWD/../drops_x86
-- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_X86_PATH -DLLVM_OPTIMIZED_TABLEGEN=True ..
-- cmake --build . --target install
-
 ## (optional) register llvm pretty print extension for gdb: add "source $LLVM_PATH/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit 
 
 ## Sanity test your new RISC-V LLVM
@@ -48,23 +42,32 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - clang hello.c
 - qemu-riscv32 hello
 
-## build pocl for RISCV
+## build pocl for Vortex
 
 - git clone https://github.com/pocl/pocl.git
 - cd pocl
-- mkdir build
-- cd build
-- export POCL_CC_PATH=$PWD/../drops_riscv_cc
-- export POCL_RT_PATH=$PWD/../drops_riscv_rt
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=$RISC_GNU_TOOLS_PATH/bin/llvm-config -DENABLE_NEWLIB=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DNEWLIB_DEVICE_MARCH=rv32im -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DENABLE_NEWLIB=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DNEWLIB_DEVICE_MARCH=rv32im -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DBUILD_TESTS=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- export RISC_GNU_TOOLS_PATH=~/dev/riscv-gnu-toolchain/drops
+- export VORTEX_DRIVER_INC=~/dev/vortex_opae/driver/sw/include
+- export VORTEX_DRIVER_LIB=~/dev/vortex_opae/driver/sw/simx/libvortex.so
+- export VORTEX_RUNTIME_PATH=/home/blaise/dev/vortex_opae/runtime
+
+- mkdir build_vortex_rt
+- cd build_vortex_rt
+- export POCL_RT_PATH=$PWD/../drops_vortex_rt
+- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=riscv32-unknown-unknown-elf -DENABLE_VORTEX=ON -DVORTEX_DRIVER_INC=$VORTEX_DRIVER_INC -DVORTEX_DRIVER_LIB=$VORTEX_DRIVER_LIB -DVORTEX_RUNTIME_PATH=$VORTEX_RUNTIME_PATH -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- cmake --build . --target install
+
+- mkdir build_vortex_cc
+- cd build_vortex_cc
+- export POCL_CC_PATH=$PWD/../drops_vortex_cc
+- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$RISC_GNU_TOOLS_PATH/bin/llvm-config -DENABLE_VORTEX=ON -DVORTEX_DRIVER_INC=$VORTEX_DRIVER_INC -DVORTEX_DRIVER_LIB=$VORTEX_DRIVER_LIB -DVORTEX_RUNTIME_PATH=$VORTEX_RUNTIME_PATH -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
 ## build pocl for x86
 
-- export POCL_CC_PATH=$PWD/../drops_x86_cc
-- export POCL_RT_PATH=$PWD/../drops_x896_rt
-- install linux dependencies: sudo apt install -y build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-dev clang llvm make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DWITH_LLVM_CONFIG=$LLVM_X86_PATH/bin/llvm-config -DCMAKE_BUILD_TYPE=Debug -DENABLE_NEWLIB=ON -DNEWLIB_DEVICE_ADDRESS_BIT=64 -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
-- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DENABLE_NEWLIB=ON -DNEWLIB_DEVICE_ADDRESS_BIT=64 -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DPOCL_DEBUG_MESSAGES=ON ..
+- mkdir build_x86
+- cd build_x86
+- export POCL_RT_PATH=$PWD/../drops_x86
+- export RISC_GNU_TOOLS_PATH=/usr/lib/llvm-9
+- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DSINGLE_LLVM_LIB=ON -DWITH_LLVM_CONFIG=$RISC_GNU_TOOLS_PATH/bin/llvm-config -DENABLE_VORTEX=ON -DVORTEX_DRIVER_INC=~/dev/vortex_opae/driver/sw/vx_driver.h -DVORTEX_DRIVER_LIB=~/dev/vortex_opae/driver/sim/obj_dir/libvxdrv_sim.so -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install

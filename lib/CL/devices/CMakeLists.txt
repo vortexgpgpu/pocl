@@ -23,6 +23,16 @@
 #
 #=============================================================================
 
+add_subdirectory("topology")
+if(Hwloc_LDFLAGS)
+  set(POCL_DEVICES_LINK_LIST ${Hwloc_LDFLAGS})
+else()
+  set(POCL_DEVICES_LINK_LIST ${Hwloc_LIBRARIES})
+endif()
+
+set(POCL_DEVICES_OBJS "$<TARGET_OBJECTS:pocl-devices>"
+  "$<TARGET_OBJECTS:pocl-devices-topology>")
+  
 if(BUILD_BASIC)
   add_subdirectory("basic")
 endif()
@@ -35,38 +45,8 @@ if(BUILD_ACCEL)
   add_subdirectory("accel")
 endif()
 
-if(NEWLIB_BSP)
+if(ENABLE_NEWLIB)
   add_subdirectory("newlib")
-endif()
-
-add_subdirectory("topology")
-if(Hwloc_LDFLAGS)
-  set(POCL_DEVICES_LINK_LIST ${Hwloc_LDFLAGS})
-else()
-  set(POCL_DEVICES_LINK_LIST ${Hwloc_LIBRARIES})
-endif()
-
-set(POCL_DEVICES_OBJS "$<TARGET_OBJECTS:pocl-devices>"
-  "$<TARGET_OBJECTS:pocl-devices-topology>")
-
-if(BUILD_BASIC)
-  set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
-    "$<TARGET_OBJECTS:pocl-devices-basic>")
-endif()
-
-if(BUILD_PTHREAD)
-  set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
-    "$<TARGET_OBJECTS:pocl-devices-pthread>")
-endif()
-
-if(BUILD_ACCEL)
-  set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
-    "$<TARGET_OBJECTS:pocl-devices-accel>")
-endif()
-
-if(NEWLIB_BSP)
-  set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
-    "$<TARGET_OBJECTS:pocl-devices-newlib>")
 endif()
 
 if(ENABLE_TCE)
@@ -84,6 +64,12 @@ endif()
 if(ENABLE_CUDA)
   add_subdirectory("cuda")
   list(APPEND POCL_DEVICES_LINK_LIST cuda)
+endif()
+
+if(ENABLE_VORTEX)
+  include_directories(AFTER "${VORTEX_DRIVER_INC}")
+  add_subdirectory("vortex")  
+  list(APPEND POCL_DEVICES_LINK_LIST ${VORTEX_DRIVER_LIB})
 endif()
 
 set(POCL_DEVICES_SOURCES

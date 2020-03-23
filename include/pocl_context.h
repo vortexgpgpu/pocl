@@ -42,20 +42,20 @@ struct pocl_context {
 #else 
   #error unsupported architecture
 #endif
+  uint work_dim;
   uchar *printf_buffer;
   uint *printf_buffer_position;
-  uint printf_buffer_capacity;
-  uint work_dim;
+  uint printf_buffer_capacity;  
 };
 
 struct pocl_context32 {
   uint num_groups[3];
   uint global_offset[3];
   uint local_size[3];
+  uint work_dim;
   uchar *printf_buffer;
   uint *printf_buffer_position;
-  uint printf_buffer_capacity;
-  uint work_dim;
+  uint printf_buffer_capacity;  
 };
 
 /* Copy a 64b context struct to a 32b one. */

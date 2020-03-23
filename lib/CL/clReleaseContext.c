@@ -96,7 +96,7 @@ pocl_check_uninit_devices ()
   if (!do_uninit)
     return;
 
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   usleep (100000);
 #endif
 

@@ -47,7 +47,7 @@ POname(clReleaseEvent)(cl_event event) CL_API_SUFFIX__VERSION_1_0
       if (event->command_type == CL_COMMAND_USER)
         {
           pocl_user_event_data *p = event->data;
-        #ifdef ENABLE_PTHREAD
+        #ifdef BUILD_PTHREAD
           pthread_cond_destroy (&p->wakeup_cond);
         #endif
           POCL_MEM_FREE (p);

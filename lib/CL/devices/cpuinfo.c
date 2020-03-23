@@ -79,7 +79,7 @@ static int
 pocl_cpufreq_get_max()
 {
   int retval=-1;
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   if (access (cpufreq_file, R_OK) != 0)
     return -1;
 
@@ -110,7 +110,7 @@ pocl_cpufreq_get_max()
 static int
 pocl_cpuinfo_detect_max_clock_frequency()
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   int cpufreq=-1;
   
   // First try to get the result from cpufreq interface.
@@ -168,7 +168,7 @@ pocl_cpuinfo_detect_max_clock_frequency()
 static int
 pocl_cpuinfo_detect_compute_unit_count()
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   if (access (cpuinfo, R_OK) != 0) 
       return -1;
   else 
@@ -298,7 +298,7 @@ static const part_tuple_t part_list_apm[] =
 static void
 pocl_cpuinfo_get_cpu_name_and_vendor(cl_device_id device)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   /* If something fails here, have this as backup solution.
    * short_name is in the .data anyways.*/
   device->long_name = device->short_name;

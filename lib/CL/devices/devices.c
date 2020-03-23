@@ -69,8 +69,12 @@
 #include "accel/accel.h"
 #endif
 
-#if defined(NEWLIB_BSP)
+#if defined(BUILD_NEWLIB)
 #include "newlib/newlib.h"
+#endif
+
+#if defined(BUILD_VORTEX)
+#include "vortex/vortex.h"
 #endif
 
 #define MAX_DEV_NAME_LEN 64
@@ -102,8 +106,11 @@ static init_device_ops pocl_devices_init_ops[] = {
 #if defined(BUILD_ACCEL)
   pocl_accel_init_device_ops,
 #endif
-#if defined(NEWLIB_BSP)
+#if defined(BUILD_NEWLIB)
   pocl_newlib_init_device_ops,
+#endif
+#if defined(BUILD_VORTEX)
+  pocl_vortex_init_device_ops,
 #endif
 };
 

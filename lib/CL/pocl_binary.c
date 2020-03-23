@@ -33,7 +33,7 @@
 #include "pocl_file_util.h"
 
 #include <sys/stat.h>
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
 #include <dirent.h>
 #endif
 #include <libgen.h>
@@ -201,7 +201,7 @@ typedef struct pocl_binary_s
 static unsigned char*
 read_header(pocl_binary *b, const unsigned char *buffer)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   memset(b, 0, sizeof(pocl_binary));
   memcpy(b->pocl_id, buffer, POCLCC_STRING_ID_LENGTH);
   buffer += POCLCC_STRING_ID_LENGTH;
@@ -294,7 +294,7 @@ pocl_binary_get_kernel_count (cl_program program, unsigned device_i)
 static unsigned char*
 serialize_file(char* path, size_t basedir_offset, unsigned char* buffer)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   char* content;
   uint64_t fsize;
   char* p = path + basedir_offset;
@@ -313,7 +313,7 @@ recursively_serialize_path (char* path,
                             size_t basedir_offset,
                             unsigned char* buffer)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   struct stat st;
   stat (path, &st);
 
@@ -372,7 +372,7 @@ pocl_binary_serialize_kernel_to_buffer(cl_program program,
                                        unsigned device_i,
                                        unsigned char *buf)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned char *buffer = buf;
   unsigned i;
 
@@ -443,7 +443,7 @@ deserialize_file (unsigned char* buffer,
                   char* basedir,
                   size_t offset)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned char* orig_buffer = buffer;
   size_t len;
 
@@ -516,7 +516,7 @@ pocl_binary_deserialize_kernel_from_buffer (pocl_binary *b,
                                             pocl_kernel_metadata_t *meta,
                                             char *basedir)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned i;
   unsigned char *buffer = *buf;
   uint64_t *dynarg_sizes;
@@ -614,7 +614,7 @@ pocl_binary_deserialize_kernel_from_buffer (pocl_binary *b,
 cl_int
 pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned char *buffer = program->pocl_binaries[device_i];
   size_t sizeof_buffer = program->pocl_binary_sizes[device_i];
   unsigned char *end_of_buffer = buffer + sizeof_buffer;
@@ -733,7 +733,7 @@ pocl_binary_sizeof_binary(cl_program program, unsigned device_i)
 cl_int
 pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
 {
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned char *binary = program->pocl_binaries[device_i];
   cl_device_id device = program->devices[device_i];
 

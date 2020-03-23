@@ -31,7 +31,7 @@
 
 #if defined(HAVE_POSIX_MEMALIGN) || defined(__ANDROID__) \
      || (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
-  #ifndef NEWLIB_BSP     
+  #ifndef BUILD_NEWLIB     
     #define HAVE_ALIGNED_ALLOC
   #endif
 #else
@@ -47,7 +47,7 @@
 extern "C" {
 #endif
 
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
 #if defined(__GNUC__) || defined(__clang__)
 /* These return the new value. */
 /* See: https://gcc.gnu.org/onlinedocs/gcc-4.1.2/gcc/Atomic-Builtins.html */

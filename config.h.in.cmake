@@ -3,8 +3,8 @@
 #cmakedefine BUILD_BASIC
 #cmakedefine BUILD_PTHREAD
 #cmakedefine BUILD_ACCEL
-
-#cmakedefine NEWLIB_BSP
+#cmakedefine BUILD_NEWLIB
+#cmakedefine BUILD_VORTEX
 
 #define BUILDDIR "@BUILDDIR@"
 
@@ -70,8 +70,6 @@
 
 #cmakedefine OCS_AVAILABLE
 
-#cmakedefine ENABLE_PTHREAD
-
 /* this is used all over the runtime code */
 #define HOST_CPU_CACHELINE_SIZE @HOST_CPU_CACHELINE_SIZE@
 
@@ -133,7 +131,13 @@
 
 #define LLVM_AR "@LLVM_AR@"
 
+#define LLVM_OBJCOPY "@LLVM_OBJCOPY@"
+
+#define LLVM_OBJDUMP "@LLVM_OBJDUMP@"
+
 #define LLVM_SPIRV "@LLVM_SPIRV@"
+
+#define VORTEX_RUNTIME_PATH "@VORTEX_RUNTIME_PATH@"
 
 /* "Using LLVM 6.0" */
 #cmakedefine LLVM_6_0

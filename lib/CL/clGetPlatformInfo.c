@@ -104,6 +104,10 @@ POname(clGetPlatformInfo)(cl_platform_id   platform,
                                ", CUDA"
 #endif
 
+#ifdef BUILD_VORTEX
+                               ", VORTEX"
+#endif
+
 #ifdef BUILD_HSA
                                ", HSA"
 #endif

@@ -256,7 +256,7 @@ macro(find_program_or_die OUTPUT_VAR PROG_NAME DOCSTRING)
   endif()
 endmacro()
 
-find_program_or_die( CLANG "clang" "clang binary")
+find_program_or_die(CLANG "clang" "clang binary")
 execute_process(COMMAND "${CLANG}" "--version" OUTPUT_VARIABLE LLVM_CLANG_VERSION RESULT_VARIABLE CLANG_RES)
 # TODO this should be optional
 find_program_or_die( CLANGXX "clang++" "clang++ binary")
@@ -271,6 +271,8 @@ find_program_or_die(LLVM_AR   "llvm-ar"   "LLVM archiver")
 find_program_or_die(LLVM_AS   "llvm-as"   "LLVM assembler")
 find_program_or_die(LLVM_LINK "llvm-link" "LLVM IR linker")
 find_program_or_die(LLVM_LLI  "lli"       "LLVM interpreter")
+find_program_or_die(LLVM_OBJCOPY "llvm-objcopy" "LLVM object copying")
+find_program_or_die(LLVM_OBJDUMP "llvm-objdump" "LLVM object dump")
 
 if(NOT DEFINED LLVM_SPIRV)
   find_program(LLVM_SPIRV NAMES "llvm-spirv${LLVM_BINARY_SUFFIX}${CMAKE_EXECUTABLE_SUFFIX}" "llvm-spirv${CMAKE_EXECUTABLE_SUFFIX}" HINTS "${LLVM_BINDIR}" "${LLVM_CONFIG_LOCATION}" "${LLVM_PREFIX}" "${LLVM_PREFIX_BIN}")

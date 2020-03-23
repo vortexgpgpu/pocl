@@ -1,13 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
+#include <unistd.h>
 #include <CL/opencl.h>
 #include <string.h>
 
-#define MAX_KERNELS 1
-#define KERNEL_NAME "vecadd"
-#define KERNEL_FILE_NAME "vecadd.pocl"
 #define SIZE 4
 #define NUM_WORK_GROUPS 2
+#define KERNEL_NAME "vecadd"
 
 #define CL_CHECK(_expr)                                                \
    do {                                                                \
@@ -31,75 +31,12 @@
      _ret;                                                             \
    })
 
-/*typedef struct {
-  const char* name;
-  const void* pfn;
-  uint32_t num_args;
-  uint32_t num_locals;
-  const uint8_t* arg_types;
-  const uint32_t* local_sizes;
-} kernel_info_t;
-
-static int g_num_kernels = 0;
-static kernel_info_t g_kernels [MAX_KERNELS];
-
-int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes) {
-  if (g_num_kernels == MAX_KERNELS)
-    return -1;
-  kernel_info_t* kernel = g_kernels + g_num_kernels++;
-  kernel->name = name;
-  kernel->pfn = pfn;
-  kernel->num_args = num_args;
-  kernel->num_locals = num_locals;
-  kernel->arg_types = arg_types;
-  kernel->local_sizes = local_sizes;
-  return 0;
-}
-
-int _pocl_query_kernel(const char* name, const void** p_pfn, uint32_t* p_num_args, uint32_t* p_num_locals, const uint8_t** p_arg_types, const uint32_t** p_local_sizes) {
-  for (int i = 0; i < g_num_kernels; ++i) {
-    kernel_info_t* kernel = g_kernels + i;
-    if (strcmp(kernel->name, name) != 0)
-      continue;
-    if (p_pfn) *p_pfn = kernel->pfn;
-    if (p_num_args) *p_num_args = kernel->num_args;
-    if (p_num_locals) *p_num_locals = kernel->num_locals;
-    if (p_arg_types) *p_arg_types = kernel->arg_types;
-    if (p_local_sizes) *p_local_sizes = kernel->local_sizes;
-    return 0;
-  }
-  return -1;
-}*/
-
-struct pocl_context_t {
-  uint32_t num_groups[3];
-  uint32_t global_offset[3];
-  uint32_t local_size[3];
-  uint8_t *printf_buffer;
-  uint32_t *printf_buffer_position;
-  uint32_t printf_buffer_capacity;
-  uint32_t work_dim;
-};
-
-typedef void (*pocl_wg_func) (
-  void * /* args */,
-  void * /* pocl_context */,
-  uint32_t /* group_x */,
-  uint32_t /* group_y */,
-  uint32_t /* group_z */
-);
-
-void pocl_spawn(struct pocl_context_t * ctx, const pocl_wg_func pfn, void * args) {
-  uint32_t x, y, z;
-  for (z = 0; z < ctx->num_groups[2]; ++z)
-    for (y = 0; y < ctx->num_groups[1]; ++y)
-      for (x = 0; x < ctx->num_groups[0]; ++x)
-        (pfn)(args, ctx, x, y, z);
-}
-
 int exitcode = 0;
+char* kernel_file = NULL;
+char* kernel_bin = NULL;
+
 cl_context context = NULL;
-cl_command_queue commandQueue = NULL;
+cl_command_queue cmd_queue = NULL;
 cl_program program = NULL;
 cl_kernel kernel = NULL;
 cl_mem a_memobj = NULL;
@@ -108,31 +45,108 @@ cl_mem c_memobj = NULL;
 cl_int *A = NULL;
 cl_int *B = NULL;
 cl_int *C = NULL;
-char *binary = NULL;
 
 void cleanup() {
-  if (commandQueue) clReleaseCommandQueue(commandQueue);
+  if (kernel_bin) free(kernel_bin);
+  if (cmd_queue) clReleaseCommandQueue(cmd_queue);
   if (kernel) clReleaseKernel(kernel);
   if (program) clReleaseProgram(program);
   if (a_memobj) clReleaseMemObject(a_memobj);
   if (b_memobj) clReleaseMemObject(b_memobj);
   if (c_memobj) clReleaseMemObject(c_memobj);  
   if (context) clReleaseContext(context);
-  if (binary) free(binary);
   if (A) free(A);
   if (B) free(B);
   if (C) free(C);
 }
 
+int open_kernel_file(const char* filename, char** source_str, size_t* source_size) {
+  assert(filename && source_str && source_size);
+
+  FILE* fp = fopen(filename, "r");
+  if (NULL == fp) {
+    fprintf(stderr, "Failed to load kernel.");
+    return -1;
+  }
+  fseek(fp , 0 , SEEK_END);
+  long fsize = ftell(fp);
+  rewind(fp);
+
+  *source_str = (char*)malloc(fsize);
+  *source_size = fread(*source_str, 1, fsize, fp);
+  
+  fclose(fp);
+  
+  return 0;
+}
+
+int find_device(char* name, cl_platform_id platform_id, cl_device_id *device_id) {
+  cl_device_id device_ids[64];
+  cl_uint num_devices = 0;
+
+  CL_CHECK(clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_ALL, 64, device_ids, &num_devices));
+
+  for (int i=0; i<num_devices; i++) 	{
+		char buffer[1024];
+		cl_uint buf_uint;
+		cl_ulong buf_ulong;
+
+		CL_CHECK(clGetDeviceInfo(device_ids[i], CL_DEVICE_NAME, sizeof(buffer), buffer, NULL));
+		
+    if (0 == strncmp(buffer, name, strlen(name))) {
+      *device_id = device_ids[i];
+      return 0;
+    }
+	}
+
+  return 1;
+}
+
+static void show_usage() {
+  printf("Vecadd Test.\n");
+  printf("Usage: -k:<kernel-file> [-h: help]\n");
+}
+
+static void parse_args(int argc, char **argv) {
+  int c;
+  while ((c = getopt(argc, argv, "k:h?")) != -1) {
+    switch (c) {
+    case 'k':
+      kernel_file = optarg;
+      break;
+    case 'h':
+    case '?': {
+      show_usage();
+      exit(0);
+    } break;
+    default:
+      show_usage();
+      exit(-1);
+    }
+  }
+
+  if (NULL == kernel_file) {
+    show_usage();
+    exit(-1);
+  }
+}
+
 int main (int argc, char **argv) {  
   cl_platform_id platform_id;
-  cl_device_id device_id;
-  size_t binary_size;
+  cl_device_id device_id;  
+  cl_int binary_status = 0;
+  size_t kernel_size = 0;
   int i;
+
+  parse_args(argc, argv);
+
+  // Open kernel file  
+  if (0 != open_kernel_file(kernel_file, &kernel_bin, &kernel_size))
+    return -1;
   
   // Getting platform and device information
   CL_CHECK(clGetPlatformIDs(1, &platform_id, NULL));
-  CL_CHECK(clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, 1, &device_id, NULL));
+  CL_CHECK(find_device("vortex", platform_id, &device_id));
 
   // Creating context.
   context = CL_CHECK2(clCreateContext(NULL, 1, &device_id, NULL, NULL,  &_err));
@@ -154,7 +168,7 @@ int main (int argc, char **argv) {
   }
 
   // Create program from kernel source
-  program = CL_CHECK2(clCreateProgramWithBuiltInKernels(context, 1, &device_id, KERNEL_NAME, &_err));	
+  program = CL_CHECK2(clCreateProgramWithBinary(context, 1, &device_id, &kernel_size, &kernel_bin, &binary_status, &_err));	
 
   // Build program
   CL_CHECK(clBuildProgram(program, 1, &device_id, NULL, NULL, NULL));
@@ -168,20 +182,20 @@ int main (int argc, char **argv) {
   CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&c_memobj));
 
   // Creating command queue
-  commandQueue = CL_CHECK2(clCreateCommandQueue(context, device_id, 0, &_err));
+  cmd_queue = CL_CHECK2(clCreateCommandQueue(context, device_id, 0, &_err));
 
 	// Copy lists to memory buffers
-  CL_CHECK(clEnqueueWriteBuffer(commandQueue, a_memobj, CL_TRUE, 0, SIZE * sizeof(float), A, 0, NULL, NULL));
-  CL_CHECK(clEnqueueWriteBuffer(commandQueue, b_memobj, CL_TRUE, 0, SIZE * sizeof(float), B, 0, NULL, NULL));
+  CL_CHECK(clEnqueueWriteBuffer(cmd_queue, a_memobj, CL_TRUE, 0, SIZE * sizeof(float), A, 0, NULL, NULL));
+  CL_CHECK(clEnqueueWriteBuffer(cmd_queue, b_memobj, CL_TRUE, 0, SIZE * sizeof(float), B, 0, NULL, NULL));
 
   // Execute the kernel
   size_t globalItemSize = SIZE;
   size_t localItemSize = SIZE/NUM_WORK_GROUPS;
-  CL_CHECK(clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL, &globalItemSize, &localItemSize, 0, NULL, NULL));
-  CL_CHECK(clFinish(commandQueue));
+  CL_CHECK(clEnqueueNDRangeKernel(cmd_queue, kernel, 1, NULL, &globalItemSize, &localItemSize, 0, NULL, NULL));
+  CL_CHECK(clFinish(cmd_queue));
 
   // Read from device back to host.
-  CL_CHECK(clEnqueueReadBuffer(commandQueue, c_memobj, CL_TRUE, 0, SIZE * sizeof(float), C, 0, NULL, NULL));
+  CL_CHECK(clEnqueueReadBuffer(cmd_queue, c_memobj, CL_TRUE, 0, SIZE * sizeof(float), C, 0, NULL, NULL));
 
   // Test if correct answer
   int exitcode = 0;

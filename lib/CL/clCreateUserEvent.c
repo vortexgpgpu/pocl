@@ -22,7 +22,7 @@ POname(clCreateUserEvent)(cl_context     context ,
       event->context = context;
       pocl_user_event_data *p = malloc (sizeof (pocl_user_event_data));
       assert (p);
-    #ifdef ENABLE_PTHREAD
+    #ifdef BUILD_PTHREAD
       pthread_cond_init (&p->wakeup_cond, NULL);
     #endif
       event->data = p;

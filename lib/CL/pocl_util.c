@@ -30,7 +30,7 @@
 
 
 #ifndef _MSC_VER
-#if defined(OCS_AVAILABLE) || !defined(NEWLIB_BSP)
+#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
 #include <dirent.h>
 #endif
 #include <sys/resource.h>

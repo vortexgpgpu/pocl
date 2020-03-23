@@ -62,7 +62,7 @@
 
 typedef struct pocl_kernel_metadata_s pocl_kernel_metadata_t;
 
-#ifdef ENABLE_PTHREAD
+#ifdef BUILD_PTHREAD
 
 #include <pthread.h>
 

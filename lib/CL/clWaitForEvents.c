@@ -69,7 +69,7 @@ POname(clWaitForEvents)(cl_uint              num_events ,
       pocl_user_event_data *p = e->data;
       if (e->command_type == CL_COMMAND_USER)
         {
-        #ifdef ENABLE_PTHREAD  
+        #ifdef BUILD_PTHREAD  
           while (e->status > CL_COMPLETE)
             {
               time_to_wait.tv_sec = time (NULL) + 1;            
