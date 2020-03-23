@@ -246,9 +246,10 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   pocl_init_cpu_device_infos(device);
 
   device->vendor = "Georgia Tech";
-  device->vendor_id = 0xbadf00d;
+  device->vendor_id = 0;
   device->type = CL_DEVICE_TYPE_GPU;
 
+  device->address_bits = HOST_DEVICE_ADDRESS_BITS;  
   device->llvm_cpu = "";
 
   err = pocl_topology_detect_device_info(device);
@@ -533,7 +534,7 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
         ctx.local_size[i] = pc->local_size[i];        
       }
       ctx.work_dim = pc->work_dim;
-      ctx.printf_buffer_capacity = pc->printf_buffer_capacity;
+      ctx.printf_buffer_capacity = 0;
       ctx.printf_buffer = 0;
       ctx.printf_buffer_position = 0;
       memcpy(abuf_ptr, &ctx, sizeof(kernel_context_t));
@@ -622,9 +623,21 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
           "#include \"vx_api/vx_api.h\"\n"     
           "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"  
           "int main() {\n"
+          //"  printf(\"begin...\\n\");"
           "  struct context_t* ctx = (struct context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
           "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n"
+          //"  printf(\"ctx->work_dim\\n\", ctx->work_dim);\n"
+          //"  for (int i = 0; i < 3; ++i) {\n"
+          //"    printf(\"ctx->num_groups[%d]=%d\\n\", i, ctx->num_groups[i]);\n"
+          //"    printf(\"ctx->global_offset[%d]=%d\\n\", i, ctx->global_offset[i]);\n"
+          //"    printf(\"ctx->local_size[%d]=%d\\n\", i, ctx->local_size[i]);\n"
+          //"  }\n"  
+          //"  uint32_t* w_args = (uint32_t*)args;\n"
+          //"  printf(\"w_args[0]=%x -> %x\\n\", w_args[0], *(uint32_t*)w_args[0]);\n"
+          //"  printf(\"w_args[1]=%x -> %x\\n\", w_args[1], *(uint32_t*)w_args[1]);\n"
+          //"  printf(\"w_args[2]=%x -> %x\\n\", w_args[2], *(uint32_t*)w_args[2]);\n"
           "  pocl_spawn(ctx, (void*)_pocl_kernel_vecadd_workgroup, args);\n"
+          //"  printf(\"done!\\n\");"
           "  return 0;\n"
           "}\n";
 
@@ -638,7 +651,9 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     if (err)
       return err;
 
-    const char *cmd_args[] = {CLANG, "-O3", "-march=rv32im", "-mabi=ilp32", 
+    const char *cmd_args[] = {CLANG, 
+      "-O3",
+      "-march=rv32im", "-mabi=ilp32", 
       "-fno-rtti" ,"-fno-exceptions",       
       "-ffreestanding",
       "-nostartfiles", 
