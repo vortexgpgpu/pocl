@@ -292,12 +292,6 @@ pocl_vortex_malloc(cl_device_id device, cl_mem_flags flags, size_t size,
     std::abort(); //TODO
   }
 
-  if (flags & CL_MEM_COPY_HOST_PTR) {
-    std::abort(); //TODO
-  }
-
-  assert(host_ptr == NULL);
-
   auto buf = vx_buf_alloc(d->vx_device, size);
   if (nullptr == buf)
     return nullptr;
@@ -306,6 +300,12 @@ pocl_vortex_malloc(cl_device_id device, cl_mem_flags flags, size_t size,
   if (0 != vx_alloc_dev_mem(d->vx_device, size, &dev_mem_addr)) {
     vx_buf_release(buf);
     return nullptr;
+  }
+
+  if (flags & CL_MEM_COPY_HOST_PTR) {
+    auto buf_ptr = vx_buf_ptr(buf);
+    memcpy((void*)buf_ptr, host_ptr, size);
+    vx_copy_to_dev(buf, dev_mem_addr, size, 0);
   }
 
   auto buf_data = new vx_buffer_data_t();
