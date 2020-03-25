@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <assert.h>
 #include <unistd.h>
 #include <CL/opencl.h>
 #include <string.h>
@@ -22,7 +23,7 @@
 #define CL_CHECK2(_expr)                                               \
    ({                                                                  \
      cl_int _err = CL_INVALID_VALUE;                                   \
-     typeof(_expr) _ret = _expr;                                       \
+     decltype(_expr) _ret = _expr;                                       \
      if (_err != CL_SUCCESS) {                                         \
        printf("OpenCL Error: '%s' returned %d!\n", #_expr, (int)_err); \
 	   cleanup();			                                                   \
@@ -46,21 +47,7 @@ cl_int *A = NULL;
 cl_int *B = NULL;
 cl_int *C = NULL;
 
-void cleanup() {
-  if (kernel_bin) free(kernel_bin);
-  if (cmd_queue) clReleaseCommandQueue(cmd_queue);
-  if (kernel) clReleaseKernel(kernel);
-  if (program) clReleaseProgram(program);
-  if (a_memobj) clReleaseMemObject(a_memobj);
-  if (b_memobj) clReleaseMemObject(b_memobj);
-  if (c_memobj) clReleaseMemObject(c_memobj);  
-  if (context) clReleaseContext(context);
-  if (A) free(A);
-  if (B) free(B);
-  if (C) free(C);
-}
-
-int open_kernel_file(const char* filename, char** source_str, size_t* source_size) {
+static int read_kernel_file(const char* filename, char** source_str, size_t* source_size) {
   assert(filename && source_str && source_size);
 
   FILE* fp = fopen(filename, "r");
@@ -80,7 +67,21 @@ int open_kernel_file(const char* filename, char** source_str, size_t* source_siz
   return 0;
 }
 
-int find_device(char* name, cl_platform_id platform_id, cl_device_id *device_id) {
+static void cleanup() {
+  if (kernel_bin) free(kernel_bin);
+  if (cmd_queue) clReleaseCommandQueue(cmd_queue);
+  if (kernel) clReleaseKernel(kernel);
+  if (program) clReleaseProgram(program);
+  if (a_memobj) clReleaseMemObject(a_memobj);
+  if (b_memobj) clReleaseMemObject(b_memobj);
+  if (c_memobj) clReleaseMemObject(c_memobj);  
+  if (context) clReleaseContext(context);
+  if (A) free(A);
+  if (B) free(B);
+  if (C) free(C);
+}
+
+static int find_device(char* name, cl_platform_id platform_id, cl_device_id *device_id) {
   cl_device_id device_ids[64];
   cl_uint num_devices = 0;
 
@@ -141,7 +142,7 @@ int main (int argc, char **argv) {
   parse_args(argc, argv);
 
   // Open kernel file  
-  if (0 != open_kernel_file(kernel_file, &kernel_bin, &kernel_size))
+  if (0 != read_kernel_file(kernel_file, &kernel_bin, &kernel_size))
     return -1;
   
   // Getting platform and device information

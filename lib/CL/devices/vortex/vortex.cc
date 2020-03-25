@@ -636,7 +636,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
           //"  printf(\"w_args[0]=%x -> %x\\n\", w_args[0], *(uint32_t*)w_args[0]);\n"
           //"  printf(\"w_args[1]=%x -> %x\\n\", w_args[1], *(uint32_t*)w_args[1]);\n"
           //"  printf(\"w_args[2]=%x -> %x\\n\", w_args[2], *(uint32_t*)w_args[2]);\n"
-          "  pocl_spawn(ctx, (void*)_pocl_kernel_vecadd_workgroup, args);\n"
+          "  pocl_spawn(ctx, (void*)" << pfn_workgroup_string << ", args);\n"
           //"  printf(\"done!\\n\");"
           "  return 0;\n"
           "}\n";
@@ -654,10 +654,10 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     const char *cmd_args[] = {CLANG, 
       "-O3",
       "-march=rv32im", "-mabi=ilp32", 
-      "-fno-rtti" ,"-fno-exceptions",       
-      "-ffreestanding",
-      "-nostartfiles", 
-      "-Wl,--gc-sections",
+      "-fno-rtti" ,"-fno-exceptions",  // disable RTTI and exceptions     
+      "-ffreestanding", // relax main() function signature
+      "-nostartfiles", // disable default startup
+      "-Wl,--gc-sections", // eliminate unsued code and data      
       //"-nostdlib", 
       //"-nodefaultlibs",      
       "-Wl,-Bstatic,-T" VORTEX_RUNTIME_PATH "/mains/vortex_link.ld", 
@@ -668,8 +668,12 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       VORTEX_RUNTIME_PATH "/intrinsics/vx_intrinsics.s",
       VORTEX_RUNTIME_PATH "/io/vx_io.s",
       VORTEX_RUNTIME_PATH "/io/vx_io.c",
-      VORTEX_RUNTIME_PATH "/vx_api/vx_api.c",
-      wrapper_cc, kernel_obj, "-o", kernel_elf, nullptr};
+      VORTEX_RUNTIME_PATH "/vx_api/vx_api.c",      
+      wrapper_cc, 
+      kernel_obj, 
+      "-lm",  // link std math library
+      "-o", kernel_elf, 
+      nullptr};
     err = pocl_invoke_clang(device, cmd_args);
     if (err)
       return err;
@@ -686,7 +690,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
 
   {
     std::stringstream ss;
-    ss << "/home/blaise/dev/riscv-gnu-toolchain/drops/bin/riscv32-unknown-elf-objdump" << " -D " << kernel_elf << " > kernel.dump";
+    ss << LLVM_OBJDUMP << " -D " << kernel_elf << " > kernel.dump";
     std::string s = ss.str();
     err = system(s.c_str());
     if (err)
