@@ -47,9 +47,9 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - git clone https://github.com/pocl/pocl.git
 - cd pocl
 - export RISC_GNU_TOOLS_PATH=~/dev/riscv-gnu-toolchain/drops
-- export VORTEX_DRIVER_INC=~/dev/vortex_opae/driver/sw/include
-- export VORTEX_DRIVER_LIB=~/dev/vortex_opae/driver/sw/simx/libvortex.so
-- export VORTEX_RUNTIME_PATH=/home/blaise/dev/vortex_opae/runtime
+- export VORTEX_DRIVER_INC=~/dev/vortex_live/driver/sw/include
+- export VORTEX_DRIVER_LIB=~/dev/vortex_live/driver/sw/simx/libvortex.so
+- export VORTEX_RUNTIME_PATH=/home/blaise/dev/vortex_live/runtime
 
 - mkdir build_vortex_rt
 - cd build_vortex_rt

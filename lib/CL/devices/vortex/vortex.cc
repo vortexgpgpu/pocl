@@ -232,8 +232,9 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   if (d == NULL)
     return CL_OUT_OF_HOST_MEMORY;
 
-  auto vx_device = vx_dev_open();
-  if (vx_device == NULL) {
+  vx_device_h vx_device;
+  err = vx_dev_open(&vx_device);
+  if (err != 0) {
     free(d);
     return CL_DEVICE_NOT_FOUND;
   }
@@ -253,7 +254,7 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   device->llvm_cpu = "";
 
   err = pocl_topology_detect_device_info(device);
-  if (err)
+  if (err != 0)
     ret = CL_INVALID_DEVICE;
 
   POCL_INIT_LOCK(d->cq_lock);
@@ -287,25 +288,32 @@ pocl_vortex_malloc(cl_device_id device, cl_mem_flags flags, size_t size,
   auto d = (vx_device_data_t *)device->data;
   void *b = NULL;
   pocl_global_mem_t *mem = device->global_memory;
+  int err;
 
   if (flags & CL_MEM_USE_HOST_PTR) {
     std::abort(); //TODO
   }
 
-  auto buf = vx_buf_alloc(d->vx_device, size);
-  if (nullptr == buf)
+  vx_buffer_h buf;
+  err = vx_alloc_shared_mem(d->vx_device, size, &buf);
+  if (err != 0)
     return nullptr;
 
   size_t dev_mem_addr;
-  if (0 != vx_alloc_dev_mem(d->vx_device, size, &dev_mem_addr)) {
+  err = vx_alloc_dev_mem(d->vx_device, size, &dev_mem_addr);
+  if (err != 0) {
     vx_buf_release(buf);
     return nullptr;
   }
 
   if (flags & CL_MEM_COPY_HOST_PTR) {
-    auto buf_ptr = vx_buf_ptr(buf);
+    auto buf_ptr = vx_host_ptr(buf);
     memcpy((void*)buf_ptr, host_ptr, size);
-    vx_copy_to_dev(buf, dev_mem_addr, size, 0);
+    err = vx_copy_to_dev(buf, dev_mem_addr, size, 0);
+    if (err != 0) {
+      vx_buf_release(buf);
+      return nullptr;
+    }
   }
 
   auto buf_data = new vx_buffer_data_t();
@@ -450,7 +458,7 @@ void pocl_vortex_write(void *data,
                        size_t offset, 
                        size_t size) {
   auto buf_data = (vx_buffer_data_t*)dst_mem_id->mem_ptr;
-  auto buf_ptr = vx_buf_ptr(buf_data->vx_buffer);
+  auto buf_ptr = vx_host_ptr(buf_data->vx_buffer);
   memcpy((char *)buf_ptr + offset, host_ptr, size);
   auto vx_err = vx_copy_to_dev(buf_data->vx_buffer, buf_data->dev_mem_addr, offset + size, 0);
   assert(0 == vx_err);
@@ -465,7 +473,7 @@ void pocl_vortex_read(void *data,
   auto buf_data = (vx_buffer_data_t*)src_mem_id->mem_ptr;
   auto vx_err = vx_copy_from_dev(buf_data->vx_buffer, buf_data->dev_mem_addr, offset + size, 0);
   assert(0 == vx_err);
-  auto buf_ptr = vx_buf_ptr(buf_data->vx_buffer);
+  auto buf_ptr = vx_host_ptr(buf_data->vx_buffer);
   assert(buf_ptr);
   memcpy(host_ptr, (char *)buf_ptr + offset, size);
 }
@@ -485,7 +493,7 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
   cl_program program = kernel->program;
   pocl_kernel_metadata_t *meta = kernel->meta;
   struct pocl_context *pc = &cmd->command.run.pc;
-  int vx_err;
+  int err;
   
   assert(data != NULL);
   d = (struct vx_device_data_t *)data;
@@ -517,12 +525,13 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
   assert(abuf_size <= 0xffff);
 
   // allocate kernel arguments buffer
-  auto abuf = vx_buf_alloc(d->vx_device, abuf_size);
-  assert(abuf);
+  vx_buffer_h abuf;
+  err = vx_alloc_shared_mem(d->vx_device, abuf_size, &abuf);
+  assert(0 == err);
 
   // update kernel arguments buffer
   {
-    auto abuf_ptr = (uint8_t*)vx_buf_ptr(abuf);
+    auto abuf_ptr = (uint8_t*)vx_host_ptr(abuf);
     assert(abuf_ptr);
 
     // write context data
@@ -581,21 +590,21 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
     }
 
     // upload kernel arguments buffer
-    vx_err = vx_copy_to_dev(abuf, args_base_addr, abuf_size, 0);
-    assert(0 == vx_err);
+    err = vx_copy_to_dev(abuf, args_base_addr, abuf_size, 0);
+    assert(0 == err);
     
     // upload kernel to device
     {    
-      vx_err = vx_upload_kernel_bytes(d->vx_device, program->binaries[dev_i], program->binary_sizes[dev_i]);
-      assert(0 == vx_err);
+      err = vx_upload_kernel_bytes(d->vx_device, program->binaries[dev_i], program->binary_sizes[dev_i]);
+      assert(0 == err);
     }
   }
     
   // quick off kernel execution
-  vx_err = vx_start(d->vx_device);
-  assert(0 == vx_err);
-  vx_err = vx_ready_wait(d->vx_device, -1);
-  assert(0 == vx_err);
+  err = vx_start(d->vx_device);
+  assert(0 == err);
+  err = vx_ready_wait(d->vx_device, -1);
+  assert(0 == err);
 
   pocl_release_dlhandle_cache(cmd);
 }
@@ -644,11 +653,11 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     auto content = ss.str();
     err = pocl_write_tempfile(wrapper_cc, "/tmp/pocl_vortex_kernel", ".c",
                               content.c_str(), content.size(), nullptr);
-    if (err)
+    if (err != 0)
       return err;
  
     err = pocl_mk_tempname(kernel_elf, "/tmp/pocl_vortex_kernel", ".elf", nullptr);
-    if (err)
+    if (err != 0)
       return err;
 
     const char *cmd_args[] = {CLANG, 
@@ -662,7 +671,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       //"-nodefaultlibs",      
       "-Wl,-Bstatic,-T" VORTEX_RUNTIME_PATH "/mains/vortex_link.ld", 
       "-I" VORTEX_RUNTIME_PATH, 
-      VORTEX_RUNTIME_PATH "/startup/vx_start.s",            
+      VORTEX_RUNTIME_PATH "/startup/vx_start.S",            
       //VORTEX_RUNTIME_PATH "/fileio/fileio.s",
       VORTEX_RUNTIME_PATH "/newlib/newlib.c",
       VORTEX_RUNTIME_PATH "/intrinsics/vx_intrinsics.s",
@@ -675,7 +684,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       "-o", kernel_elf, 
       nullptr};
     err = pocl_invoke_clang(device, cmd_args);
-    if (err)
+    if (err != 0)
       return err;
   }
 
@@ -684,7 +693,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     ss << LLVM_OBJCOPY << " -O binary " << kernel_elf << " " << kernel_out;
     std::string s = ss.str();
     err = system(s.c_str());
-    if (err)
+    if (err != 0)
       return err;
   }
 
@@ -693,7 +702,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     ss << LLVM_OBJDUMP << " -D " << kernel_elf << " > kernel.dump";
     std::string s = ss.str();
     err = system(s.c_str());
-    if (err)
+    if (err != 0)
       return err;
   }
   
