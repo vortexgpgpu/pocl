@@ -1,7 +1,7 @@
 RISCV_TOOL_PATH ?= $(wildcard ~/dev/riscv-gnu-toolchain/drops)
 POCLCC_PATH ?= $(wildcard ~/dev/pocl/drops_vortex_cc)
 POCLRT_PATH ?= $(wildcard ~/dev/pocl/drops_vortex_rt)
-VORTEX_PATH ?= $(wildcard ~/dev/vortex_opae/driver/sw/simx)
+VORTEX_PATH ?= $(wildcard ~/dev/vortex_live/driver/sw/rtlsim)
 
 CXXFLAGS += -std=c++11 -O0 -g -Wall -fpermissive -Wextra -pedantic -Wfatal-errors
 

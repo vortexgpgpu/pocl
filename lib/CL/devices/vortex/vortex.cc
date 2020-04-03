@@ -470,8 +470,12 @@ void pocl_vortex_read(void *data,
                       cl_mem src_buf,
                       size_t offset, 
                       size_t size) {
+  int vx_err;
+  struct vx_device_data_t *d = (struct vx_device_data_t *)data;                      
   auto buf_data = (vx_buffer_data_t*)src_mem_id->mem_ptr;
-  auto vx_err = vx_copy_from_dev(buf_data->vx_buffer, buf_data->dev_mem_addr, offset + size, 0);
+  vx_err = vx_flush_caches(d->vx_device, buf_data->dev_mem_addr, offset + size);
+  assert(0 == vx_err);
+  vx_err = vx_copy_from_dev(buf_data->vx_buffer, buf_data->dev_mem_addr, offset + size, 0);
   assert(0 == vx_err);
   auto buf_ptr = vx_host_ptr(buf_data->vx_buffer);
   assert(buf_ptr);
