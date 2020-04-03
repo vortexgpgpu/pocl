@@ -44,7 +44,7 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 
 ## build pocl for Vortex
 
-- git clone https://github.com/pocl/pocl.git
+- git clone https://github.gatech.edu/casl/pocl.git
 - cd pocl
 - export RISC_GNU_TOOLS_PATH=~/dev/riscv-gnu-toolchain/drops
 - export VORTEX_DRIVER_INC=~/dev/vortex_live/driver/sw/include
