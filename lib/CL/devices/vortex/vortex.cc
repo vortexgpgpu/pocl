@@ -60,6 +60,8 @@ GEN_PROTOTYPES(basic)
 #endif
 
 #include <sstream>
+#include <vector>
+#include <stdarg.h>
 
 /* Maximum kernels occupancy */
 #define MAX_KERNELS 16
@@ -615,6 +617,34 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
 
 #if defined(OCS_AVAILABLE)
 
+class StaticStrFormat {
+public:
+
+  StaticStrFormat(size_t size) : store_(size), index_(0) {}
+
+  const char* format(const char* format, ...) {
+    auto & buffer = store_.at(index_++);
+
+    va_list args_orig, args_copy;
+    va_start(args_orig, format);
+
+    va_copy(args_copy, args_orig);
+    size_t size = vsnprintf(nullptr, 0, format, args_copy) + 1;
+    va_end(args_copy);
+
+    buffer.resize(size);
+
+    vsnprintf(buffer.data(), size, format, args_orig);       
+    va_end(args_orig);
+
+    return buffer.data();
+  }
+
+private:
+  std::vector<std::vector<char>> store_;
+  size_t index_;
+};
+
 int pocl_llvm_build_vortex_program(cl_kernel kernel, 
                                    unsigned device_i, 
                                    cl_device_id device,
@@ -623,6 +653,17 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   char kernel_elf[POCL_FILENAME_LENGTH];
   cl_program program = kernel->program;
   int err;
+
+  const char* vx_rt_path = getenv("VORTEX_RUNTIME_PATH"); 
+  if (nullptr == vx_rt_path) {
+    vx_rt_path = VORTEX_RUNTIME_PATH;
+    POCL_MSG_PRINT_INFO("using $VORTEX_RUNTIME_PATH=%s!\n", vx_rt_path);    
+  }
+
+  if (!pocl_exists(vx_rt_path)) {
+    POCL_MSG_ERR("Vortex runtime path '%s' doesn't exist\n", vx_rt_path);
+    return -1;
+  }
   
   {  
     char wrapper_cc[POCL_FILENAME_LENGTH];    
@@ -664,6 +705,8 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     if (err != 0)
       return err;
 
+    StaticStrFormat ssfmt(8);
+
     const char *cmd_args[] = {CLANG, 
       "-O3",
       "-march=rv32im", "-mabi=ilp32", 
@@ -673,15 +716,15 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       "-Wl,--gc-sections", // eliminate unsued code and data      
       //"-nostdlib", 
       //"-nodefaultlibs",      
-      "-Wl,-Bstatic,-T" VORTEX_RUNTIME_PATH "/mains/vortex_link.ld", 
-      "-I" VORTEX_RUNTIME_PATH, 
-      VORTEX_RUNTIME_PATH "/startup/vx_start.S",            
-      //VORTEX_RUNTIME_PATH "/fileio/fileio.s",
-      VORTEX_RUNTIME_PATH "/newlib/newlib.c",
-      VORTEX_RUNTIME_PATH "/intrinsics/vx_intrinsics.s",
-      VORTEX_RUNTIME_PATH "/io/vx_io.s",
-      VORTEX_RUNTIME_PATH "/io/vx_io.c",
-      VORTEX_RUNTIME_PATH "/vx_api/vx_api.c",      
+      ssfmt.format("-Wl,-Bstatic,-T%s/mains/vortex_link.ld", vx_rt_path), 
+      ssfmt.format("-I%s", vx_rt_path), 
+      ssfmt.format("%s/startup/vx_start.S", vx_rt_path),            
+      //ssfmt.format("%s/fileio/fileio.s", vx_rt_path)
+      //ssfmt.format("%s/newlib/newlib.c", vx_rt_path),
+      ssfmt.format("%s/intrinsics/vx_intrinsics.s", vx_rt_path),
+      //ssfmt.format("%s/io/vx_io.s", vx_rt_path),
+      //ssfmt.format("%s/io/vx_io.c", vx_rt_path),
+      ssfmt.format("%s/vx_api/vx_api.c", vx_rt_path),      
       wrapper_cc, 
       kernel_obj, 
       "-lm",  // link std math library
