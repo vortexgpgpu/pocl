@@ -137,6 +137,8 @@
 
 #define LLVM_SPIRV "@LLVM_SPIRV@"
 
+#define LLVM_PREFIX "@LLVM_PREFIX@"
+
 #define VORTEX_RUNTIME_PATH "@VORTEX_RUNTIME_PATH@"
 
 /* "Using LLVM 6.0" */

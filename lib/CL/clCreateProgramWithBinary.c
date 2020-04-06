@@ -154,20 +154,15 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
           memcpy (program->pocl_binaries[i], binaries[i], lengths[i]);
 
           pocl_binary_set_program_buildhash (program, i, binaries[i]);
+
+          POCL_GOTO_ERROR_ON(pocl_binary_deserialize (program, i),
+                             CL_INVALID_BINARY,
+                             "Could not unpack a pocl binary\n");        
+
           int error = pocl_cache_create_program_cachedir
             (program, i, NULL, 0, program_bc_path);
           POCL_GOTO_ERROR_ON((error != 0), CL_BUILD_PROGRAM_FAILURE,
-                             "Could not create program cachedir");
-          POCL_GOTO_ERROR_ON(pocl_binary_deserialize (program, i),
-                             CL_INVALID_BINARY,
-                             "Could not unpack a pocl binary\n");
-          /* read program.bc, can be useful later */
-          if (pocl_exists (program_bc_path))
-            {
-              pocl_read_file (program_bc_path,
-                              (char **)(&program->binaries[i]),
-                              (uint64_t *)(&program->binary_sizes[i]));
-            }
+                             "Could not create program cachedir");         
 
           if (binary_status != NULL)
             binary_status[i] = CL_SUCCESS;

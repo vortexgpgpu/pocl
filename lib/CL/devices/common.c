@@ -1110,19 +1110,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
     }
   }
 #elif defined(BUILD_VORTEX)  
-  #if defined(OCS_AVAILABLE)
-  { 
-    // override program.bc with binrary content
-    uint64_t content_size;
-    char *content;
-    char program_bc_path[POCL_FILENAME_LENGTH];
-    cl_program p = run_cmd->kernel->program;
-    unsigned dev_i = command->device_i;
-    pocl_cache_program_bc_path(program_bc_path, p, dev_i);
-    pocl_read_file(module_fn, &content, &content_size);        
-    pocl_write_file(program_bc_path, content, content_size, 0, 0);
-  }
-  #endif
+   // Do nothing!
 #else
   ci->dlhandle = dlopen (module_fn, RTLD_NOW | RTLD_LOCAL);
   dl_error = dlerror ();
