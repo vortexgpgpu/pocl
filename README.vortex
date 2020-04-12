@@ -18,8 +18,7 @@
 - mkdir build
 - cd build
 - export RISC_GNU_TOOLS_PATH=$PWD/../drops
-- newlib: ../configure --prefix=$RISC_GNU_TOOLS_PATH --with-arch=rv32im --with-abi=ilp32
-- linux: ../configure --prefix=$RISC_GNU_TOOLS_PATH --with-arch=rv32ima --with-abi=ilp32
+- ../configure --prefix=$RISC_GNU_TOOLS_PATH --with-arch=rv32im --with-abi=ilp32
 - make -j`nproc` && make -j`nproc` build-qemu
 
 ## Building LLVM for RiscV
@@ -28,11 +27,9 @@
 - cd llvm
 - mkdir build
 - cd build
-- newlib: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$RISC_GNU_TOOLS_PATH -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
-- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$RISC_GNU_TOOLS_PATH -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/sysroot  -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-linux-gnu" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
+- export LLVM_HOME=$PWD/../drops
+- cmake -G Ninja -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_HOME -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
 - cmake --build . --target install
-
-## (optional) register llvm pretty print extension for gdb: add "source $LLVM_PATH/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit 
 
 ## Sanity test your new RISC-V LLVM
 
@@ -47,18 +44,19 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - git clone https://github.gatech.edu/casl/pocl.git
 - cd pocl
 
+- export RISC_GNU_TOOLS_PATH=~/dev/riscv-gnu-toolchain/drops
+- export VORTEX_RUNTIME_PATH=/home/blaise/dev/vortex_live/runtime
+- export VORTEX_DRIVER_INC=~/dev/vortex_live/driver/sw/include
+- export VORTEX_DRIVER_LIB=~/dev/vortex_live/driver/sw/simx/libvortex.so
+
 - mkdir build_vortex_cc
 - cd build_vortex_cc
 - export POCL_CC_PATH=$PWD/../drops_vortex_cc
-- export RISC_GNU_TOOLS_PATH=~/dev/riscv-gnu-toolchain/drops
-- export VORTEX_RUNTIME_PATH=/home/blaise/dev/vortex_live/runtime
-- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$RISC_GNU_TOOLS_PATH/bin/llvm-config -DENABLE_VORTEX=ON -DVORTEX_RUNTIME_PATH=$VORTEX_RUNTIME_PATH -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$LLVM_HOME/bin/llvm-config -DVORTEX_RUNTIME_PATH=$VORTEX_RUNTIME_PATH -DVORTEX_DRIVER_INC=$VORTEX_DRIVER_INC -DVORTEX_DRIVER_LIB=$VORTEX_DRIVER_LIB -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
 - mkdir build_vortex_rt
 - cd build_vortex_rt
 - export POCL_RT_PATH=$PWD/../drops_vortex_rt
-- export VORTEX_DRIVER_INC=~/dev/vortex_live/driver/sw/include
-- export VORTEX_DRIVER_LIB=~/dev/vortex_live/driver/sw/simx/libvortex.so
-- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=riscv32-unknown-unknown-elf -DENABLE_VORTEX=ON -DVORTEX_DRIVER_INC=$VORTEX_DRIVER_INC -DVORTEX_DRIVER_LIB=$VORTEX_DRIVER_LIB -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=riscv32-unknown-unknown-elf -DVORTEX_RUNTIME_PATH=$VORTEX_RUNTIME_PATH -DVORTEX_DRIVER_INC=$VORTEX_DRIVER_INC -DVORTEX_DRIVER_LIB=$VORTEX_DRIVER_LIB -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install

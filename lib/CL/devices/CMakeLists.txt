@@ -68,7 +68,7 @@ endif()
 
 if(ENABLE_VORTEX)
   include_directories(AFTER "${VORTEX_DRIVER_INC}")
-  add_subdirectory("vortex")  
+  add_subdirectory("vortex")
   list(APPEND POCL_DEVICES_LINK_LIST ${VORTEX_DRIVER_LIB})
 endif()
 

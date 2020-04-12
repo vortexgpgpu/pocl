@@ -1,4 +1,5 @@
-RISCV_TOOL_PATH ?= $(wildcard ~/dev/riscv-gnu-toolchain/drops)
+LLVM_HOME ?= /usr/lib/llvm-10
+SYSROOT ?= ~/dev/riscv-gnu-toolchain/drops/riscv32-unknown-elf
 POCL_CC_PATH ?= $(wildcard ~/dev/pocl/drops_vortex_cc)
 POCL_RT_PATH ?= $(wildcard ~/dev/pocl/drops_vortex_rt)
 VORTEX_PATH ?= $(wildcard ~/dev/vortex_live/driver/sw/rtlsim)
@@ -14,22 +15,22 @@ PROJECT=vecadd
 
 SRCS = main.cc
 
-all: $(PROJECT)
+all: $(PROJECT) kernel.pocl
 
 kernel.pocl: kernel.cl
-	LLVM_INSTALL_PATH=$(RISCV_TOOL_PATH) VORTEX_RUNTIME_PATH=$(VORTEX_RT_PATH) POCL_DEBUG=all POCL_DEBUG_LLVM_PASSES=1 LD_LIBRARY_PATH=$(RISCV_TOOL_PATH)/lib:$(POCL_CC_PATH)/lib:$(VORTEX_PATH) $(POCL_CC_PATH)/bin/poclcc -o kernel.pocl kernel.cl
+	SYSROOT=$(SYSROOT) VORTEX_RUNTIME_PATH=$(VORTEX_RT_PATH) POCL_DEBUG=all LD_LIBRARY_PATH=$(POCL_CC_PATH)/lib:$(VORTEX_PATH) $(POCL_CC_PATH)/bin/poclcc -o kernel.pocl kernel.cl
  
 $(PROJECT): $(SRCS)
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
-run: $(PROJECT)    
+run: $(PROJECT) kernel.pocl   
 	LD_LIBRARY_PATH=$(POCL_RT_PATH)/lib:$(VORTEX_PATH):$(LD_LIBRARY_PATH) ./$(PROJECT) -k kernel.pocl
 
 .depend: $(SRCS)
 	$(CXX) $(CXXFLAGS) -MM $^ > .depend;
 
 clean:
-	rm -rf $(PROJECT) *.o *.dump .depend 
+	rm -rf $(PROJECT) *.o *.pocl *.dump .depend 
 
 ifneq ($(MAKECMDGOALS),clean)
     -include .depend

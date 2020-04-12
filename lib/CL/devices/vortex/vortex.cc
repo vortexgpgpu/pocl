@@ -504,8 +504,6 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
   assert(data != NULL);
   d = (struct vx_device_data_t *)data;
 
-  d->current_kernel = kernel;
-
   // calculate kernel arguments buffer size
   size_t abuf_size = 0;  
   size_t abuf_args_size = 4 * (meta->num_args + meta->num_locals);
@@ -600,8 +598,12 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
     assert(0 == err);
     
     // upload kernel to device
-    {    
-      err = vx_upload_kernel_bytes(d->vx_device, program->binaries[dev_i], program->binary_sizes[dev_i]);
+    if (NULL == d->current_kernel 
+     || d->current_kernel != kernel) {    
+       d->current_kernel = kernel;
+      char program_bin_path[POCL_FILENAME_LENGTH];
+      pocl_cache_final_binary_path (program_bin_path, program, dev_i, kernel, NULL, 0);
+      err = vx_upload_kernel_file(d->vx_device, program_bin_path);      
       assert(0 == err);
     }
   }
@@ -665,13 +667,22 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     vx_rt_path = VORTEX_RUNTIME_PATH;        
   }  
 
-  const char* llvm_install_path = getenv("LLVM_INSTALL_PATH"); 
+  const char* llvm_install_path = getenv("LLVM_HOME"); 
   if (llvm_install_path) {
     if (!pocl_exists(llvm_install_path)) {
       POCL_MSG_ERR("LLVM_INSTALL_PATH: '%s' doesn't exist\n", llvm_install_path);
       return -1;    
     }
     POCL_MSG_PRINT_INFO("using $LLVM_INSTALL_PATH=%s!\n", llvm_install_path);
+  }
+
+  const char* sysroot_path = getenv("SYSROOT"); 
+  if (sysroot_path) {
+    if (!pocl_exists(sysroot_path)) {
+      POCL_MSG_ERR("SYSROOT: '%s' doesn't exist\n", sysroot_path);
+      return -1;    
+    }
+    POCL_MSG_PRINT_INFO("using $SYSROOT=%s!\n", sysroot_path);
   }
   
   {  
@@ -724,7 +735,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     const char *cmd_args[] = {clang_path.c_str(), 
       "-v",
       "-O3",      
-      ssfmt.format("--sysroot=%s/riscv32-unknown-elf", (llvm_install_path ? llvm_install_path : LLVM_PREFIX)),
+      (sysroot_path ? ssfmt.format("--sysroot=%s", sysroot_path) : ""),
       "-march=rv32im", "-mabi=ilp32", 
       "-fno-rtti" ,"-fno-exceptions",  // disable RTTI and exceptions     
       "-ffreestanding", // relax main() function signature
@@ -772,7 +783,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
 
     std::stringstream ss;
-    ss << objdump_path.c_str() << " -D " << kernel_elf << " > kernel.dump";
+    ss << objdump_path.c_str() << " -D " << kernel_elf << " > " << kernel->name << ".dump";
     std::string s = ss.str();
     err = system(s.c_str());
     if (err != 0)

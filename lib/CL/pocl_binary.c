@@ -619,6 +619,7 @@ pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
   size_t sizeof_buffer = program->pocl_binary_sizes[device_i];
   unsigned char *end_of_buffer = buffer + sizeof_buffer;
   unsigned char *start = buffer;
+  unsigned i;
 
   unsigned num_kernels = program->num_kernels;
 
@@ -641,28 +642,28 @@ pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
   pocl_cache_program_path (basedir, program, device_i);
   size_t basedir_len = strlen (basedir);
 
-#if defined(BUILD_VORTEX)  
-assert(1 == num_kernels);
-  struct _cl_kernel fake_k;
-  memset (&fake_k, 0, sizeof (fake_k));
-  fake_k.context = program->context;
-  fake_k.program = program;
-  fake_k.next = NULL;
-  cl_kernel kernel = &fake_k;
-  fake_k.meta = &program->kernel_meta[0];
-  fake_k.name = fake_k.meta->name;
+#if defined(BUILD_VORTEX)    
   char program_bin_path[POCL_FILENAME_LENGTH];
-  pocl_cache_final_binary_path (program_bin_path, program, device_i, kernel, NULL, 0);
-  POCL_MSG_PRINT_INFO ("serializing kernel binary: %s\n", program_bin_path);
-  buffer = serialize_file (program_bin_path, basedir_len, buffer);
+  struct _cl_kernel fake_k;
+
+  for (i=0; i < num_kernels; i++) {
+    memset (&fake_k, 0, sizeof (fake_k));
+    fake_k.context = program->context;
+    fake_k.program = program;
+    fake_k.next = NULL;
+    fake_k.meta = &program->kernel_meta[i];
+    fake_k.name = fake_k.meta->name;    
+    pocl_cache_final_binary_path (program_bin_path, program, device_i, &fake_k, NULL, 0);
+    POCL_MSG_PRINT_INFO ("serializing kernel binary: %s\n", program_bin_path);
+    buffer = serialize_file (program_bin_path, basedir_len, buffer);
+  }
 #else
   char program_bc_path[POCL_FILENAME_LENGTH];
   pocl_cache_program_bc_path(program_bc_path, program, device_i);
   POCL_MSG_PRINT_INFO ("serializing program.bc: %s\n", program_bc_path);
   buffer = serialize_file (program_bc_path, basedir_len, buffer);
 #endif
-
-  unsigned i;
+  
   for (i=0; i < num_kernels; i++)
     {
       buffer = pocl_binary_serialize_kernel_to_buffer
@@ -682,6 +683,7 @@ pocl_binary_deserialize(cl_program program, unsigned device_i)
   unsigned char *buffer = program->pocl_binaries[device_i];
   size_t sizeof_buffer = program->pocl_binary_sizes[device_i];
   unsigned char *end_of_buffer = buffer + sizeof_buffer;
+  unsigned i;
 
   pocl_binary b;
   buffer = read_header(&b, buffer);
@@ -692,8 +694,18 @@ pocl_binary_deserialize(cl_program program, unsigned device_i)
   assert (buffer < end_of_buffer);
 
   char basedir[POCL_FILENAME_LENGTH];
+  
+#if defined(BUILD_VORTEX)  
+  for (i = 0; i < b.num_kernels; i++) {
+    pocl_cache_program_path (basedir, program, device_i);
+    size_t basedir_len = strlen (basedir);
+    POCL_MSG_PRINT_INFO ("deserializing kernel binary: %s\n", basedir);
+    buffer += deserialize_file (buffer, basedir, basedir_len);
+  }
+#else
   pocl_cache_program_path (basedir, program, device_i);
   size_t basedir_len = strlen (basedir);
+  POCL_MSG_PRINT_INFO ("deserializing kernel binary: %s\n", basedir);
   buffer += deserialize_file (buffer, basedir, basedir_len);
 
   if (pocl_exists (basedir)) {
@@ -701,9 +713,9 @@ pocl_binary_deserialize(cl_program program, unsigned device_i)
                     (char **)(&program->binaries[device_i]),
                     (uint64_t *)(&program->binary_sizes[device_i]));
   }
+#endif
 
-  pocl_binary_kernel k;
-  unsigned i;
+  pocl_binary_kernel k;  
   for (i = 0; i < b.num_kernels; i++)
     {
       pocl_cache_program_path (basedir, program, device_i);
@@ -759,6 +771,7 @@ pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
 #if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned char *binary = program->pocl_binaries[device_i];
   cl_device_id device = program->devices[device_i];
+  unsigned j;
 
   pocl_binary b;
   memset(&b, 0, sizeof (pocl_binary));
@@ -771,6 +784,20 @@ pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
                         "Deserialized a binary, but it doesn't seem to be "
                         "for this device.\n");
   size_t len;
+
+#if defined(BUILD_VORTEX)  
+  for (j = 0; j < b.num_kernels; j++) {
+    /* skip real path of program.bc */
+    BUFFER_READ(len, uint32_t);
+    assert (len > 0);
+    buffer += len;
+
+    /* skip content of program.bc */
+    BUFFER_READ(len, uint32_t);
+    assert (len > 0);
+    buffer += len;
+  }
+#else  
   /* skip real path of program.bc */
   BUFFER_READ(len, uint32_t);
   assert (len > 0);
@@ -780,8 +807,8 @@ pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
   BUFFER_READ(len, uint32_t);
   assert (len > 0);
   buffer += len;
-
-  unsigned j;
+#endif
+  
   assert (b.num_kernels > 0);
   assert (b.num_kernels == program->num_kernels);
 
