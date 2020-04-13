@@ -43,7 +43,9 @@ extern "C" {
 #include <unistd.h>
 #include <utlist.h>
 
+#if !defined(OCS_AVAILABLE)
 #include <vortex.h>
+#endif
 
 #include "pocl_cache.h"
 #include "pocl_file_util.h"
@@ -74,8 +76,10 @@ GEN_PROTOTYPES(basic)
 #define KERNEL_ARG_BASE_ADDR 0x7fff0000
 
 struct vx_device_data_t {
+#if !defined(OCS_AVAILABLE)  
   // vortex driver instance
   vx_device_h vx_device;
+#endif
 
   /* Currently loaded kernel. */
   cl_kernel current_kernel;
@@ -94,7 +98,9 @@ struct vx_device_data_t {
 };
 
 struct vx_buffer_data_t {
+#if !defined(OCS_AVAILABLE)
   vx_buffer_h vx_buffer;
+#endif
   size_t dev_mem_addr;
 };
 
@@ -153,7 +159,11 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
 
   ops->build_hash = pocl_vortex_build_hash;
 
+#if defined(OCS_AVAILABLE)
+
   ops->compile_kernel = pocl_vortex_compile_kernel;
+
+#else
 
   ops->run = pocl_vortex_run;
   ops->run_native = NULL;
@@ -192,6 +202,8 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
   ops->svm_unmap = NULL;
   ops->svm_copy = NULL;
   ops->svm_fill = NULL;
+
+#endif
 }
 
 char *pocl_vortex_build_hash(cl_device_id device) {
@@ -230,18 +242,23 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   }
   device->global_mem_id = 0;
 
+#if !defined(OCS_AVAILABLE)
   vx_device_h vx_device;
   err = vx_dev_open(&vx_device);
   if (err != 0) {
     free(d);
     return CL_DEVICE_NOT_FOUND;
   }
+#endif
 
   d = (struct vx_device_data_t *)calloc(1, sizeof(struct vx_device_data_t));
   if (d == NULL)
     return CL_OUT_OF_HOST_MEMORY;
 
+#if !defined(OCS_AVAILABLE)
   d->vx_device = vx_device;
+#endif 
+
   d->current_kernel = NULL;
 
   device->data = d;
@@ -276,13 +293,17 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
 
 cl_int pocl_vortex_uninit(unsigned j, cl_device_id device) {
   struct vx_device_data_t *d = (struct vx_device_data_t *)device->data;
+#if !defined(OCS_AVAILABLE)
   vx_dev_close(d->vx_device);
+#endif
   POCL_DESTROY_LOCK(d->cq_lock);
   pocl_aligned_free(d->printf_buffer);
   POCL_MEM_FREE(d);
   device->data = NULL;
   return CL_SUCCESS;
 }
+
+#if !defined(OCS_AVAILABLE)
 
 static void *
 pocl_vortex_malloc(cl_device_id device, cl_mem_flags flags, size_t size,
@@ -484,12 +505,6 @@ void pocl_vortex_read(void *data,
   memcpy(host_ptr, (char *)buf_ptr + offset, size);
 }
 
-void pocl_vortex_compile_kernel(_cl_command_node *cmd, cl_kernel kernel,
-                                cl_device_id device, int specialize) {
-  if (cmd != NULL && cmd->type == CL_COMMAND_NDRANGE_KERNEL)
-    pocl_check_kernel_dlhandle_cache(cmd, 0, specialize);
-}
-
 void pocl_vortex_run(void *data, _cl_command_node *cmd) {
   struct vx_device_data_t *d;
   size_t x, y, z;
@@ -615,6 +630,13 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
   assert(0 == err);
 
   pocl_release_dlhandle_cache(cmd);
+}
+#endif
+
+void pocl_vortex_compile_kernel(_cl_command_node *cmd, cl_kernel kernel,
+                                cl_device_id device, int specialize) {
+  if (cmd != NULL && cmd->type == CL_COMMAND_NDRANGE_KERNEL)
+    pocl_check_kernel_dlhandle_cache(cmd, 0, specialize);
 }
 
 #if defined(OCS_AVAILABLE)

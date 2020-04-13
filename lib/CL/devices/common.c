@@ -851,10 +851,10 @@ struct pocl_dlhandle_cache_item
   unsigned ref_count;
 };
 
-static pocl_dlhandle_cache_item *pocl_dlhandle_cache;
+static pocl_dlhandle_cache_item *pocl_dlhandle_cache = NULL;
 static pocl_lock_t pocl_llvm_codegen_lock;
 static pocl_lock_t pocl_dlhandle_lock;
-static int pocl_dlhandle_cache_initialized;
+static int pocl_dlhandle_cache_initialized = 0;
 
 /* only to be called in basic/pthread/<other cpu driver> init */
 void
