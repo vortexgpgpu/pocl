@@ -659,7 +659,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   const char* vx_rt_path = getenv("VORTEX_RUNTIME_PATH"); 
   if (vx_rt_path) {
     if (!pocl_exists(vx_rt_path)) {
-      POCL_MSG_ERR("VORTEX_RUNTIME_PATH: '%s' doesn't exist\n", vx_rt_path);
+      POCL_MSG_ERR("$VORTEX_RUNTIME_PATH: '%s' doesn't exist\n", vx_rt_path);
       return -1;
     }
     POCL_MSG_PRINT_INFO("using $VORTEX_RUNTIME_PATH=%s!\n", vx_rt_path);
@@ -670,19 +670,28 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   const char* llvm_install_path = getenv("LLVM_HOME"); 
   if (llvm_install_path) {
     if (!pocl_exists(llvm_install_path)) {
-      POCL_MSG_ERR("LLVM_INSTALL_PATH: '%s' doesn't exist\n", llvm_install_path);
+      POCL_MSG_ERR("$LLVM_HOME: '%s' doesn't exist\n", llvm_install_path);
       return -1;    
     }
-    POCL_MSG_PRINT_INFO("using $LLVM_INSTALL_PATH=%s!\n", llvm_install_path);
+    POCL_MSG_PRINT_INFO("using $LLVM_HOME=%s!\n", llvm_install_path);
   }
 
   const char* sysroot_path = getenv("SYSROOT"); 
   if (sysroot_path) {
     if (!pocl_exists(sysroot_path)) {
-      POCL_MSG_ERR("SYSROOT: '%s' doesn't exist\n", sysroot_path);
+      POCL_MSG_ERR("$SYSROOT: '%s' doesn't exist\n", sysroot_path);
       return -1;    
     }
     POCL_MSG_PRINT_INFO("using $SYSROOT=%s!\n", sysroot_path);
+  }
+
+  const char* toolchain_path = getenv("TOOLCHAIN_PATH"); 
+  if (toolchain_path) {
+    if (!pocl_exists(toolchain_path)) {
+      POCL_MSG_ERR("$TOOLCHAIN_PATH: '%s' doesn't exist\n", toolchain_path);
+      return -1;    
+    }
+    POCL_MSG_PRINT_INFO("using $TOOLCHAIN_PATH=%s!\n", toolchain_path);
   }
   
   {  
@@ -736,6 +745,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       "-v",
       "-O3",      
       (sysroot_path ? ssfmt.format("--sysroot=%s", sysroot_path) : ""),
+      (toolchain_path ? ssfmt.format("--gcc-toolchain=%s", toolchain_path) : ""),
       "-march=rv32im", "-mabi=ilp32", 
       "-fno-rtti" ,"-fno-exceptions",  // disable RTTI and exceptions     
       "-ffreestanding", // relax main() function signature
