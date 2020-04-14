@@ -4,7 +4,7 @@ SYSROOT ?= $(TOOLCHAIN_PATH)/riscv32-unknown-elf
 POCL_CC_PATH ?= $(wildcard ~/dev/pocl/drops_vortex_cc)
 POCL_RT_PATH ?= $(wildcard ~/dev/pocl/drops_vortex_rt)
 VORTEX_RT_PATH ?= $(wildcard ~/dev/vortex_live/runtime)
-VORTEX_PATH ?= $(wildcard ~/dev/vortex_live/driver/sw/rtlsim)
+VORTEX_PATH ?= $(wildcard ~/dev/vortex_live/driver/rtlsim)
 
 CXXFLAGS += -std=c++11 -O0 -g -Wall -fpermissive -Wextra -pedantic -Wfatal-errors
 

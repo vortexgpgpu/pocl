@@ -44,19 +44,18 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - git clone https://github.gatech.edu/casl/pocl.git
 - cd pocl
 
-- export RISC_GNU_TOOLS_PATH=~/dev/riscv-gnu-toolchain/drops
-- export VORTEX_RUNTIME_PATH=/home/blaise/dev/vortex_live/runtime
-- export VORTEX_DRIVER_INC=~/dev/vortex_live/driver/sw/include
-- export VORTEX_DRIVER_LIB=~/dev/vortex_live/driver/sw/simx/libvortex.so
-
 - mkdir build_vortex_cc
 - cd build_vortex_cc
 - export POCL_CC_PATH=$PWD/../drops_vortex_cc
+- export LLVM_HOME=~/dev/llvm-project/drops
+- export VORTEX_RUNTIME_PATH=/home/blaise/dev/vortex_live/runtime
 - cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$LLVM_HOME/bin/llvm-config -DVORTEX_RUNTIME_PATH=$VORTEX_RUNTIME_PATH -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
 - mkdir build_vortex_rt
 - cd build_vortex_rt
 - export POCL_RT_PATH=$PWD/../drops_vortex_rt
+- export VORTEX_DRIVER_INC=~/dev/vortex_live/driver/include
+- export VORTEX_DRIVER_LIB=~/dev/vortex_live/driver/simx/libvortex.so
 - cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DHOST_DEVICE_BUILD_HASH=riscv32-unknown-unknown-elf -DVORTEX_DRIVER_INC=$VORTEX_DRIVER_INC -DVORTEX_DRIVER_LIB=$VORTEX_DRIVER_LIB -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install

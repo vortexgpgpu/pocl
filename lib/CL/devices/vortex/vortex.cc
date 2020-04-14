@@ -159,11 +159,9 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
 
   ops->build_hash = pocl_vortex_build_hash;
 
-#if defined(OCS_AVAILABLE)
-
   ops->compile_kernel = pocl_vortex_compile_kernel;
 
-#else
+#if !defined(OCS_AVAILABLE)
 
   ops->run = pocl_vortex_run;
   ops->run_native = NULL;
@@ -775,7 +773,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       "-Wl,--gc-sections", // eliminate unsued code and data      
       //"-nostdlib", 
       //"-nodefaultlibs",      
-      ssfmt.format("-Wl,-Bstatic,-T%s/mains/vortex_link.ld", vx_rt_path), 
+      ssfmt.format("-Wl,-Bstatic,-T%s/startup/vx_link.ld", vx_rt_path), 
       ssfmt.format("-I%s", vx_rt_path), 
       ssfmt.format("%s/startup/vx_start.S", vx_rt_path),            
       //ssfmt.format("%s/fileio/fileio.s", vx_rt_path)
