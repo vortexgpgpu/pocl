@@ -17,9 +17,8 @@
 - git submodule update --init --recursive
 - mkdir build
 - cd build
-- export RISC_GNU_TOOLS_PATH=$PWD/../drops
-- newlib: ../configure --prefix=$RISC_GNU_TOOLS_PATH --with-arch=rv32im --with-abi=ilp32
-- linux: ../configure --prefix=$RISC_GNU_TOOLS_PATH --with-arch=rv32ima --with-abi=ilp32
+- export RISCV_GNU_TOOLS_PATH=$PWD/../drops
+- ../configure --prefix=$RISCV_GNU_TOOLS_PATH --with-arch=rv32im --with-abi=ilp32
 - make -j`nproc` && make -j`nproc` build-qemu
 
 ## Building LLVM for RiscV
@@ -28,24 +27,22 @@
 - cd llvm
 - mkdir build
 - cd build
-- newlib: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$RISC_GNU_TOOLS_PATH -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
-- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$RISC_GNU_TOOLS_PATH -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/sysroot  -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-linux-gnu" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
+- cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$RISCV_GNU_TOOLS_PATH -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISCV_GNU_TOOLS_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
 - cmake --build . --target install
 
 ## Building LLVM for x86
 
 - export LLVM_X86_PATH=$PWD/../drops_x86
-- linux: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_X86_PATH -DLLVM_OPTIMIZED_TABLEGEN=True ..
+- cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_X86_PATH -DLLVM_OPTIMIZED_TABLEGEN=True ..
 - cmake --build . --target install
 
 ## (optional) register llvm pretty print extension for gdb: add "source $LLVM_PATH/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit 
 
 ## Sanity test your new RISC-V LLVM
 
-- cat hello.c
-#include <stdio.h>
-int main(int argc, char **argv) { printf("hello world\n"); }
-- $RISC_GNU_TOOLS_PATH/clang hello.c
+- echo "#include <stdio.h>
+int main(int argc, char **argv) { printf("hello world\n"); }" > hello.c
+- $RISCV_GNU_TOOLS_PATH/clang hello.c
 - qemu-riscv32 hello
 
 ## build pocl for RISCV
@@ -56,7 +53,7 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - cd build
 - export POCL_CC_PATH=$PWD/../drops_riscv_cc
 - export POCL_RT_PATH=$PWD/../drops_riscv_rt
-- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=$RISC_GNU_TOOLS_PATH/bin/llvm-config -DENABLE_NEWLIB=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DNEWLIB_DEVICE_MARCH=rv32im -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=$RISCV_GNU_TOOLS_PATH/bin/llvm-config -DENABLE_NEWLIB=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DNEWLIB_DEVICE_MARCH=rv32im -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DENABLE_NEWLIB=ON -DNEWLIB_DEVICE_ADDRESS_BIT=32 -DNEWLIB_DEVICE_MARCH=rv32im -DHOST_DEVICE_BUILD_HASH=basic-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DBUILD_TESTS=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
