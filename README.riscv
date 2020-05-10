@@ -45,7 +45,7 @@
 - cat hello.c
 #include <stdio.h>
 int main(int argc, char **argv) { printf("hello world\n"); }
-- clang hello.c
+- $RISC_GNU_TOOLS_PATH/clang hello.c
 - qemu-riscv32 hello
 
 ## build pocl for RISCV
