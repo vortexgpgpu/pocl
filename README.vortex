@@ -17,8 +17,8 @@
 - git submodule update --init --recursive
 - mkdir build
 - cd build
-- export RISC_GNU_TOOLS_PATH=$PWD/../drops
-- ../configure --prefix=$RISC_GNU_TOOLS_PATH --with-arch=rv32im --with-abi=ilp32
+- export RISCV_GNU_TOOLS_PATH=$PWD/../drops
+- ../configure --prefix=$RISCV_GNU_TOOLS_PATH --with-arch=rv32im --with-abi=ilp32
 - make -j`nproc` && make -j`nproc` build-qemu
 
 ## Building LLVM for RiscV
@@ -28,7 +28,7 @@
 - mkdir build
 - cd build
 - export LLVM_HOME=$PWD/../drops
-- cmake -G Ninja -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_HOME -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISC_GNU_TOOLS_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
+- cmake -G Ninja -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_USE_SPLIT_DWARF=True -DCMAKE_INSTALL_PREFIX=$LLVM_HOME -DLLVM_OPTIMIZED_TABLEGEN=True -DLLVM_BUILD_TESTS=True -DDEFAULT_SYSROOT=$RISCV_GNU_TOOLS_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
 - cmake --build . --target install
 
 ## Sanity test your new RISC-V LLVM

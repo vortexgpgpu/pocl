@@ -43,4 +43,22 @@
 #include "prototypes.inc"
 GEN_PROTOTYPES (newlib)
 
+struct pocl_context_t {
+  uint32_t num_groups[3];
+  uint32_t global_offset[3];
+  uint32_t local_size[3];
+  uint8_t *printf_buffer;
+  uint32_t *printf_buffer_position;
+  uint32_t printf_buffer_capacity;
+  uint32_t work_dim;
+};
+
+typedef void (*pocl_wg_func) (
+  void * /* args */,
+  void * /* pocl_context */,
+  uint32_t /* group_x */,
+  uint32_t /* group_y */,
+  uint32_t /* group_z */
+);
+
 #endif /* POCL_NEWLIB_H */

@@ -252,11 +252,11 @@ pocl_memalign_alloc(size_t align_width, size_t size)
 #ifdef __ANDROID__
   ptr = memalign (align_width, size);
   return ptr;
+#elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))  
+  return aligned_alloc (align_width, size);
 #elif defined(HAVE_POSIX_MEMALIGN)
   status = posix_memalign (&ptr, align_width, size);
   return ((status == 0) ? ptr : NULL);
-#elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))  
-  return aligned_alloc (align_width, size);
 #else
   #error Cannot find aligned malloc
 #endif

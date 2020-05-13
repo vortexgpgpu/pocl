@@ -21,7 +21,7 @@
 #define CL_CHECK2(_expr)                                               \
    ({                                                                  \
      cl_int _err = CL_INVALID_VALUE;                                   \
-     typeof(_expr) _ret = _expr;                                       \
+     decltype(_expr) _ret = _expr;                                     \
      if (_err != CL_SUCCESS) {                                         \
        printf("OpenCL Error: '%s' returned %d!\n", #_expr, (int)_err); \
 	   cleanup();			                                                   \
@@ -29,72 +29,6 @@
      }                                                                 \
      _ret;                                                             \
    })
-
-/*typedef struct {
-  const char* name;
-  const void* pfn;
-  uint32_t num_args;
-  uint32_t num_locals;
-  const uint8_t* arg_types;
-  const uint32_t* local_sizes;
-} kernel_info_t;
-
-static int g_num_kernels = 0;
-static kernel_info_t g_kernels [MAX_KERNELS];
-
-int _pocl_register_kernel(const char* name, const void* pfn, uint32_t num_args, uint32_t num_locals, const uint8_t* arg_types, const uint32_t* local_sizes) {
-  if (g_num_kernels == MAX_KERNELS)
-    return -1;
-  kernel_info_t* kernel = g_kernels + g_num_kernels++;
-  kernel->name = name;
-  kernel->pfn = pfn;
-  kernel->num_args = num_args;
-  kernel->num_locals = num_locals;
-  kernel->arg_types = arg_types;
-  kernel->local_sizes = local_sizes;
-  return 0;
-}
-
-int _pocl_query_kernel(const char* name, const void** p_pfn, uint32_t* p_num_args, uint32_t* p_num_locals, const uint8_t** p_arg_types, const uint32_t** p_local_sizes) {
-  for (int i = 0; i < g_num_kernels; ++i) {
-    kernel_info_t* kernel = g_kernels + i;
-    if (strcmp(kernel->name, name) != 0)
-      continue;
-    if (p_pfn) *p_pfn = kernel->pfn;
-    if (p_num_args) *p_num_args = kernel->num_args;
-    if (p_num_locals) *p_num_locals = kernel->num_locals;
-    if (p_arg_types) *p_arg_types = kernel->arg_types;
-    if (p_local_sizes) *p_local_sizes = kernel->local_sizes;
-    return 0;
-  }
-  return -1;
-}*/
-
-struct pocl_context_t {
-  uint32_t num_groups[3];
-  uint32_t global_offset[3];
-  uint32_t local_size[3];
-  uint8_t *printf_buffer;
-  uint32_t *printf_buffer_position;
-  uint32_t printf_buffer_capacity;
-  uint32_t work_dim;
-};
-
-typedef void (*pocl_wg_func) (
-  void * /* args */,
-  void * /* pocl_context */,
-  uint32_t /* group_x */,
-  uint32_t /* group_y */,
-  uint32_t /* group_z */
-);
-
-void pocl_spawn(struct pocl_context_t * ctx, const pocl_wg_func pfn, void * args) {
-  uint32_t x, y, z;
-  for (z = 0; z < ctx->num_groups[2]; ++z)
-    for (y = 0; y < ctx->num_groups[1]; ++y)
-      for (x = 0; x < ctx->num_groups[0]; ++x)
-        (pfn)(args, ctx, x, y, z);
-}
 
 int exitcode = 0;
 cl_context context = NULL;
@@ -123,7 +57,9 @@ void cleanup() {
   if (C) free(C);
 }
 
-int main (int argc, char **argv) {  
+int main (int argc, char **argv) {
+  printf("enter demo main\n");
+
   cl_platform_id platform_id;
   cl_device_id device_id;
   size_t binary_size;

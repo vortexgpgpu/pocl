@@ -29,13 +29,14 @@
 #include <string.h>
 #include "pocl_cl.h"
 
-#if defined(HAVE_POSIX_MEMALIGN) || defined(__ANDROID__) \
-     || (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
-  #ifndef BUILD_NEWLIB     
-    #define HAVE_ALIGNED_ALLOC
-  #endif
-#else
-#error aligned malloc unavailable
+#if defined(BUILD_NEWLIB)
+  // do nothing
+#elif defined(HAVE_POSIX_MEMALIGN) \
+ || defined(__ANDROID__)         \
+ || (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+  #define HAVE_ALIGNED_ALLOC
+#elif
+  #error aligned malloc unavailable
 #endif
 
 

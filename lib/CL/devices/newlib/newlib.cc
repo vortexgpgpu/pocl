@@ -50,8 +50,6 @@ extern "C" {
 
 #ifdef OCS_AVAILABLE
 #include "pocl_llvm.h"
-#else
-#include "vx_api.h"
 #endif
 
 #include "prototypes.inc"
@@ -118,6 +116,10 @@ static const cl_image_format supported_image_formats[] = {
     {CL_BGRA, CL_UNSIGNED_INT8}};
 
 #if !defined(OCS_AVAILABLE)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct {
   const char* name;
@@ -199,7 +201,7 @@ cl_int pocl_newlib_get_builtin_kernel_metadata(void *data, const char *kernel_na
 
   target->name = strdup(kernel_name);
   target->data = (void **)calloc(1, sizeof(void *));
-  target->data[0] = pfn;
+  target->data[0] = (void*)pfn;
   target->num_args = num_args;
   target->num_locals = num_locals;
 
@@ -209,9 +211,9 @@ cl_int pocl_newlib_get_builtin_kernel_metadata(void *data, const char *kernel_na
     for (uint32_t i = 0; i < num_args; ++i) {      
       if (arg_types[i] == 4) {
         target->arg_info[i].address_qualifier = CL_KERNEL_ARG_ADDRESS_LOCAL;
-        target->arg_info[i].type = 0;
+        target->arg_info[i].type = POCL_ARG_TYPE_NONE;
       } else {
-        target->arg_info[i].type = arg_types[i];
+        target->arg_info[i].type = (pocl_argument_type)arg_types[i];
       }
     }
   }
@@ -225,6 +227,10 @@ cl_int pocl_newlib_get_builtin_kernel_metadata(void *data, const char *kernel_na
 
   return 0;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 
@@ -259,7 +265,7 @@ void pocl_newlib_init_device_ops(struct pocl_device_ops *ops) {
 }
 
 char *pocl_newlib_build_hash(cl_device_id device) {
-  char *res = calloc(1000, sizeof(char));
+  char *res = (char*)calloc(1000, sizeof(char));
 #ifdef KERNELLIB_HOST_DISTRO_VARIANTS
   char *name = get_llvm_cpu_name();
   snprintf(res, 1000, "newlib-%s-%s", HOST_DEVICE_BUILD_HASH, name);
@@ -424,7 +430,7 @@ void pocl_newlib_run(void *data, _cl_command_node *cmd) {
       *(void **)(arguments[j]) = pp;
     }
 
-  pc->printf_buffer = d->printf_buffer;
+  pc->printf_buffer = (uchar*)d->printf_buffer;
   assert(pc->printf_buffer != NULL);
   pc->printf_buffer_capacity = cmd->device->printf_buffer_size;
   assert(pc->printf_buffer_capacity > 0);
@@ -436,16 +442,19 @@ void pocl_newlib_run(void *data, _cl_command_node *cmd) {
   unsigned ftz = pocl_save_ftz();
   pocl_set_ftz(kernel->program->flush_denorms);  
   
-  pocl_workgroup_func pfn = (pocl_workgroup_func)cmd->command.run.wg;
-
-#if defined(OCS_AVAILABLE)
-  for (z = 0; z < pc->num_groups[2]; ++z)
-    for (y = 0; y < pc->num_groups[1]; ++y)
-      for (x = 0; x < pc->num_groups[0]; ++x)
-        (pfn)((uint8_t *)arguments, (uint8_t *)pc, x, y, z);
-#else
-  pocl_spawn(pc, pfn, (void *)arguments);  
+#if (HOST_DEVICE_ADDRESS_BITS==32)
+  auto pfn = (pocl_workgroup_func32)cmd->command.run.wg;
+ #else
+  auto pfn = (pocl_workgroup_func)cmd->command.run.wg;
 #endif
+
+  for (z = 0; z < pc->num_groups[2]; ++z) {
+    for (y = 0; y < pc->num_groups[1]; ++y) {
+      for (x = 0; x < pc->num_groups[0]; ++x) {
+        (pfn)((uchar*)arguments, (uint8_t *)pc, x, y, z);
+      }
+    }
+  }
 
   pocl_restore_rm(rm);
   pocl_restore_ftz(ftz);
