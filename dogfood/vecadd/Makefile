@@ -28,7 +28,7 @@ $(PROJECT).dump: $(PROJECT).elf
 	$(DMP) -D $(PROJECT).elf > $(PROJECT).dump
 
 run: $(PROJECT).elf
-	POCL_DEBUG=all $(RISCV_GNU_TOOLS_PATH)/bin/qemu-riscv32 -d in_asm -D debug.log $(PROJECT).elf
+	POCL_DEBUG=all $(RISCV_GNU_TOOLS_PATH)/bin/qemu-riscv32 $(PROJECT).elf
 
 gdb-s: $(PROJECT).elf
 	POCL_DEBUG=all $(RISCV_GNU_TOOLS_PATH)/bin/qemu-riscv32 -g 1234 -d in_asm -D debug.log $(PROJECT).elf
@@ -37,4 +37,4 @@ gdb-c: $(PROJECT).elf
 	$(GDB) $(PROJECT).elf
 
 clean:
-	rm -rf *.a *.o *.elf *.dump
+	rm -rf *.a *.o *.elf *.dump ~/.cache/pocl
