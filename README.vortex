@@ -48,8 +48,8 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - cd build_vortex_cc
 - export POCL_CC_PATH=$PWD/../drops_vortex_cc
 - export LLVM_HOME=~/dev/llvm-project/drops
-- export VORTEX_RUNTIME_PATH=/home/blaise/dev/vortex_live/runtime
-- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$LLVM_HOME/bin/llvm-config -DVORTEX_RUNTIME_PATH=$VORTEX_RUNTIME_PATH -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
+- export VORTEX_RT_PATH=~/dev/vortex_live/runtime
+- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$LLVM_HOME/bin/llvm-config -DVORTEX_RT_PATH=$VORTEX_RT_PATH -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON ..
 - cmake --build . --target install
 
 - mkdir build_vortex_rt

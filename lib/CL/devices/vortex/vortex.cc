@@ -676,15 +676,15 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   cl_program program = kernel->program;
   int err;
 
-  const char* vx_rt_path = getenv("VORTEX_RUNTIME_PATH"); 
+  const char* vx_rt_path = getenv("VORTEX_RT_PATH"); 
   if (vx_rt_path) {
     if (!pocl_exists(vx_rt_path)) {
-      POCL_MSG_ERR("$VORTEX_RUNTIME_PATH: '%s' doesn't exist\n", vx_rt_path);
+      POCL_MSG_ERR("$VORTEX_RT_PATH: '%s' doesn't exist\n", vx_rt_path);
       return -1;
     }
-    POCL_MSG_PRINT_INFO("using $VORTEX_RUNTIME_PATH=%s!\n", vx_rt_path);
+    POCL_MSG_PRINT_INFO("using $VORTEX_RT_PATH=%s!\n", vx_rt_path);
   } else {
-    vx_rt_path = VORTEX_RUNTIME_PATH;        
+    vx_rt_path = VORTEX_RT_PATH;        
   }  
 
   const char* llvm_install_path = getenv("LLVM_HOME"); 
@@ -705,13 +705,13 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     POCL_MSG_PRINT_INFO("using $SYSROOT=%s!\n", sysroot_path);
   }
 
-  const char* toolchain_path = getenv("TOOLCHAIN_PATH"); 
-  if (toolchain_path) {
-    if (!pocl_exists(toolchain_path)) {
-      POCL_MSG_ERR("$TOOLCHAIN_PATH: '%s' doesn't exist\n", toolchain_path);
+  const char* riscv_toolchain_path = getenv("RISCV_TOOLCHAIN_PATH"); 
+  if (riscv_toolchain_path) {
+    if (!pocl_exists(riscv_toolchain_path)) {
+      POCL_MSG_ERR("$RISCV_TOOLCHAIN_PATH: '%s' doesn't exist\n", riscv_toolchain_path);
       return -1;    
     }
-    POCL_MSG_PRINT_INFO("using $TOOLCHAIN_PATH=%s!\n", toolchain_path);
+    POCL_MSG_PRINT_INFO("using $RISCV_TOOLCHAIN_PATH=%s!\n", riscv_toolchain_path);
   }
   
   {  
@@ -722,27 +722,64 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
               "_pocl_kernel_%s_workgroup", kernel->name);
     
-    ss << "#include <stdint.h>\n" 
-          "#include \"vx_api/vx_api.h\"\n"     
+    ss << "#include <inttypes.h>\n"
+          "#include <vx_intrinsics.h>\n"
+          "struct context_t {"
+          "  uint32_t num_groups[3];"
+          "  uint32_t global_offset[3];"
+          "  uint32_t local_size[3];"
+          "  char * printf_buffer;"
+          "  uint32_t *printf_buffer_position;"
+          "  uint32_t printf_buffer_capacity;"
+          "  uint32_t work_dim;"
+          "};"
+          "\n"
+          "typedef void (*vx_pocl_workgroup_func) ("
+          "  const void * /* args */,"
+          "	 const struct context_t * /* context */,"
+          "	 uint32_t /* group_x */,"
+          "	 uint32_t /* group_y */,"
+          "	 uint32_t /* group_z */"
+          ");"
+          "\n"
+          "typedef struct {"
+          "  struct context_t * ctx;"
+          "  vx_pocl_workgroup_func pfn;"
+          "  const void * args;"
+          "  int nthreads;"
+          "} kernel_spawn_t;"
+          "\n"
+          "kernel_spawn_t* g_spawn;"
+          "\n"
+          "void kernel_spawn_runonce() {"
+          "	 vx_tmc(g_spawn->nthreads);"
+          "	 int x = vx_thread_id();"
+          "	 int y = vx_warp_gid();"
+          "	 (g_spawn->pfn)(g_spawn->args, g_spawn->ctx, x, y, 0);"
+          "	 int wid = vx_warp_id();"
+          "	 unsigned tmask = (0 == wid) ? 0x1 : 0x0;"
+          "	 vx_tmc(tmask);"
+          "}"
+          "\n"
+          "void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void * args) {"
+          "	 if (ctx->num_groups[2] > 1) {"
+          "		 return;"
+          "  }"
+          "  kernel_spawn_t spawn = { ctx, pfn, args, ctx->num_groups[0] };"
+          "  g_spawn = &spawn;"
+          "	 if (ctx->num_groups[1] > 1)	{"
+          "		 vx_wspawn(ctx->num_groups[1], (unsigned)&kernel_spawn_runonce);"
+          "	 }"
+          "	 kernel_spawn_runonce();"
+          "}" 
+          "\n"
           "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"  
           "int main() {\n"
-          //"  printf(\"begin...\\n\");"
           "  struct context_t* ctx = (struct context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
           "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n"
-          //"  printf(\"ctx->work_dim\\n\", ctx->work_dim);\n"
-          //"  for (int i = 0; i < 3; ++i) {\n"
-          //"    printf(\"ctx->num_groups[%d]=%d\\n\", i, ctx->num_groups[i]);\n"
-          //"    printf(\"ctx->global_offset[%d]=%d\\n\", i, ctx->global_offset[i]);\n"
-          //"    printf(\"ctx->local_size[%d]=%d\\n\", i, ctx->local_size[i]);\n"
-          //"  }\n"  
-          //"  uint32_t* w_args = (uint32_t*)args;\n"
-          //"  printf(\"w_args[0]=%x -> %x\\n\", w_args[0], *(uint32_t*)w_args[0]);\n"
-          //"  printf(\"w_args[1]=%x -> %x\\n\", w_args[1], *(uint32_t*)w_args[1]);\n"
-          //"  printf(\"w_args[2]=%x -> %x\\n\", w_args[2], *(uint32_t*)w_args[2]);\n"
-          "  pocl_spawn(ctx, (void*)" << pfn_workgroup_string << ", args);\n"
-          //"  printf(\"done!\\n\");"
+          "  kernel_spawn(ctx, (void*)" << pfn_workgroup_string << ", args);\n"
           "  return 0;\n"
-          "}\n";
+          "}";
 
     auto content = ss.str();
     err = pocl_write_tempfile(wrapper_cc, "/tmp/pocl_vortex_kernel", ".c",
@@ -761,32 +798,28 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
     }
 
-    const char *cmd_args[] = {clang_path.c_str(), 
+    const char *cmd_args[] = {
+      clang_path.c_str(), 
       "-v",
       "-O3",      
       (sysroot_path ? ssfmt.format("--sysroot=%s", sysroot_path) : ""),
-      (toolchain_path ? ssfmt.format("--gcc-toolchain=%s", toolchain_path) : ""),
+      (riscv_toolchain_path ? ssfmt.format("--gcc-toolchain=%s", riscv_toolchain_path) : ""),
       "-march=rv32im", "-mabi=ilp32", 
-      "-fno-rtti" ,"-fno-exceptions",  // disable RTTI and exceptions     
+      "-fno-rtti", // disable RTTI
+      "-fno-exceptions",  // disable exceptions     
       "-ffreestanding", // relax main() function signature
       "-nostartfiles", // disable default startup
-      "-Wl,--gc-sections", // eliminate unsued code and data      
-      //"-nostdlib", 
-      //"-nodefaultlibs",      
-      ssfmt.format("-Wl,-Bstatic,-T%s/startup/vx_link.ld", vx_rt_path), 
-      ssfmt.format("-I%s", vx_rt_path), 
-      ssfmt.format("%s/startup/vx_start.S", vx_rt_path),            
-      //ssfmt.format("%s/fileio/fileio.s", vx_rt_path)
-      //ssfmt.format("%s/newlib/newlib.c", vx_rt_path),
-      ssfmt.format("%s/intrinsics/vx_intrinsics.s", vx_rt_path),
-      //ssfmt.format("%s/io/vx_io.s", vx_rt_path),
-      //ssfmt.format("%s/io/vx_io.c", vx_rt_path),
-      ssfmt.format("%s/vx_api/vx_api.c", vx_rt_path),      
+      "-Wl,--gc-sections", // eliminate unsued code and data
+      ssfmt.format("-Wl,-Bstatic,-T%s/linker/vx_link.ld", vx_rt_path), // linker script       
+      ssfmt.format("-I%s/include", vx_rt_path), // includes
       wrapper_cc, 
       kernel_obj, 
+      ssfmt.format("%s/libvortexrt.a", vx_rt_path), // runtime library     
       "-lm",  // link std math library
       "-o", kernel_elf, 
-      nullptr};
+      nullptr
+    };
+
     err = pocl_invoke_clang(device, cmd_args);
     if (err != 0)
       return err;
