@@ -22,14 +22,17 @@
 */
 
 #include "pocl_cl.h"
+#include "pocl_shared.h"
 
 CL_API_ENTRY cl_int CL_API_CALL
 POname(clReleaseDevice)(cl_device_id device) CL_API_SUFFIX__VERSION_1_2 
 {
   POCL_RETURN_ERROR_COND ((device == NULL), CL_INVALID_DEVICE);
 
-  if (device->parent_device == NULL)
+  if (device->parent_device == NULL) {
+    pocl_check_uninit_devices ();
     return CL_SUCCESS;
+  }
 
   int new_refcount;
   POCL_RELEASE_OBJECT (device, new_refcount);

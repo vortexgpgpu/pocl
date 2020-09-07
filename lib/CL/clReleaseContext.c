@@ -33,7 +33,7 @@ extern pocl_lock_t pocl_context_handling_lock;
 
 CL_API_ENTRY cl_int CL_API_CALL
 POname(clReleaseContext)(cl_context context) CL_API_SUFFIX__VERSION_1_0
-{
+{  
   int new_refcount;
   if (!context->valid)
     {
@@ -66,7 +66,6 @@ POname(clReleaseContext)(cl_context context) CL_API_SUFFIX__VERSION_1_0
       POCL_MEM_FREE(context);
 
       /* see below on why we don't call uninit_devices here anymore */
-      --cl_context_count;
       POCL_ATOMIC_DEC (cl_context_count);
     }
 
@@ -92,7 +91,7 @@ pocl_check_uninit_devices ()
    * and go idle, so we can safely call pocl_uninit_devices() from
    * a user thread. */
 
-  int do_uninit = pocl_get_bool_option ("POCL_ENABLE_UNINIT", 0);
+  int do_uninit = pocl_get_bool_option ("POCL_ENABLE_UNINIT", 1);
   if (!do_uninit)
     return;
 

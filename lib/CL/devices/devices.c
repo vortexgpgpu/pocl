@@ -359,7 +359,7 @@ pocl_uninit_devices ()
           d = &pocl_devices[dev_index];
           if (d->available == 0)
             continue;
-          if (d->ops->reinit == NULL || d->ops->uninit == NULL)
+          if (d->ops->uninit == NULL)
             continue;
           cl_int ret = d->ops->uninit (j, d);
           if (ret != CL_SUCCESS)

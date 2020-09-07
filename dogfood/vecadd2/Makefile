@@ -1,6 +1,7 @@
 LLVM_HOME ?= ~/dev/llvm-project/drops
 RISCV_TOOLCHAIN_PATH ?= ~/dev/riscv-gnu-toolchain/drops
 SYSROOT ?= $(RISCV_TOOLCHAIN_PATH)/riscv32-unknown-elf
+
 POCL_CC_PATH ?= $(wildcard ~/dev/pocl/drops_vortex_cc)
 POCL_RT_PATH ?= $(wildcard ~/dev/pocl/drops_vortex_rt)
 VORTEX_RT_PATH ?= $(wildcard ~/dev/vortex_live/runtime)

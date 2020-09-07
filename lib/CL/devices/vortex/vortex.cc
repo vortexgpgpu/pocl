@@ -291,6 +291,9 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
 
 cl_int pocl_vortex_uninit(unsigned j, cl_device_id device) {
   struct vx_device_data_t *d = (struct vx_device_data_t *)device->data;
+  if (NULL == d)
+    return CL_SUCCESS;  
+
 #if !defined(OCS_AVAILABLE)
   vx_dev_close(d->vx_device);
 #endif
@@ -298,6 +301,7 @@ cl_int pocl_vortex_uninit(unsigned j, cl_device_id device) {
   pocl_aligned_free(d->printf_buffer);
   POCL_MEM_FREE(d);
   device->data = NULL;
+  
   return CL_SUCCESS;
 }
 
