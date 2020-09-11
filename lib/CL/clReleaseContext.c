@@ -103,14 +103,11 @@ pocl_check_uninit_devices ()
   int do_cleanup = (cl_context_count == 0);
   POCL_UNLOCK (pocl_context_handling_lock);
 
-  if (do_cleanup)
-    {
-      POCL_MSG_PRINT_REFCOUNTS (
-          "Zero contexts left, calling pocl_uninit_devices\n");
-      pocl_uninit_devices ();
-    }
-  else
-    POCL_MSG_ERR ("Contexts remaining!! \n");
+  if (do_cleanup) {
+    POCL_MSG_PRINT_REFCOUNTS (
+        "Zero contexts left, calling pocl_uninit_devices\n");
+    pocl_uninit_devices ();
+  }
 }
 
 

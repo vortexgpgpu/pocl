@@ -75,6 +75,9 @@ GEN_PROTOTYPES(basic)
 // location is local memory where to store kernel parameters
 #define KERNEL_ARG_BASE_ADDR 0x7fff0000
 
+extern char *build_cflags;
+extern char *build_ldflags;
+
 struct vx_device_data_t {
 #if !defined(OCS_AVAILABLE)  
   // vortex driver instance
@@ -671,6 +674,19 @@ private:
   size_t index_;
 };
 
+int exec(const char* cmd, std::ostream& out) {
+    char buffer[128];
+    auto pipe = popen(cmd, "r");
+    if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (!feof(pipe)) {
+        if (fgets(buffer, 128, pipe) != nullptr)
+            out << buffer;
+    }
+    return pclose(pipe);
+}
+
 int pocl_llvm_build_vortex_program(cl_kernel kernel, 
                                    unsigned device_i, 
                                    cl_device_id device,
@@ -680,42 +696,13 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   cl_program program = kernel->program;
   int err;
 
-  const char* vx_rt_path = getenv("VORTEX_RT_PATH"); 
-  if (vx_rt_path) {
-    if (!pocl_exists(vx_rt_path)) {
-      POCL_MSG_ERR("$VORTEX_RT_PATH: '%s' doesn't exist\n", vx_rt_path);
-      return -1;
-    }
-    POCL_MSG_PRINT_INFO("using $VORTEX_RT_PATH=%s!\n", vx_rt_path);
-  } else {
-    vx_rt_path = VORTEX_RT_PATH;        
-  }  
-
-  const char* llvm_install_path = getenv("LLVM_HOME"); 
+  const char* llvm_install_path = getenv("LLVM_PREFIX");
   if (llvm_install_path) {
     if (!pocl_exists(llvm_install_path)) {
-      POCL_MSG_ERR("$LLVM_HOME: '%s' doesn't exist\n", llvm_install_path);
+      POCL_MSG_ERR("$LLVM_PREFIX: '%s' doesn't exist\n", llvm_install_path);
       return -1;    
     }
-    POCL_MSG_PRINT_INFO("using $LLVM_HOME=%s!\n", llvm_install_path);
-  }
-
-  const char* sysroot_path = getenv("SYSROOT"); 
-  if (sysroot_path) {
-    if (!pocl_exists(sysroot_path)) {
-      POCL_MSG_ERR("$SYSROOT: '%s' doesn't exist\n", sysroot_path);
-      return -1;    
-    }
-    POCL_MSG_PRINT_INFO("using $SYSROOT=%s!\n", sysroot_path);
-  }
-
-  const char* riscv_toolchain_path = getenv("RISCV_TOOLCHAIN_PATH"); 
-  if (riscv_toolchain_path) {
-    if (!pocl_exists(riscv_toolchain_path)) {
-      POCL_MSG_ERR("$RISCV_TOOLCHAIN_PATH: '%s' doesn't exist\n", riscv_toolchain_path);
-      return -1;    
-    }
-    POCL_MSG_PRINT_INFO("using $RISCV_TOOLCHAIN_PATH=%s!\n", riscv_toolchain_path);
+    POCL_MSG_PRINT_INFO("using $LLVM_PREFIX=%s!\n", llvm_install_path);
   }
   
   {  
@@ -802,31 +789,15 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
     }
 
-    const char *cmd_args[] = {
-      clang_path.c_str(), 
-      "-v",
-      "-O3",      
-      (sysroot_path ? ssfmt.format("--sysroot=%s", sysroot_path) : ""),
-      (riscv_toolchain_path ? ssfmt.format("--gcc-toolchain=%s", riscv_toolchain_path) : ""),
-      "-march=rv32im", "-mabi=ilp32", 
-      "-fno-rtti", // disable RTTI
-      "-fno-exceptions",  // disable exceptions     
-      "-ffreestanding", // relax main() function signature
-      "-nostartfiles", // disable default startup
-      "-Wl,--gc-sections", // eliminate unsued code and data
-      ssfmt.format("-Wl,-Bstatic,-T%s/linker/vx_link.ld", vx_rt_path), // linker script       
-      ssfmt.format("-I%s/include", vx_rt_path), // includes
-      wrapper_cc, 
-      kernel_obj, 
-      ssfmt.format("%s/libvortexrt.a", vx_rt_path), // runtime library     
-      "-lm",  // link std math library
-      "-o", kernel_elf, 
-      nullptr
-    };
-
-    err = pocl_invoke_clang(device, cmd_args);
-    if (err != 0)
-      return err;
+    {
+      std::stringstream ss_cmd, ss_out;
+      ss_cmd << clang_path.c_str() << " " << build_cflags << " " << wrapper_cc << " " << kernel_obj << " " << build_ldflags << " -o " << kernel_elf;
+      err = exec(ss_cmd.str().c_str(), ss_out);
+      if (err != 0) {
+        POCL_MSG_ERR("%s\n", ss_out.str().c_str());
+        return err;
+      }
+    }
   }
 
   {
@@ -835,12 +806,13 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       objcopy_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
     }
 
-    std::stringstream ss;
-    ss << objcopy_path.c_str() << " -O binary " << kernel_elf << " " << kernel_out;
-    std::string s = ss.str();
-    err = system(s.c_str());
-    if (err != 0)
+    std::stringstream ss_cmd, ss_out;
+    ss_cmd << objcopy_path.c_str() << " -O binary " << kernel_elf << " " << kernel_out;
+    err = exec(ss_cmd.str().c_str(), ss_out);
+    if (err != 0) {
+      POCL_MSG_ERR("%s\n", ss_out.str().c_str());
       return err;
+    }
   }
 
   {
@@ -849,12 +821,13 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
     }
 
-    std::stringstream ss;
-    ss << objdump_path.c_str() << " -D " << kernel_elf << " > " << kernel->name << ".dump";
-    std::string s = ss.str();
-    err = system(s.c_str());
-    if (err != 0)
+    std::stringstream ss_cmd, ss_out;
+    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf << " > " << kernel->name << ".dump";
+    err = exec(ss_cmd.str().c_str(), ss_out);
+    if (err != 0) {
+      POCL_MSG_ERR("%s\n", ss_out.str().c_str());
       return err;
+    }
   }
   
   return 0;

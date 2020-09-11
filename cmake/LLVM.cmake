@@ -248,8 +248,8 @@ endforeach()
 ####################################################################
 
 macro(find_program_or_die OUTPUT_VAR PROG_NAME DOCSTRING)
-  find_program(${OUTPUT_VAR} NAMES "${PROG_NAME}${LLVM_BINARY_SUFFIX}${CMAKE_EXECUTABLE_SUFFIX}" "${PROG_NAME}${CMAKE_EXECUTABLE_SUFFIX}" HINTS "${LLVM_BINDIR}" "${LLVM_CONFIG_LOCATION}" "${LLVM_PREFIX}" "${LLVM_PREFIX_BIN}" DOC "${DOCSTRING}")
-  if(${OUTPUT_VAR})
+  find_program(${OUTPUT_VAR} NAMES "${PROG_NAME}${LLVM_BINARY_SUFFIX}${CMAKE_EXECUTABLE_SUFFIX}" "${PROG_NAME}${CMAKE_EXECUTABLE_SUFFIX}" HINTS "${LLVM_BINDIR}" "${LLVM_CONFIG_LOCATION}" "${LLVM_PREFIX}" "${LLVM_PREFIX_BIN}" DOC "${DOCSTRING}" NO_CMAKE_PATH)
+ if(${OUTPUT_VAR})
     message(STATUS "Found ${PROG_NAME}: ${${OUTPUT_VAR}}")
   else()
     message(FATAL_ERROR "${PROG_NAME} executable not found!")

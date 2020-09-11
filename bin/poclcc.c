@@ -32,7 +32,7 @@
 
 #define DEVICE_INFO_MAX_LENGTH 2048
 #define NUM_OF_DEVICE_ID 32
-#define NUM_OPTIONS 6
+#define NUM_OPTIONS 8
 
 #define ERRNO_EXIT(filename) do { \
     printf("IO error on file %s: %s\n", filename, strerror(errno)); \
@@ -46,6 +46,8 @@ unsigned opencl_device_id = 0;
 int list_devices = 0;
 int list_devices_only = 0;
 char *build_options = NULL;
+char *build_cflags = "";
+char *build_ldflags = "";
 
 /**********************************************************/
 
@@ -178,6 +180,26 @@ process_list_devices(int arg, char **argv, int argc)
   return 0;
 }
 
+static int
+process_cflags(int arg, char **argv, int argc)
+{
+  if (arg >= argc)
+    return poclcc_error("Incomplete argument for build_options!\n");
+
+  build_cflags = argv[arg];
+  return 0;
+}
+
+static int
+process_ldflags(int arg, char **argv, int argc)
+{
+  if (arg >= argc)
+    return poclcc_error("Incomplete argument for build_options!\n");
+
+  build_ldflags = argv[arg];
+  return 0;
+}
+
 /**********************************************************/
 
 static poclcc_option options[NUM_OPTIONS] =
@@ -207,6 +229,14 @@ static poclcc_option options[NUM_OPTIONS] =
   {process_output, "-o",
    "\t-o <file>\n"
    "\t\tWrite output to <file>\n",
+   2},
+  {process_cflags, "-CFLAGS",
+   "\t-CFLAGS <flags>\n"
+   "\t\tCodegen compiler flags\n",
+   2},
+  {process_ldflags, "-LDFLAGS",
+   "\t-LDFLAGS <flags>\n"
+   "\t\tCodegen loader flags\n",
    2}
 };
 
