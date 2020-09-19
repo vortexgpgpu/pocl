@@ -187,7 +187,7 @@ option(USE_POCL_MEMMANAGER "Enables custom memory manager. Except for special ci
 
 option(EXAMPLES_USE_GIT_MASTER "If enabled, some of the external testsuites in examples/ will try to use sources from Git master, instead of releases. This may result in failure to build or run the examples" OFF)
 
-option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic, and pthread)." ON)
+option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic, and pthread)." OFF)
 
 option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device driver." OFF)
 
@@ -214,10 +214,7 @@ if(ENABLE_VORTEX)
   set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
   set(OCL_TARGETS "${OCL_TARGETS} vortex")
   set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Vortex targets")
-  if (OCS_AVAILABLE)
-    set(HOST_DEVICE_BUILD_HASH "${LLC_TRIPLE}")
-    set(HOST_DEVICE_ADDRESS_BITS 32)
-  else()
+  if (NOT OCS_AVAILABLE)
     if(NOT DEFINED VORTEX_DRIVER_INC)
       message(FATAL_ERROR "should set 'VORTEX_DRIVER_INC' option")
     endif()
@@ -226,6 +223,9 @@ if(ENABLE_VORTEX)
     endif()
   endif()
   set(BUILD_VORTEX 1)
+  set(VORTEX_DEVICE_EXTENSIONS "")
+  set(VORTEX_DEVICE_CL_VERSION "120")
+  set(VORTEX_DEVICE_CL_STD "1.2")
 endif()
 
 # currently only works with gcc as host compiler
@@ -266,17 +266,17 @@ endif()
 
 ##########################################################
 
-if (ENABLE_HOST_CPU_DEVICES)
-  if (NOT DEFINED HOST_DEVICE_ADDRESS_BITS)
-    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-      set(HOST_DEVICE_ADDRESS_BITS 64)
-    elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
-      set(HOST_DEVICE_ADDRESS_BITS 32)
-    else()
-      message(FATAL_ERROR "Cannot figure out HOST_DEVICE_ADDRESS_BITS")
-    endif()
+if (NOT DEFINED HOST_DEVICE_ADDRESS_BITS)
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(HOST_DEVICE_ADDRESS_BITS 64)
+  elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(HOST_DEVICE_ADDRESS_BITS 32)
+  else()
+    message(FATAL_ERROR "Cannot figure out HOST_DEVICE_ADDRESS_BITS")
   endif()
+endif()
 
+if (ENABLE_HOST_CPU_DEVICES)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc")
     set(POWERPC 1)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mips")
@@ -1124,8 +1124,8 @@ if(ENABLE_HSA OR ENABLE_HOST_CPU_DEVICES)
 endif()
 
 if(ENABLE_HOST_CPU_DEVICES)
-  set(OCL_TARGETS "host")  
-  set(OCL_DRIVERS "basic")
+  set(OCL_TARGETS "${OCL_TARGETS} host")  
+  set(OCL_DRIVERS "${OCL_DRIVERS} basic")
   # TODO OCL_KERNEL_TARGET -> CPU_TARGET_TRIPLE
   # TODO OCL_KERNEL_TARGET_CPU -> OCL_KERNEL_TARGET_CPU
   set(OCL_KERNEL_TARGET "${LLC_TRIPLE}") #The kernel target triplet.
@@ -1642,6 +1642,7 @@ endif()
 MESSAGE(STATUS "MAX_EXTENDED_ALIGNMENT: ${MAX_EXTENDED_ALIGNMENT}")
 MESSAGE(STATUS "OCL_KERNEL_TARGET: ${OCL_KERNEL_TARGET}")
 MESSAGE(STATUS "OCL_KERNEL_TARGET_CPU: ${OCL_KERNEL_TARGET_CPU}")
+MESSAGE(STATUS "HOST_DEVICE_BUILD_HASH: ${HOST_DEVICE_BUILD_HASH}")
 MESSAGE(STATUS "HOST_DEVICE_ADDRESS_BITS: ${HOST_DEVICE_ADDRESS_BITS}")
 if (ENABLE_TCE)
   MESSAGE(STATUS "")

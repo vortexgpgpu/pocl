@@ -359,10 +359,16 @@ int pocl_llvm_build_program(cl_program program,
 
   // This is required otherwise the initialization fails with
   // unknown triple ''
-  ss << "-triple=" << device->llvm_target_triplet << " ";
-  if (device->llvm_cpu != NULL && device->llvm_cpu[0] != 0)
+  if (device->llvm_target_triplet && *device->llvm_target_triplet)
+    ss << "-triple=" << device->llvm_target_triplet << " ";
+  if (device->llvm_cpu && *device->llvm_cpu)
     ss << "-target-cpu " << device->llvm_cpu << " ";
 
+  ss << "-target-feature +m -target-feature +f -target-abi ilp32f ";
+
+  //debug passes
+  //ss << "-mdebug-pass Structure ";
+  
   POCL_MSG_PRINT_LLVM("all build options: %s\n", ss.str().c_str());
 
   std::istream_iterator<std::string> begin(ss);
@@ -474,14 +480,20 @@ int pocl_llvm_build_program(cl_program program,
 #endif
   po.Includes.push_back(ClangResourceDir + "/include/opencl-c.h");
   po.Includes.push_back(KernelH);
+  
   clang::TargetOptions &ta = pocl_build.getTargetOpts();
-  ta.Triple = device->llvm_target_triplet;
-  if (device->llvm_cpu != NULL)
-    ta.CPU = device->llvm_cpu;
 
 #ifdef DEBUG_POCL_LLVM_API
-  std::cout << "### Triple: " << ta.Triple.c_str() <<  ", CPU: " << ta.CPU.c_str();
+  std::cout << "### TargetOptions: Triple: " << ta.Triple.c_str() 
+            << ", CPU: " << ta.CPU
+            << ", ABI: " << ta.ABI
+            << ", Features: ";
+  for (auto& feature : ta.Features) {
+    std::cout << feature << " ";
+  }
+  std::cout << std::endl;
 #endif
+
   CI.createDiagnostics(diagsBuffer, false);
 
   FrontendOptions &fe = pocl_build.getFrontendOpts();
@@ -838,6 +850,12 @@ static llvm::Module* getKernelLibrary(cl_device_id device)
   if (triple.getArch() == Triple::nvptx ||
       triple.getArch() == Triple::nvptx64) {
     subdir = "cuda";
+    is_host = false;
+  }
+#endif
+#ifdef BUILD_VORTEX
+  if (triple.getArch() == Triple::riscv32) {
+    subdir = "vortex";
     is_host = false;
   }
 #endif

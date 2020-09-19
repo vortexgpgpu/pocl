@@ -31,5 +31,9 @@ set(PRIVATE_HEADERS _enable_all_exts.h _builtin_renames.h
                     pocl_types.h pocl_device.h pocl.h pocl_spir.h
                     pocl_image_types.h)
 
+if(ENABLE_VORTEX)
+        set(PRIVATE_HEADERS ${PRIVATE_HEADERS} _vortex_kernel_stub.h)
+endif()
+
 install(FILES ${PRIVATE_HEADERS}
         DESTINATION ${POCL_INSTALL_PRIVATE_HEADER_DIR} COMPONENT "dev")

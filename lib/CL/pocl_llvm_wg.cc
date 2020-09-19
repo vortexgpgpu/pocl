@@ -60,6 +60,7 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/IR/LegacyPassManager.h>
+#include <llvm/CodeGen/MachineModuleInfo.h>
 
 #define PassManager legacy::PassManager
 
@@ -149,7 +150,7 @@ static TargetMachine *GetTargetMachine(cl_device_id device, Triple &triple) {
       CodeModel::Default, CodeGenOpt::Aggressive);
 #else
   TargetMachine *TM = TheTarget->createTargetMachine(
-      triple.getTriple(), MCPU, StringRef("+m"), GetTargetOptions(), Reloc::PIC_,
+      triple.getTriple(), MCPU, StringRef("+m,+f"), GetTargetOptions(), Reloc::PIC_,      
       CodeModel::Small, CodeGenOpt::Aggressive);
 #endif
 

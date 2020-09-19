@@ -32,7 +32,7 @@
 
 #define DEVICE_INFO_MAX_LENGTH 2048
 #define NUM_OF_DEVICE_ID 32
-#define NUM_OPTIONS 8
+#define NUM_OPTIONS 9
 
 #define ERRNO_EXIT(filename) do { \
     printf("IO error on file %s: %s\n", filename, strerror(errno)); \
@@ -48,6 +48,7 @@ int list_devices_only = 0;
 char *build_options = NULL;
 char *build_cflags = "";
 char *build_ldflags = "";
+char *build_llcflags = "";
 
 /**********************************************************/
 
@@ -200,6 +201,16 @@ process_ldflags(int arg, char **argv, int argc)
   return 0;
 }
 
+static int
+process_llcflags(int arg, char **argv, int argc)
+{
+  if (arg >= argc)
+    return poclcc_error("Incomplete argument for build_options!\n");
+
+  build_llcflags = argv[arg];
+  return 0;
+}
+
 /**********************************************************/
 
 static poclcc_option options[NUM_OPTIONS] =
@@ -237,6 +248,10 @@ static poclcc_option options[NUM_OPTIONS] =
   {process_ldflags, "-LDFLAGS",
    "\t-LDFLAGS <flags>\n"
    "\t\tCodegen loader flags\n",
+   2},
+  {process_llcflags, "-LLCFLAGS",
+   "\t-LLCFLAGS <flags>\n"
+   "\t\tCodegen llc flags\n",
    2}
 };
 

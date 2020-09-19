@@ -54,9 +54,6 @@ extern "C" {
 
 #include "pocl_llvm.h"
 
-#include "prototypes.inc"
-GEN_PROTOTYPES(basic)
-
 #ifdef __cplusplus
 }
 #endif
@@ -77,6 +74,7 @@ GEN_PROTOTYPES(basic)
 
 extern char *build_cflags;
 extern char *build_ldflags;
+extern char *build_llcflags;
 
 struct vx_device_data_t {
 #if !defined(OCS_AVAILABLE)  
@@ -209,13 +207,7 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
 
 char *pocl_vortex_build_hash(cl_device_id device) {
   char *res = (char *)calloc(1000, sizeof(char));
-#ifdef KERNELLIB_HOST_DISTRO_VARIANTS
-  char *name = get_llvm_cpu_name();
-  snprintf(res, 1000, "vortex-%s-%s", HOST_DEVICE_BUILD_HASH, name);
-  POCL_MEM_FREE(name);
-#else
-  snprintf(res, 1000, "vortex-%s", HOST_DEVICE_BUILD_HASH);
-#endif
+  snprintf(res, 1000, "vortex-riscv32-unknown-unknown-elf");
   return res;
 }
 
@@ -270,7 +262,8 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   device->vendor_id = 0;
   device->type = CL_DEVICE_TYPE_GPU;
 
-  device->address_bits = HOST_DEVICE_ADDRESS_BITS;  
+  device->address_bits = 32;  
+  device->llvm_target_triplet = "riscv32";
   device->llvm_cpu = "";
 
   err = pocl_topology_detect_device_info(device);
@@ -535,14 +528,18 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
     abuf_size += abuf_args_size;
     for (i = 0; i < meta->num_args; ++i) {  
       auto al = &(cmd->command.run.arguments[i]);  
-      if (ARG_IS_LOCAL(meta->arg_info[i]) && 
-         !cmd->device->device_alloca_locals) {
+      if (ARG_IS_LOCAL(meta->arg_info[i])
+       && !cmd->device->device_alloca_locals) {
         abuf_size += 4;
         abuf_size += al->size;
         abuf_ext_size += al->size;
-      } else 
-      if (meta->arg_info[i].type == POCL_ARG_TYPE_POINTER) {
+      } else
+      if ((meta->arg_info[i].type == POCL_ARG_TYPE_POINTER)
+       || (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE)
+       || (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER)) {
         abuf_size += 4;
+      } else {
+        abuf_size += al->size;
       }
     }
   }
@@ -609,7 +606,9 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
       if (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER) {
         std::abort();
       } else {
-        memcpy(abuf_ptr + addr, &al->value, 4);
+        memcpy(abuf_ptr + addr, &args_addr, 4);
+        memcpy(abuf_ptr + (args_addr - args_base_addr), al->value, al->size);
+        args_addr += al->size;
       }
     }
 
@@ -674,24 +673,25 @@ private:
   size_t index_;
 };
 
-int exec(const char* cmd, std::ostream& out) {
-    char buffer[128];
-    auto pipe = popen(cmd, "r");
-    if (!pipe) {
-        throw std::runtime_error("popen() failed!");
-    }
-    while (!feof(pipe)) {
-        if (fgets(buffer, 128, pipe) != nullptr)
-            out << buffer;
-    }
-    return pclose(pipe);
+int exec(const char* cmd, std::ostream& out) {  
+  char buffer[128];
+  auto pipe = popen(cmd, "r");
+  if (!pipe) {
+      throw std::runtime_error("popen() failed!");
+  }
+  while (!feof(pipe)) {
+      if (fgets(buffer, 128, pipe) != nullptr)
+          out << buffer;
+  }
+  return pclose(pipe);
 }
 
 int pocl_llvm_build_vortex_program(cl_kernel kernel, 
                                    unsigned device_i, 
                                    cl_device_id device,
+                                   const char *kernel_bc,
                                    const char *kernel_obj,
-                                   char *kernel_out) {  
+                                   char *kernel_out) {
   char kernel_elf[POCL_FILENAME_LENGTH];
   cl_program program = kernel->program;
   int err;
@@ -704,6 +704,22 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
     POCL_MSG_PRINT_INFO("using $LLVM_PREFIX=%s!\n", llvm_install_path);
   }
+
+  {
+    std::string llc_path(LLVM_LLC);
+    if (llvm_install_path) {
+      llc_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+    }
+
+    std::stringstream ss_cmd, ss_out;
+    ss_cmd << llc_path.c_str() << " " << build_llcflags << " -filetype=obj -o " << kernel_obj << " " << kernel_bc;
+    POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
+    err = exec(ss_cmd.str().c_str(), ss_out);
+    if (err != 0) {
+      POCL_MSG_ERR("%s\n", ss_out.str().c_str());
+      return err;
+    }
+  }
   
   {  
     char wrapper_cc[POCL_FILENAME_LENGTH];    
@@ -713,57 +729,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
               "_pocl_kernel_%s_workgroup", kernel->name);
     
-    ss << "#include <inttypes.h>\n"
-          "#include <vx_intrinsics.h>\n"
-          "struct context_t {"
-          "  uint32_t num_groups[3];"
-          "  uint32_t global_offset[3];"
-          "  uint32_t local_size[3];"
-          "  char * printf_buffer;"
-          "  uint32_t *printf_buffer_position;"
-          "  uint32_t printf_buffer_capacity;"
-          "  uint32_t work_dim;"
-          "};"
-          "\n"
-          "typedef void (*vx_pocl_workgroup_func) ("
-          "  const void * /* args */,"
-          "	 const struct context_t * /* context */,"
-          "	 uint32_t /* group_x */,"
-          "	 uint32_t /* group_y */,"
-          "	 uint32_t /* group_z */"
-          ");"
-          "\n"
-          "typedef struct {"
-          "  struct context_t * ctx;"
-          "  vx_pocl_workgroup_func pfn;"
-          "  const void * args;"
-          "  int nthreads;"
-          "} kernel_spawn_t;"
-          "\n"
-          "kernel_spawn_t* g_spawn;"
-          "\n"
-          "void kernel_spawn_runonce() {"
-          "	 vx_tmc(g_spawn->nthreads);"
-          "	 int x = vx_thread_id();"
-          "	 int y = vx_warp_gid();"
-          "	 (g_spawn->pfn)(g_spawn->args, g_spawn->ctx, x, y, 0);"
-          "	 int wid = vx_warp_id();"
-          "	 unsigned tmask = (0 == wid) ? 0x1 : 0x0;"
-          "	 vx_tmc(tmask);"
-          "}"
-          "\n"
-          "void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void * args) {"
-          "	 if (ctx->num_groups[2] > 1) {"
-          "		 return;"
-          "  }"
-          "  kernel_spawn_t spawn = { ctx, pfn, args, ctx->num_groups[0] };"
-          "  g_spawn = &spawn;"
-          "	 if (ctx->num_groups[1] > 1)	{"
-          "		 vx_wspawn(ctx->num_groups[1], (unsigned)&kernel_spawn_runonce);"
-          "	 }"
-          "	 kernel_spawn_runonce();"
-          "}" 
-          "\n"
+    ss << "#include <_vortex_kernel_stub.h>\n"
           "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"  
           "int main() {\n"
           "  struct context_t* ctx = (struct context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
@@ -791,7 +757,8 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
 
     {
       std::stringstream ss_cmd, ss_out;
-      ss_cmd << clang_path.c_str() << " " << build_cflags << " " << wrapper_cc << " " << kernel_obj << " " << build_ldflags << " -o " << kernel_elf;
+      ss_cmd << clang_path.c_str() << " " << build_cflags << " -I" POCL_INSTALL_PRIVATE_HEADER_DIR << " "<< wrapper_cc << " " << kernel_obj << " " << build_ldflags << " -o " << kernel_elf;
+      POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
       err = exec(ss_cmd.str().c_str(), ss_out);
       if (err != 0) {
         POCL_MSG_ERR("%s\n", ss_out.str().c_str());
@@ -808,6 +775,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
 
     std::stringstream ss_cmd, ss_out;
     ss_cmd << objcopy_path.c_str() << " -O binary " << kernel_elf << " " << kernel_out;
+    POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
       POCL_MSG_ERR("%s\n", ss_out.str().c_str());
@@ -822,7 +790,8 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
 
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf << " > " << kernel->name << ".dump";
+    ss_cmd << objdump_path.c_str() << " -arch=riscv32 -mcpu=generic-rv32 -mattr=+m,+f -D " << kernel_elf << " > " << kernel->name << ".dump";
+    POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
       POCL_MSG_ERR("%s\n", ss_out.str().c_str());
