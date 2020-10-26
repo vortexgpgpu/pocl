@@ -503,6 +503,13 @@ void pocl_vortex_read(void *data,
   memcpy(host_ptr, (char *)buf_ptr + offset, size);
 }
 
+static void print_data(const char* text, const uint8_t* data, size_t size) {
+  /*printf(text);
+  for (size_t i = 0; i < size; ++i)
+    printf("%02x", data[size-1-i]);
+  printf("\n");*/
+}
+
 void pocl_vortex_run(void *data, _cl_command_node *cmd) {
   struct vx_device_data_t *d;
   size_t x, y, z;
@@ -567,7 +574,10 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
       ctx.printf_buffer_capacity = 0;
       ctx.printf_buffer = 0;
       ctx.printf_buffer_position = 0;
+
+      memset(abuf_ptr, 0, ALIGNED_CTX_SIZE);
       memcpy(abuf_ptr, &ctx, sizeof(kernel_context_t));
+      print_data("*** ctx=", abuf_ptr, ALIGNED_CTX_SIZE);
     }
 
     // write arguments    
@@ -580,6 +590,7 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
       if (ARG_IS_LOCAL(meta->arg_info[i])) {
         if (cmd->device->device_alloca_locals) {
           memcpy(abuf_ptr + addr, &al->size, 4);
+          print_data("*** locals=", abuf_ptr + addr, 4);
         } else {
           memcpy(abuf_ptr + addr, &args_addr, 4);          
           memcpy(abuf_ptr + (args_addr - args_base_addr), &args_ext_addr, 4);
@@ -592,11 +603,13 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
         memcpy(abuf_ptr + addr, &args_addr, 4);        
         if (al->value == NULL) {
           memset(abuf_ptr + (args_addr - args_base_addr), 0, 4);
+          print_data("*** null=", abuf_ptr + (args_addr - args_base_addr), 4); 
         } else {
           cl_mem m = (*(cl_mem *)(al->value));
           auto buf_data = (vx_buffer_data_t*)m->device_ptrs[cmd->device->dev_id].mem_ptr;
           auto dev_mem_addr = buf_data->dev_mem_addr + al->offset;
           memcpy(abuf_ptr + (args_addr - args_base_addr), &dev_mem_addr, 4);
+          print_data("*** ptr=", abuf_ptr + (args_addr - args_base_addr), 4);
         }
         args_addr += 4;
       } else 
@@ -608,6 +621,8 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
       } else {
         memcpy(abuf_ptr + addr, &args_addr, 4);
         memcpy(abuf_ptr + (args_addr - args_base_addr), al->value, al->size);
+        print_data("*** arg-addr=", abuf_ptr + addr, 4);
+        print_data("*** arg-value=", abuf_ptr + (args_addr - args_base_addr), al->size);
         args_addr += al->size;
       }
     }
