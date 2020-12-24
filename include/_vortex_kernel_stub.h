@@ -150,7 +150,7 @@ void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void
     K = 1;
 
   //--
-  wspawn_args_t wspawn_args = { ctx, pfn, args, core_id * QC_base, K, R};
+  wspawn_args_t wspawn_args = { ctx, pfn, args, core_id * QC_base, K, R };
   g_wspawn_args = &wspawn_args;
 
   /*vx_printv("X=", X);
