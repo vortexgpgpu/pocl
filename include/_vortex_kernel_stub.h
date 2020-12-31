@@ -2,6 +2,8 @@
 #include <vx_intrinsics.h>
 #include <vx_print.h>
 
+#define NUM_CORES_MAX 8
+
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 struct context_t {
@@ -31,29 +33,31 @@ typedef struct {
   int R;
 } wspawn_args_t;
 
-wspawn_args_t* g_wspawn_args;
+wspawn_args_t* g_wspawn_args[NUM_CORES_MAX];
 
 void kernel_spawn_run_warp() {  
   vx_tmc(vx_num_threads());
 
-  int NT = vx_num_threads();
-
-  int X = g_wspawn_args->ctx->num_groups[0];
-  int Y = g_wspawn_args->ctx->num_groups[1];
-  int XY = X * Y;
-
+  int core_id = vx_core_id();
   int wid = vx_warp_id();
-  int tid = vx_thread_id();
+  int tid = vx_thread_id(); 
+  int NT = vx_num_threads();
+  
+  wspawn_args_t* p_wspawn_args = g_wspawn_args[core_id];
 
-  int wK = (g_wspawn_args->K * wid) + MIN(g_wspawn_args->R, wid);
-  int tK = g_wspawn_args->K + (wid < g_wspawn_args->R);
-  int wg_base = g_wspawn_args->wg_offset + (wK * NT) + (tid * tK);
+  int wK = (p_wspawn_args->K * wid) + MIN(p_wspawn_args->R, wid);
+  int tK = p_wspawn_args->K + (wid < p_wspawn_args->R);
+  int wg_base = p_wspawn_args->wg_offset + (wK * NT) + (tid * tK);
 
   /*vx_printv("wid=", wid);
   vx_printv("tid=", tid);
   vx_printv("wK=", wK);  
   vx_printv("tK=", tK);
-  vx_printv("wg_base=", wg_base);*/
+  vx_printv("wg_base=", wg_base);*/  
+
+  int X = p_wspawn_args->ctx->num_groups[0];
+  int Y = p_wspawn_args->ctx->num_groups[1];
+  int XY = X * Y;
 
   for (int i = 0; i < tK; ++i) {
     int wg_id = wg_base + i;    
@@ -63,9 +67,9 @@ void kernel_spawn_run_warp() {
     int j = wg_2d / X;
     int i = wg_2d - j * X;
 
-    int gid0 = g_wspawn_args->ctx->global_offset[0] + i;
-    int gid1 = g_wspawn_args->ctx->global_offset[1] + j;
-    int gid2 = g_wspawn_args->ctx->global_offset[2] + k;
+    int gid0 = p_wspawn_args->ctx->global_offset[0] + i;
+    int gid1 = p_wspawn_args->ctx->global_offset[1] + j;
+    int gid2 = p_wspawn_args->ctx->global_offset[2] + k;
 
     /*vx_printv("wg_id=", wg_id);
     vx_printv("wg_2d=", wg_2d);    
@@ -73,32 +77,35 @@ void kernel_spawn_run_warp() {
     vx_printv("j=", j);
     vx_printv("i=", i);*/
 
-    (g_wspawn_args->pfn)(g_wspawn_args->args, g_wspawn_args->ctx, gid0, gid1, gid2);
+    (p_wspawn_args->pfn)(p_wspawn_args->args, p_wspawn_args->ctx, gid0, gid1, gid2);
   }
 
   unsigned tmask = (0 == wid);
   vx_tmc(tmask);
 }
 
-void kernel_spawn_run_threads(int nthreads, int wg_offset) {    
+void kernel_spawn_run_threads(int nthreads) {    
   vx_tmc(nthreads);
 
-  int X = g_wspawn_args->ctx->num_groups[0];
-  int Y = g_wspawn_args->ctx->num_groups[1];
-  int XY = X * Y;
-
+  int core_id = vx_core_id(); 
   int tid = vx_thread_gid();
 
-  int wg_id = wg_offset + tid;
+  wspawn_args_t* p_wspawn_args = g_wspawn_args[core_id];
+
+  int wg_id = p_wspawn_args->wg_offset + tid;
+
+  int X = p_wspawn_args->ctx->num_groups[0];
+  int Y = p_wspawn_args->ctx->num_groups[1];
+  int XY = X * Y;
   
   int k = wg_id / XY;
   int wg_2d = wg_id - k * XY;
   int j = wg_2d / X;
   int i = wg_2d - j * X;
 
-  int gid0 = g_wspawn_args->ctx->global_offset[0] + i;
-  int gid1 = g_wspawn_args->ctx->global_offset[1] + j;
-  int gid2 = g_wspawn_args->ctx->global_offset[2] + k;
+  int gid0 = p_wspawn_args->ctx->global_offset[0] + i;
+  int gid1 = p_wspawn_args->ctx->global_offset[1] + j;
+  int gid2 = p_wspawn_args->ctx->global_offset[2] + k;
 
   /*vx_printv("-wg_id=", wg_id);
   vx_printv("-wg_2d=", wg_2d);    
@@ -106,7 +113,7 @@ void kernel_spawn_run_threads(int nthreads, int wg_offset) {
   vx_printv("-j=", j);
   vx_printv("-i=", i);*/
 
-  (g_wspawn_args->pfn)(g_wspawn_args->args, g_wspawn_args->ctx, gid0, gid1, gid2);
+  (p_wspawn_args->pfn)(p_wspawn_args->args, p_wspawn_args->ctx, gid0, gid1, gid2);
 
   vx_tmc(1);
 }
@@ -125,6 +132,8 @@ void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void
 
   // current core id
   int core_id = vx_core_id();  
+  if (core_id >= NUM_CORES_MAX)
+    return;
 
   // calculate number of active cores
   int WT = NW * NT;
@@ -151,7 +160,7 @@ void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void
 
   //--
   wspawn_args_t wspawn_args = { ctx, pfn, args, core_id * QC_base, K, R };
-  g_wspawn_args = &wspawn_args;
+  g_wspawn_args[core_id] = &wspawn_args;
 
   /*vx_printv("X=", X);
   vx_printv("Y=", Y);
@@ -177,6 +186,7 @@ void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void
 
   //--    
   if (qR != 0) {
-    kernel_spawn_run_threads(qR, QC - qR);
+    wspawn_args.wg_offset = QC - qR;
+    kernel_spawn_run_warp(qR);
   }
-} 
+}
