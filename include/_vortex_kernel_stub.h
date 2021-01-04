@@ -2,7 +2,7 @@
 #include <vx_intrinsics.h>
 #include <vx_print.h>
 
-#define NUM_CORES_MAX 8
+#define NUM_CORES_MAX 16
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -28,40 +28,32 @@ typedef struct {
   struct context_t * ctx;
   vx_pocl_workgroup_func pfn;
   const void * args;
-  int wg_offset; 
-  int K;
+  int offset; 
+  int N;
   int R;
 } wspawn_args_t;
 
 wspawn_args_t* g_wspawn_args[NUM_CORES_MAX];
 
-void kernel_spawn_run_warp() {  
+void kernel_spawn_callback() {  
   vx_tmc(vx_num_threads());
 
   int core_id = vx_core_id();
-  int wid = vx_warp_id();
-  int tid = vx_thread_id(); 
-  int NT = vx_num_threads();
+  int wid     = vx_warp_id();
+  int tid     = vx_thread_id(); 
+  int NT      = vx_num_threads();
   
   wspawn_args_t* p_wspawn_args = g_wspawn_args[core_id];
 
-  int wK = (p_wspawn_args->K * wid) + MIN(p_wspawn_args->R, wid);
-  int tK = p_wspawn_args->K + (wid < p_wspawn_args->R);
-  int wg_base = p_wspawn_args->wg_offset + (wK * NT) + (tid * tK);
-
-  /*vx_printv("wid=", wid);
-  vx_printv("tid=", tid);
-  vx_printv("wK=", wK);  
-  vx_printv("tK=", tK);
-  vx_printv("wg_base=", wg_base);*/  
+  int wK = (p_wspawn_args->N * wid) + MIN(p_wspawn_args->R, wid);
+  int tK = p_wspawn_args->N + (wid < p_wspawn_args->R);
+  int offset = p_wspawn_args->offset + (wK * NT) + (tid * tK);
 
   int X = p_wspawn_args->ctx->num_groups[0];
   int Y = p_wspawn_args->ctx->num_groups[1];
   int XY = X * Y;
 
-  for (int i = 0; i < tK; ++i) {
-    int wg_id = wg_base + i;    
-    
+  for (int wg_id = offset, N = wg_id + tK; wg_id < N; ++wg_id) {    
     int k = wg_id / XY;
     int wg_2d = wg_id - k * XY;
     int j = wg_2d / X;
@@ -71,20 +63,13 @@ void kernel_spawn_run_warp() {
     int gid1 = p_wspawn_args->ctx->global_offset[1] + j;
     int gid2 = p_wspawn_args->ctx->global_offset[2] + k;
 
-    /*vx_printv("wg_id=", wg_id);
-    vx_printv("wg_2d=", wg_2d);    
-    vx_printv("k=", k);
-    vx_printv("j=", j);
-    vx_printv("i=", i);*/
-
     (p_wspawn_args->pfn)(p_wspawn_args->args, p_wspawn_args->ctx, gid0, gid1, gid2);
   }
 
-  unsigned tmask = (0 == wid);
-  vx_tmc(tmask);
+  vx_tmc(0 == wid);
 }
 
-void kernel_spawn_run_threads(int nthreads) {    
+void kernel_spawn_remaining_callback(int nthreads) {    
   vx_tmc(nthreads);
 
   int core_id = vx_core_id(); 
@@ -92,7 +77,7 @@ void kernel_spawn_run_threads(int nthreads) {
 
   wspawn_args_t* p_wspawn_args = g_wspawn_args[core_id];
 
-  int wg_id = p_wspawn_args->wg_offset + tid;
+  int wg_id = p_wspawn_args->offset + tid;
 
   int X = p_wspawn_args->ctx->num_groups[0];
   int Y = p_wspawn_args->ctx->num_groups[1];
@@ -106,12 +91,6 @@ void kernel_spawn_run_threads(int nthreads) {
   int gid0 = p_wspawn_args->ctx->global_offset[0] + i;
   int gid1 = p_wspawn_args->ctx->global_offset[1] + j;
   int gid2 = p_wspawn_args->ctx->global_offset[2] + k;
-
-  /*vx_printv("-wg_id=", wg_id);
-  vx_printv("-wg_2d=", wg_2d);    
-  vx_printv("-k=", k);
-  vx_printv("-j=", j);
-  vx_printv("-i=", i);*/
 
   (p_wspawn_args->pfn)(p_wspawn_args->args, p_wspawn_args->ctx, gid0, gid1, gid2);
 
@@ -135,7 +114,7 @@ void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void
   if (core_id >= NUM_CORES_MAX)
     return;
 
-  // calculate number of active cores
+  // calculate necessary active cores
   int WT = NW * NT;
   int nC = (Q > WT) ? (Q / WT) : 1;
   int nc = MIN(nC, NC);
@@ -143,50 +122,35 @@ void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void
     return; // terminate unused cores
 
   // number of workgroups per core
-  int QC_base = Q / nc;
-  int QC = QC_base;  
+  int wgs_per_core = Q / nc;
+  int wgs_per_core0 = wgs_per_core;  
   if (core_id == (NC-1)) {    
-    int QC_r = Q - (nc * QC); 
-    QC += QC_r; // last core executes remaining WGs
+    int QC_r = Q - (nc * wgs_per_core0); 
+    wgs_per_core0 += QC_r; // last core executes remaining WGs
   }
 
   // number of workgroups per warp
-  int nW = QC / NT;
-  int qR = QC - (nW * NT);
-  int K  = (nW >= NW) ? (nW / NW) : 0;
-  int R  = (K != 0) ? (nW - K * NW) : 0; 
-  if (0 == K)
-    K = 1;
+  int nW = wgs_per_core0 / NT;              // total warps per core
+  int rT = wgs_per_core0 - (nW * NT);       // remaining threads
+  int fW = (nW >= NW) ? (nW / NW) : 0;      // full warps iterations
+  int rW = (fW != 0) ? (nW - fW * NW) : 0;  // reamining full warps
+  if (0 == fW)
+    fW = 1;
 
   //--
-  wspawn_args_t wspawn_args = { ctx, pfn, args, core_id * QC_base, K, R };
+  wspawn_args_t wspawn_args = { ctx, pfn, args, core_id * wgs_per_core, fW, rW };
   g_wspawn_args[core_id] = &wspawn_args;
-
-  /*vx_printv("X=", X);
-  vx_printv("Y=", Y);
-  vx_printv("Z=", Z);
-  vx_printv("Q=", Q);
-  vx_printv("NC=", NC);
-  vx_printv("NW=", NW);
-  vx_printv("NT=", NT);
-  vx_printv("core_id=", core_id);
-  vx_printv("nc=", nc);
-  vx_printv("QC=", QC);
-  vx_printv("nW=", nW);
-  vx_printv("qR=", qR);
-  vx_printv("K=", K);
-  vx_printv("R=", R);*/
 
   //--
 	if (nW > 1)	{ 
     int nw = MIN(nW, NW);    
-	  vx_wspawn(nw, (unsigned)&kernel_spawn_run_warp);
-    kernel_spawn_run_warp();
+	  vx_wspawn(nw, (unsigned)&kernel_spawn_callback);
+    kernel_spawn_callback();
 	}  
 
   //--    
-  if (qR != 0) {
-    wspawn_args.wg_offset = QC - qR;
-    kernel_spawn_run_warp(qR);
+  if (rT != 0) {
+    wspawn_args.offset = wgs_per_core0 - rT;
+    kernel_spawn_remaining_callback(rT);
   }
 }
