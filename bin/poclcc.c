@@ -32,7 +32,7 @@
 
 #define DEVICE_INFO_MAX_LENGTH 2048
 #define NUM_OF_DEVICE_ID 32
-#define NUM_OPTIONS 9
+#define NUM_OPTIONS 10
 
 #define ERRNO_EXIT(filename) do { \
     printf("IO error on file %s: %s\n", filename, strerror(errno)); \
@@ -40,6 +40,7 @@
   } while(0)
 
 char *kernel_source = NULL;
+size_t kernel_size = 0;
 char *output_file = NULL;
 cl_uint opencl_device = CL_DEVICE_TYPE_DEFAULT;
 unsigned opencl_device_id = 0;
@@ -49,6 +50,7 @@ char *build_options = NULL;
 char *build_cflags = "";
 char *build_ldflags = "";
 char *build_llcflags = "";
+char *source_type = "CL";
 
 /**********************************************************/
 
@@ -96,7 +98,7 @@ process_kernel_file(int arg, char **argv, int argc)
 
   char *filename = argv[arg];
   char *ext = ".pocl";
-  kernel_source = poclu_read_file(filename);
+  kernel_source = poclu_read_binfile(filename, &kernel_size);
   if (!kernel_source)
     ERRNO_EXIT(filename);
   if (output_file == NULL)
@@ -211,6 +213,16 @@ process_llcflags(int arg, char **argv, int argc)
   return 0;
 }
 
+static int
+process_source_type(int arg, char **argv, int argc)
+{
+  if (arg >= argc)
+    return poclcc_error("Incomplete argument for source type!\n");
+
+  source_type = argv[arg];
+  return 0;
+}
+
 /**********************************************************/
 
 static poclcc_option options[NUM_OPTIONS] =
@@ -252,6 +264,10 @@ static poclcc_option options[NUM_OPTIONS] =
   {process_llcflags, "-LLCFLAGS",
    "\t-LLCFLAGS <flags>\n"
    "\t\tCodegen llc flags\n",
+   2},
+  {process_source_type, "-TYPE",
+   "\t-TYPE <CL|SPIRV>\n"
+   "\t\tsource kernel type\n",
    2}
 };
 
@@ -365,8 +381,16 @@ main(int argc, char **argv)
   context = clCreateContext(0, 1, &device_ids[opencl_device_id], NULL, NULL, &err);
   CHECK_OPENCL_ERROR_IN("clCreateContext");
 
-  program = clCreateProgramWithSource(context, 1, (const char **)&kernel_source, NULL, &err);
-  CHECK_OPENCL_ERROR_IN("clCreateProgramWithSource");
+
+  if (0 == strcmp(source_type, "CL")) {
+    program = clCreateProgramWithSource(context, 1, (const char **)&kernel_source, NULL, &err);
+    CHECK_OPENCL_ERROR_IN("clCreateProgramWithSource");
+  } else if (0 == strcmp(source_type, "SPIRV")) {
+    program = clCreateProgramWithIL(context, kernel_source, kernel_size, &err);
+  } else {
+    printf("invalid kernel type: %s\n", source_type);
+    exit(1);
+  } 
 
   CHECK_CL_ERROR(clBuildProgram(program, 0, NULL, build_options, NULL, NULL));
 

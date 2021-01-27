@@ -197,6 +197,8 @@ option(ENABLE_VORTEX "Enable the Vortex device driver" OFF)
 
 ###############################################################################
 
+set(ENABLE_SPIR OFF)
+
 if (ENABLE_NEWLIB)
   if(NOT DEFINED NEWLIB_DEVICE_ADDRESS_BIT)
     message(FATAL_ERROR "should set 'NEWLIB_DEVICE_ADDRESS_BIT' option")
@@ -226,6 +228,7 @@ if(ENABLE_VORTEX)
   set(VORTEX_DEVICE_EXTENSIONS "")
   set(VORTEX_DEVICE_CL_VERSION "120")
   set(VORTEX_DEVICE_CL_STD "1.2")
+  set(ENABLE_SPIR ON)
 endif()
 
 # currently only works with gcc as host compiler
@@ -418,10 +421,6 @@ else()
   set(ENABLE_HWLOC OFF CACHE BOOL "Hwloc" FORCE)
 
 endif()
-
-
-
-
 
 ######################################################################################
 
@@ -783,13 +782,11 @@ endif()
 
 ######################################################################################
 
-set(SPIRV OFF)
-
 if(OCS_AVAILABLE AND X86 AND (NOT KERNELLIB_HOST_CPU_VARIANTS STREQUAL "distro"))
   option(ENABLE_SPIR "Enable SPIR support (default ON when available)" ON)
-else()
-  set(ENABLE_SPIR OFF CACHE INTERNAL "SPIR enabled" FORCE)
 endif()
+
+set(SPIRV OFF)
 
 if(ENABLE_SPIR)
 

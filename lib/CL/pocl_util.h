@@ -217,10 +217,8 @@ pocl_status_to_str (int status);
 const char *
 pocl_command_to_str (cl_command_type cmd);
 
-#ifdef BUILD_HSA
 int
 pocl_run_command(char * const *args);
-#endif
 
 uint16_t float_to_half (float value);
 

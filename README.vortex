@@ -39,6 +39,18 @@ int main(int argc, char **argv) { printf("hello world\n"); }
 - clang hello.c
 - qemu-riscv32 hello
 
+## Building llvm-spirv
+- git clone -b release/10.x  https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
+- cd llvm-spirv
+- mkdir build
+- cd build
+- export LLVM_PREFIX=/opt/llvm-riscv
+- cmake .. -DLLVM_DIR=$LLVM_PREFIX -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX
+- make llvm-spirv -j`nproc`
+- make install
+# manually copy over llvm-spirv binary
+- cp ./tools/llvm-spirv/llvm-spirv $LLVM_PREFIX/bin
+
 ## build pocl for Vortex
 
 - git clone https://github.gatech.edu/casl/pocl.git

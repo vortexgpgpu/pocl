@@ -1087,7 +1087,6 @@ pocl_command_to_str (cl_command_type cmd)
   return "unknown";
 }
 
-#ifdef BUILD_HSA
 /*
  * This replaces a simple system(), because:
  *
@@ -1132,7 +1131,6 @@ pocl_run_command (char *const *args)
         return EXIT_FAILURE;
     }
 }
-#endif
 
 // event locked
 void
