@@ -2,7 +2,7 @@
 #include <vx_intrinsics.h>
 #include <vx_print.h>
 
-#define NUM_CORES_MAX 16
+#define NUM_CORES_MAX 32
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -119,7 +119,7 @@ void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void
   int nC = (Q > WT) ? (Q / WT) : 1;
   int nc = MIN(nC, NC);
   if (core_id >= nc)
-    return; // terminate unused cores
+    return; // terminate extra cores
 
   // number of workgroups per core
   int wgs_per_core = Q / nc;
@@ -142,7 +142,7 @@ void kernel_spawn(struct context_t * ctx, vx_pocl_workgroup_func pfn, const void
   g_wspawn_args[core_id] = &wspawn_args;
 
   //--
-	if (nW > 1)	{ 
+	if (nW >= 1)	{ 
     int nw = MIN(nW, NW);    
 	  vx_wspawn(nw, (unsigned)&kernel_spawn_callback);
     kernel_spawn_callback();
