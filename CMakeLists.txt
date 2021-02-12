@@ -163,7 +163,7 @@ option(ENABLE_PTHREAD "Enable threading library use for CPU devices" ON)
 
 option(BUILD_TESTS "Build test suite" ON)
 
-option(ENABLE_TRACING "Enable api tracing" ON)
+option(ENABLE_TRACING "Enable api tracing" OFF)
 
 option(POCL_DEBUG_MESSAGES
   "Enable debug messages from pocl (useful for OpenCL developers), must be enabled at runtime, with env var POCL_DEBUG"
@@ -198,6 +198,7 @@ option(ENABLE_VORTEX "Enable the Vortex device driver" OFF)
 ###############################################################################
 
 set(ENABLE_SPIR OFF)
+set(DISABLE_HWLOC OFF)
 
 if (ENABLE_NEWLIB)
   if(NOT DEFINED NEWLIB_DEVICE_ADDRESS_BIT)
@@ -210,6 +211,8 @@ if (ENABLE_NEWLIB)
   set(ENABLE_ICD OFF CACHE INTERNAL "Disable ICD for Newlib targets")
   set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Newlib targets")
   set(BUILD_NEWLIB 1)
+  set(DISABLE_HWLOC ON)
+  set(DEFAULT_ENABLE_ICD OFF)
 endif()
 
 if(ENABLE_VORTEX)
@@ -229,6 +232,8 @@ if(ENABLE_VORTEX)
   set(VORTEX_DEVICE_CL_VERSION "120")
   set(VORTEX_DEVICE_CL_STD "1.2")
   set(ENABLE_SPIR ON)
+  set(DISABLE_HWLOC ON)
+  set(DEFAULT_ENABLE_ICD OFF)
 endif()
 
 # currently only works with gcc as host compiler
@@ -397,7 +402,7 @@ endif()
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
-if(UNIX AND (NOT (ENABLE_NEWLIB AND (NOT OCS_AVAILABLE))))
+if(UNIX AND (NOT DISABLE_HWLOC))
   find_package(PkgConfig MODULE REQUIRED)
   find_package(Hwloc)
 
@@ -865,7 +870,7 @@ endif()
 ######################################################################################
 # LTTNG
 
-if (ENABLE_TRACING AND (NOT MSVC) AND (NOT ANDROID) AND (NOT (ENABLE_NEWLIB AND (NOT OCS_AVAILABLE))))
+if (ENABLE_TRACING AND (NOT MSVC) AND (NOT ANDROID))
   pkg_check_modules(LTTNG_UST lttng-ust>=2.7)
   if(LTTNG_UST_FOUND)
     set(HAVE_LTTNG_UST 1)
@@ -885,9 +890,7 @@ if (MSVC)
 else()
 
   # pkg-config doesn't work with cross-compiling
-  if (NOT (ENABLE_NEWLIB AND (NOT OCS_AVAILABLE)))
-    pkg_check_modules(OCL_ICD ocl-icd>=1.3)
-  endif()
+  pkg_check_modules(OCL_ICD ocl-icd>=1.3)
 
   if (CMAKE_CROSSCOMPILING OR (NOT OCL_ICD_FOUND))
     find_path(OCL_ICD_INCLUDE_DIR
