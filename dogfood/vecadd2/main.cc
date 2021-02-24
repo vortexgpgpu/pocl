@@ -8,7 +8,8 @@
 
 #define SIZE 4
 #define NUM_WORK_GROUPS 2
-#define KERNEL_NAME "vecadd"
+//#define KERNEL_NAME "vecadd"
+#define KERNEL_NAME "_Z6vecaddPiS_S_"
 
 #define CL_CHECK(_expr)                                                \
    do {                                                                \
@@ -169,7 +170,7 @@ int main (int argc, char **argv) {
   }
 
   // Create program from kernel source
-  program = CL_CHECK2(clCreateProgramWithBinary(context, 1, &device_id, &kernel_size, &kernel_bin, &binary_status, &_err));	
+  program = CL_CHECK2(clCreateProgramWithBinary(context, 1, &device_id, &kernel_size, (const uint8_t**)&kernel_bin, &binary_status, &_err));	
 
   // Build program
   CL_CHECK(clBuildProgram(program, 1, &device_id, NULL, NULL, NULL));
