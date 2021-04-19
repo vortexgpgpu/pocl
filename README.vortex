@@ -12,9 +12,8 @@
  
 ## Building RiscV GNU Toolchain (gcc, binutils, etc..)
 
-- git clone https://github.com/riscv/riscv-gnu-toolchain
+- git clone --recursive https://github.com/riscv/riscv-gnu-toolchain
 - cd riscv-gnu-toolchain
-- git submodule update --init --recursive
 - mkdir build
 - cd build
 - export RISCV_TOOLCHAIN_PATH=/opt/riscv-gnu-toolchain
