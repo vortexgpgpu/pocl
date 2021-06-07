@@ -18,12 +18,19 @@ SET(CMAKE_SYSTEM_NAME Linux)
 
 SET(CMAKE_SYSTEM_PROCESSOR riscv32)
 
-#SET(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
-#SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
+#SET(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "-static-libgcc -static-libstdc++")
+#SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "-static-libgcc -static-libstdc++")
+
+#SET(CMAKE_C_FLAGS "-static-libgcc -static-libstdc++")
+#SET(CMAKE_CXX_FLAGS "-static-libgcc -static-libstdc++")
+
+#SET(CMAKE_MODULE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
+#SET(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
+#SET(CMAKE_SHARED_LINKER_FLAGS "-static-libgcc -static-libstdc++")
 
 # specify the cross compiler
-SET(CMAKE_C_COMPILER   $ENV{RISCV_TOOLCHAIN_PATH}/bin/riscv32-unknown-linux-gnu-gcc)
-SET(CMAKE_CXX_COMPILER $ENV{RISCV_TOOLCHAIN_PATH}/bin/riscv32-unknown-linux-gnu-g++)
+SET(CMAKE_C_COMPILER   $ENV{RISCV_TOOLCHAIN_PATH}/bin/riscv64-unknown-linux-gnu-gcc)
+SET(CMAKE_CXX_COMPILER $ENV{RISCV_TOOLCHAIN_PATH}/bin/riscv64-unknown-linux-gnu-g++)
 
 # should work, but does not yet. Instead set FIND_ROOT below
 # set(CMAKE_SYSROOT $ENV{RISCV_TOOLCHAIN_PATH}/sysroot)

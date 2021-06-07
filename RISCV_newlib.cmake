@@ -16,22 +16,21 @@
 
 SET(CMAKE_SYSTEM_NAME Linux)
 
-
 SET(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
 SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
 # specify the cross compiler
-SET(CMAKE_C_COMPILER $ENV{RISCV_GNU_TOOLS_PATH}/bin/riscv32-unknown-elf-gcc)
-SET(CMAKE_CXX_COMPILER $ENV{RISCV_GNU_TOOLS_PATH}/bin/riscv32-unknown-elf-g++)
+SET(CMAKE_C_COMPILER $ENV{RISCV_TOOLCHAIN_PATH}/bin/riscv32-unknown-elf-gcc)
+SET(CMAKE_CXX_COMPILER $ENV{RISCV_TOOLCHAIN_PATH}/bin/riscv32-unknown-elf-g++)
 
 # should work, but does not yet. Instead set FIND_ROOT below
-# set(CMAKE_SYSROOT $ENV{RISCV_GNU_TOOLS_PATH}/riscv32-unknown-elf)
+# set(CMAKE_SYSROOT $ENV{RISCV_TOOLCHAIN_PATH}/riscv32-unknown-elf)
 
 # where is the target environment
-SET(CMAKE_FIND_ROOT_PATH  $ENV{RISCV_GNU_TOOLS_PATH}/riscv32-unknown-elf)
+SET(CMAKE_FIND_ROOT_PATH  $ENV{RISCV_TOOLCHAIN_PATH}/riscv32-unknown-elf)
 
 # where to find libraries in target environment
-SET(CMAKE_LIBRARY_PATH $ENV{RISCV_GNU_TOOLS_PATH}/riscv32-unknown-elf/lib)
+SET(CMAKE_LIBRARY_PATH $ENV{RISCV_TOOLCHAIN_PATH}/riscv32-unknown-elf/lib)
 
 # search for programs in the build host directories
 SET(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

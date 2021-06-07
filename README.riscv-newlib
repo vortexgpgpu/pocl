@@ -1,0 +1,66 @@
+#### Compiling pocl on RiscV ####
+
+## Dependencies:
+
+- sudo apt-get -y install \
+  binutils build-essential libtool texinfo \
+  gzip zip unzip patchutils curl git \
+  make cmake ninja-build automake bison flex gperf \
+  grep sed gawk python bc \
+  zlib1g-dev libexpat1-dev libmpc-dev \
+  libglib2.0-dev libfdt-dev libpixman-1-dev       
+ 
+## Building RiscV GNU Toolchain (gcc, binutils, etc..)
+
+- git clone https://github.com/riscv/riscv-gnu-toolchain
+- cd riscv-gnu-toolchain
+- git submodule update --init --recursive
+- mkdir build
+- cd build
+- export RISCV_TOOLCHAIN_PATH=$PWD/../drops
+- ../configure --prefix=$RISCV_TOOLCHAIN_PATH --with-arch=rv32im --with-abi=ilp32
+- make -j`nproc` && make -j`nproc` build-qemu
+
+## Building LLVM 10.x for RiscV
+
+- git clone -b release/10.x https://github.com/llvm/llvm-project.git llvm
+- cd llvm
+- mkdir build
+- cd build
+- cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DCMAKE_INSTALL_PREFIX=$RISCV_TOOLCHAIN_PATH -DLLVM_BUILD_TESTS=False -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
+- cmake --build . --target install
+
+## Building LLVM 10.x for x86
+
+- export LLVM_X86_PATH=$PWD/../drops_x86
+- cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DCMAKE_INSTALL_PREFIX=$LLVM_X86_PATH ../llvm
+- cmake --build . --target install
+
+## (optional) register llvm pretty print extension for gdb: add "source $LLVM_PATH/utils/gdb-scripts/prettyprinters.py" to ~/.gdbinit 
+
+## Sanity test your new RISC-V LLVM
+
+- echo -e '#include <stdio.h>\n int main(void) { printf("Hello world!\\n"); return 0; }' > hello.c
+- $RISCV_TOOLCHAIN_PATH/clang hello.c
+- qemu-riscv32 hello
+
+## build pocl for RISCV
+
+- git clone https://github.com/pocl/pocl.git
+- cd pocl
+- mkdir build
+- cd build
+- export POCL_CC_PATH=$PWD/../drops_riscv_cc
+- export POCL_RT_PATH=$PWD/../drops_riscv_rt
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DWITH_LLVM_CONFIG=$LLVM_PREFIX/bin/llvm-config -DENABLE_NEWLIB=ON -DHOST_DEVICE_ADDRESS_BITS=32 -DNEWLIB_DEVICE_MARCH=rv32im -DLLC_HOST_CPU= -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DDEFAULT_ENABLE_ICD=OFF ..
+- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DENABLE_NEWLIB=ON -DHOST_DEVICE_ADDRESS_BITS=32 -DNEWLIB_DEVICE_MARCH=rv32im -DHOST_DEVICE_BUILD_HASH=newlib-riscv32-unknown-elf -DCMAKE_TOOLCHAIN_FILE=../RISCV_newlib.cmake -DENABLE_TRACING=OFF -DBUILD_TESTS=OFF -DENABLE_ICD=OFF -DPOCL_DEBUG_MESSAGES=ON -DDEFAULT_ENABLE_ICD=OFF ..
+- cmake --build . --target install
+
+## build pocl for x86
+
+- export POCL_CC_PATH=$PWD/../drops_x86_cc
+- export POCL_RT_PATH=$PWD/../drops_x896_rt
+- install linux dependencies: sudo apt install -y build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-dev clang llvm make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils
+- poclcc: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DENABLE_NEWLIB=ON -DHOST_DEVICE_ADDRESS_BITS=64 -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DDEFAULT_ENABLE_ICD=OFF ..
+- runtime: cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=OFF -DBUILD_SHARED_LIBS=OFF -DENABLE_NEWLIB=ON -DHOST_DEVICE_ADDRESS_BITS=64 -DBUILD_TESTS=OFF -DHOST_DEVICE_BUILD_HASH=basic-x86_64-unknown-linux-gnu-skylake -DPOCL_DEBUG_MESSAGES=ON -DDEFAULT_ENABLE_ICD=OFF ..
+- cmake --build . --target install

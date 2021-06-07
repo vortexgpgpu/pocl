@@ -224,6 +224,7 @@ pocl_binary_get_device_id(cl_device_id device)
    * as its build hash string */
   uint64_t result = FNV_OFFSET;
   char *dev_hash = device->ops->build_hash(device);
+  POCL_MSG_PRINT_INFO ("Device build hash:  %s\n", dev_hash);
 
   int i, length = strlen(dev_hash);
   for (i=0; i<length; i++)
@@ -633,7 +634,7 @@ pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
     flags |= POCL_BINARY_FLAG_FLUSH_DENORMS;
   flags |= (program->binary_type << 1);
   BUFFER_STORE (flags, uint64_t);
-  memcpy(buffer, program->build_hash[device_i], sizeof(SHA1_digest_t));
+  memcpy(buffer, program->build_hash[device_i], sizeof(SHA1_digest_t));  
   buffer += sizeof(SHA1_digest_t);
 
   assert(buffer < end_of_buffer);
@@ -642,7 +643,7 @@ pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
   pocl_cache_program_path (basedir, program, device_i);
   size_t basedir_len = strlen (basedir);
 
-#if defined(BUILD_VORTEX)    
+#if defined(CROSS_COMPILATION)    
   char program_bin_path[POCL_FILENAME_LENGTH];
   struct _cl_kernel fake_k;
 
@@ -695,7 +696,7 @@ pocl_binary_deserialize(cl_program program, unsigned device_i)
 
   char basedir[POCL_FILENAME_LENGTH];
   
-#if defined(BUILD_VORTEX)  
+#if defined(CROSS_COMPILATION)  
   for (i = 0; i < b.num_kernels; i++) {
     pocl_cache_program_path (basedir, program, device_i);
     size_t basedir_len = strlen (basedir);

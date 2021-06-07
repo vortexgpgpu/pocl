@@ -14,8 +14,8 @@ K_LLCFLAGS += "-O3 -march=riscv32 -target-abi=ilp32f -mcpu=generic-rv32 -mattr=+
 K_CFLAGS   += "-v -O3 --sysroot=$(SYSROOT) --gcc-toolchain=$(RISCV_TOOLCHAIN_PATH) -march=rv32imf -mabi=ilp32f -I$(VORTEX_RT_PATH)/include -fno-rtti -fno-exceptions -ffreestanding -nostartfiles -fdata-sections -ffunction-sections"
 K_LDFLAGS  += "-Wl,-Bstatic,-T$(VORTEX_RT_PATH)/linker/vx_link.ld -Wl,--gc-sections $(VORTEX_RT_PATH)/libvortexrt.a -lm"
 
-CXXFLAGS += -std=c++11 -O2 -Wall -Wextra -Wfatal-errors
-#CXXFLAGS += -std=c++11 -O0 -g -Wall -Wextra -Wfatal-errors
+#CXXFLAGS += -std=c++11 -O2 -Wall -Wextra -Wfatal-errors
+CXXFLAGS += -std=c++11 -O0 -g -Wall -Wextra -Wfatal-errors
 
 CXXFLAGS += -Wno-deprecated-declarations -Wno-unused-parameter
 
@@ -54,8 +54,11 @@ run-rtlsim: $(PROJECT) kernel.pocl
 .depend: $(SRCS)
 	$(CXX) $(CXXFLAGS) -MM $^ > .depend;
 
-clean:
+clean-all:
 	rm -rf $(PROJECT) *.o *.pocl *.dump .depend 
+
+clean:
+	rm -rf $(PROJECT) *.o .depend 
 
 ifneq ($(MAKECMDGOALS),clean)
     -include .depend

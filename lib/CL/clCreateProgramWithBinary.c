@@ -170,7 +170,7 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
       /* Unknown binary */
       else
         {
-          POCL_MSG_WARN ("Could not recognize binary\n");
+          POCL_MSG_ERR ("Could not recognize binary\n");
           if (binary_status != NULL)
             binary_status[i] = CL_INVALID_BINARY;
           errcode = CL_INVALID_BINARY;

@@ -469,10 +469,16 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
 
   /* Link through Clang driver interface who knows the correct toolchains
      for all of its targets.  */
+#ifdef GCC_TOOLCHAIN  
   const char *cmd_line[64] =
-    {CLANG, "-o", tmp_module, tmp_objfile};
-  const char **device_ld_arg = device->final_linkage_flags;
-  const char **pos = &cmd_line[4];
+    {CLANG, "-v", "--gcc-toolchain=" GCC_TOOLCHAIN, "-o", tmp_module, tmp_objfile};
+    const char **pos = &cmd_line[6];
+#else
+  const char *cmd_line[64] =
+    {CLANG, "-v", "-o", tmp_module, tmp_objfile};
+    const char **pos = &cmd_line[5];
+#endif
+  const char **device_ld_arg = device->final_linkage_flags;  
   while ((*pos++ = *device_ld_arg++)) {}
 
   error = pocl_invoke_clang (device, cmd_line);  
@@ -1351,26 +1357,33 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
   ci->max_grid_dim_width = max_grid_width;
 
 #if defined(BUILD_NEWLIB) && !defined(OCS_AVAILABLE)
-
-  ci->wg = run_cmd->kernel->meta->data[0];  
-  
-#else
-
-  char *module_fn = pocl_check_kernel_disk_cache (command, specialize); 
-
-#if defined(BUILD_NEWLIB)
   {
-    cl_program p = run_cmd->kernel->program;
+    ci->wg = run_cmd->kernel->meta->data[0];  
+  }  
+#elif defined(BUILD_NEWLIB) && defined(OCS_AVAILABLE)
+  {
+    char *module_fn = pocl_check_kernel_disk_cache (command, specialize); 
+    cl_program p = run_cmd->kernel->program;    
     unsigned dev_i = command->device_i;
     int err = pocl_read_file(module_fn, (char**)&p->pocl_binaries[dev_i], &p->pocl_binary_sizes[dev_i]);
     if (err) {
       POCL_MSG_PRINT_LLVM ("loading kernel binary has failed\n");
       return;
     }
+    POCL_MEM_FREE (module_fn);
   }
-#elif defined(BUILD_VORTEX)  
-   // Do nothing!
+#elif defined(BUILD_VORTEX) && !defined(OCS_AVAILABLE)
+  {
+    // skip
+  }
+#elif defined(CROSS_COMPILATION) && defined(OCS_AVAILABLE)
+  {
+    char *module_fn = pocl_check_kernel_disk_cache (command, specialize); 
+    POCL_MEM_FREE (module_fn);
+  }
 #else
+
+  char *module_fn = pocl_check_kernel_disk_cache (command, specialize); 
   ci->dlhandle = dlopen (module_fn, RTLD_NOW | RTLD_LOCAL);
   dl_error = dlerror ();
 
@@ -1401,7 +1414,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
                     " reported as 'file not found' errors.\n",
                     module_fn, workgroup_string, dl_error);
     }
-#endif
+
   POCL_MEM_FREE (module_fn);  
 #endif
 

@@ -364,7 +364,13 @@ int pocl_llvm_build_program(cl_program program,
   if (device->llvm_cpu && *device->llvm_cpu)
     ss << "-target-cpu " << device->llvm_cpu << " ";
 
-  ss << "-target-feature +m -target-feature +f -target-abi ilp32f ";
+/*#if defined(BUILD_RISCV)
+  #if defined(BUILD_NEWLIB) || defined(BUILD_VORTEX)
+    ss << "-target-feature +m -target-feature +f -target-abi ilp32f ";
+  #else
+    ss << "-target-feature +m -target-feature +a -target-feature +f -target-feature +d -target-abi ilp32f ";
+  #endif
+#endif*/
 
   //debug passes
   //ss << "-mdebug-pass Structure ";

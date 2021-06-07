@@ -71,9 +71,12 @@ POname(clCreateKernel)(cl_program program,
 
   POCL_INIT_OBJECT (kernel);
 
-  for (i = 0; i < program->num_kernels; ++i)
+  for (i = 0; i < program->num_kernels; ++i) {
     if (strcmp (program->kernel_meta[i].name, kernel_name) == 0)
       break;
+    else
+      POCL_MSG_WARN("unused kernel: %s\n", program->kernel_meta[i].name);
+  }
 
   POCL_GOTO_ERROR_ON ((i >= program->num_kernels), CL_INVALID_KERNEL_NAME,
                       "Can't find a kernel with name %s in this program\n",

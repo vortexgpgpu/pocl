@@ -187,53 +187,22 @@ option(USE_POCL_MEMMANAGER "Enables custom memory manager. Except for special ci
 
 option(EXAMPLES_USE_GIT_MASTER "If enabled, some of the external testsuites in examples/ will try to use sources from Git master, instead of releases. This may result in failure to build or run the examples" OFF)
 
-option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic, and pthread)." OFF)
+option(ENABLE_HOST_CPU_DEVICES "Add host CPUs as OpenCL devices (basic, and pthread)." ON)
 
 option(ENABLE_ACCEL_DEVICE "Enable the generic hardware accelerator device driver." OFF)
 
-option(ENABLE_NEWLIB "Enable Newlib-based device" OFF)
-
 option(ENABLE_VORTEX "Enable the Vortex device driver" OFF)
+
+option(ENABLE_NEWLIB "Enable Newlib device" OFF)
+
+option(ENABLE_RISCV "Enable RISCV-Linux device" OFF)
+
+option(CROSS_COMPILATION "Generate pre-built kernel binaries" OFF)
 
 ###############################################################################
 
-set(ENABLE_SPIR OFF)
-set(DISABLE_HWLOC OFF)
-
-if (ENABLE_NEWLIB)
-  if(NOT DEFINED NEWLIB_DEVICE_ADDRESS_BIT)
-    message(FATAL_ERROR "should set 'NEWLIB_DEVICE_ADDRESS_BIT' option")
-  endif()  
-  if(NOT DEFINED NEWLIB_DEVICE_MARCH)
-    message(FATAL_ERROR "should set 'NEWLIB_DEVICE_MARCH' option")
-  endif()
-  set(HOST_DEVICE_ADDRESS_BITS ${NEWLIB_DEVICE_ADDRESS_BIT})
-  set(ENABLE_ICD OFF CACHE INTERNAL "Disable ICD for Newlib targets")
-  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Newlib targets")
-  set(BUILD_NEWLIB 1)
-  set(DISABLE_HWLOC ON)
-  set(DEFAULT_ENABLE_ICD OFF)
-endif()
-
-if(ENABLE_VORTEX)
-  set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
-  set(OCL_TARGETS "${OCL_TARGETS} vortex")
-  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Vortex targets")
-  if (NOT OCS_AVAILABLE)
-    if(NOT DEFINED VORTEX_DRIVER_INC)
-      message(FATAL_ERROR "should set 'VORTEX_DRIVER_INC' option")
-    endif()
-    if(NOT DEFINED VORTEX_DRIVER_LIB)
-      message(FATAL_ERROR "should set 'VORTEX_DRIVER_LIB' option")
-    endif()
-  endif()
-  set(BUILD_VORTEX 1)
-  set(VORTEX_DEVICE_EXTENSIONS "")
-  set(VORTEX_DEVICE_CL_VERSION "120")
-  set(VORTEX_DEVICE_CL_STD "1.2")
-  set(ENABLE_SPIR ON)
-  set(DISABLE_HWLOC ON)
-  set(DEFAULT_ENABLE_ICD OFF)
+if (CROSS_COMPILATION)
+  set(CROSS_COMPILATION 1)
 endif()
 
 # currently only works with gcc as host compiler
@@ -284,7 +253,7 @@ if (NOT DEFINED HOST_DEVICE_ADDRESS_BITS)
   endif()
 endif()
 
-if (ENABLE_HOST_CPU_DEVICES)
+if (ENABLE_HOST_CPU_DEVICES)  
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc")
     set(POWERPC 1)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "mips")
@@ -402,7 +371,7 @@ endif()
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
-if(UNIX AND (NOT DISABLE_HWLOC))
+if(UNIX AND (NOT CMAKE_CROSSCOMPILING))
   find_package(PkgConfig MODULE REQUIRED)
   find_package(Hwloc)
 
@@ -787,11 +756,13 @@ endif()
 
 ######################################################################################
 
+set(SPIRV OFF)
+
 if(OCS_AVAILABLE AND X86 AND (NOT KERNELLIB_HOST_CPU_VARIANTS STREQUAL "distro"))
   option(ENABLE_SPIR "Enable SPIR support (default ON when available)" ON)
+else()
+  set(ENABLE_SPIR OFF CACHE INTERNAL "SPIR enabled" FORCE)
 endif()
-
-set(SPIRV OFF)
 
 if(ENABLE_SPIR)
 
@@ -855,7 +826,7 @@ endif()
 
 ######################################################################################
 
-if (ENABLE_PTHREAD)
+if (ENABLE_PTHREAD AND (NOT CMAKE_CROSSCOMPILING))
   set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
   set(THREADS_PREFER_PTHREAD_FLAG TRUE)
   find_package(Threads REQUIRED)
@@ -1128,14 +1099,8 @@ if(ENABLE_HOST_CPU_DEVICES)
   set(OCL_DRIVERS "${OCL_DRIVERS} basic")
   # TODO OCL_KERNEL_TARGET -> CPU_TARGET_TRIPLE
   # TODO OCL_KERNEL_TARGET_CPU -> OCL_KERNEL_TARGET_CPU
-  set(OCL_KERNEL_TARGET "${LLC_TRIPLE}") #The kernel target triplet.
-  
-  if (ENABLE_NEWLIB)
-    set(OCL_KERNEL_TARGET_CPU "${NEWLIB_DEVICE_MARCH}") #The kernel target CPU variant.
-  else()
-    set(OCL_KERNEL_TARGET_CPU "${LLC_HOST_CPU}") #The kernel target CPU variant.
-  endif()
-
+  set(OCL_KERNEL_TARGET "${LLC_TRIPLE}") #The kernel target triplet.  
+  set(OCL_KERNEL_TARGET_CPU "${LLC_HOST_CPU}") #The kernel target CPU variant.
   if (ENABLE_PTHREAD)    
     set(OCL_DRIVERS "${OCL_DRIVERS} pthreads")
     set(BUILD_PTHREAD 1)  
@@ -1289,6 +1254,34 @@ if(ENABLE_CUDA)
   set(CUDA_DEVICE_EXTENSIONS "cl_khr_byte_addressable_store cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_fp64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics")
   set(CUDA_DEVICE_CL_VERSION "120")
   set(CUDA_DEVICE_CL_STD "1.2")
+endif()
+
+##########################################################
+
+if (ENABLE_NEWLIB)
+  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Newlib targets")
+  set(CROSS_COMPILATION 1)
+  set(BUILD_NEWLIB 1)
+endif()
+
+if (ENABLE_VORTEX)
+  set(CROSS_COMPILATION 1)
+  set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
+  set(OCL_TARGETS "${OCL_TARGETS} vortex")
+  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Vortex targets")
+  if (NOT OCS_AVAILABLE)
+    if(NOT DEFINED VORTEX_DRIVER_INC)
+      message(FATAL_ERROR "should set 'VORTEX_DRIVER_INC' option")
+    endif()
+    if(NOT DEFINED VORTEX_DRIVER_LIB)
+      message(FATAL_ERROR "should set 'VORTEX_DRIVER_LIB' option")
+    endif()
+  endif()
+  set(BUILD_VORTEX 1)
+  set(BUILD_RISCV 1)
+  set(VORTEX_DEVICE_EXTENSIONS "")
+  set(VORTEX_DEVICE_CL_VERSION "120")
+  set(VORTEX_DEVICE_CL_STD "1.2")
 endif()
 
 ##########################################################

@@ -612,9 +612,14 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
                                   CODEGEN_FILE_TYPE_NS::CGFT_ObjectFile);
 
   // First try direct object code generation from LLVM, 
-  // if supported by the LLVM backend for the target.
+  // if supported by the LLVM backend for the target.  
+#ifndef CROSS_COMPILATION
   bool LLVMGeneratesObjectFiles = !cannotEmitFile;
-
+#else
+  // This optimization doesn't work when using LLVM as cross-compiler
+  bool LLVMGeneratesObjectFiles = 0;  
+#endif
+  
   if (LLVMGeneratesObjectFiles) {
     POCL_MSG_PRINT_LLVM("Generating an object file directly.\n");
 #ifdef DUMP_LLVM_PASS_TIMINGS
@@ -672,7 +677,6 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
 
   const char *Args[] = {CLANG, AsmFileName, "-c", "-o", ObjFileName, nullptr};
   int Res = pocl_invoke_clang(Device, Args);
-
   if (Res == 0) {
     if (pocl_read_file(ObjFileName, Output, OutputSize))
       POCL_ABORT("Could not read the object file.");

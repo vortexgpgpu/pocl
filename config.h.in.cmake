@@ -5,7 +5,9 @@
 #cmakedefine BUILD_ACCEL
 #cmakedefine BUILD_NEWLIB
 #cmakedefine BUILD_VORTEX
+#cmakedefine CROSS_COMPILATION
 
+#define GCC_TOOLCHAIN "@GCC_TOOLCHAIN@"
 #define BUILDDIR "@BUILDDIR@"
 
 /* "Build with ICD" */

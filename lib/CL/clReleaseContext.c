@@ -48,14 +48,12 @@ POname(clReleaseContext)(cl_context context) CL_API_SUFFIX__VERSION_1_0
   if (new_refcount == 0)
     {
       POCL_MSG_PRINT_REFCOUNTS ("Free Context %p\n", context);
-      /* The context holds references to all its devices,
-         memory objects, command-queues etc. Release the
+      /* The context holds references to all its memory objects, command-queues etc. Release the
          references and let the objects to get freed. */
       unsigned i;
-      for (i = 0; i < context->num_devices; ++i)
-        {
+      /*for (i = 0; i < context->num_devices; ++i) {
           POname(clReleaseDevice) (context->devices[i]);
-        }
+        }*/
       POCL_MEM_FREE(context->devices);
       POCL_MEM_FREE(context->properties);
 
