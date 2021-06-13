@@ -88,10 +88,10 @@ typedef void (*init_device_ops)(struct pocl_device_ops*);
 
 /* All init function for device operations available to pocl */
 static init_device_ops pocl_devices_init_ops[] = {
-#ifdef BUILD_BASIC
+#if defined(BUILD_BASIC)
   pocl_basic_init_device_ops,
 #endif
-#ifdef BUILD_PTHREAD
+#if defined(BUILD_PTHREAD)
   pocl_pthread_init_device_ops,
 #endif
 #if defined(TCE_AVAILABLE)

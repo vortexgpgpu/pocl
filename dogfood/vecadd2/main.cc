@@ -9,7 +9,6 @@
 #define SIZE 64
 #define NUM_WORK_GROUPS 1
 #define KERNEL_NAME "vecadd"
-//#define KERNEL_NAME "_Z6vecaddPiS_S_"
 
 #define CL_CHECK(_expr)                                                \
    do {                                                                \
