@@ -790,6 +790,17 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       POCL_MSG_ERR("%s\n", ss_out.str().c_str());
       return err;
     }
+
+    /*
+    ss_cmd.str("");
+    ss_cmd << llc_path.c_str() << " " << build_llcflags << " -filetype=asm -o " << kernel->name << "_kernel.asm" << " " << kernel_bc;
+    POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
+    err = exec(ss_cmd.str().c_str(), ss_out);
+    if (err != 0) {
+      POCL_MSG_ERR("%s\n", ss_out.str().c_str());
+      return err;
+    }
+    */
   }
   
   {  
@@ -861,7 +872,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
 
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << objdump_path.c_str() << " -arch=riscv32 -mcpu=generic-rv32 -mattr=+m,+f -D " << kernel_elf << " > " << kernel->name << ".dump";
+    ss_cmd << objdump_path.c_str() << " -arch=riscv32 -mcpu=generic-rv32 -mattr=+m,+f -mattr=+vortex -D " << kernel_elf << " > " << kernel->name << ".dump";
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
