@@ -814,7 +814,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     ss << "#include <vx_spawn.h>\n"
           "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"  
           "int main() {\n"
-          "  struct context_t* ctx = (struct context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
+          "  const context_t* ctx = (const context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
           "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n"
           "  vx_spawn_kernel(ctx, (void*)" << pfn_workgroup_string << ", args);\n"
           "  return 0;\n"
