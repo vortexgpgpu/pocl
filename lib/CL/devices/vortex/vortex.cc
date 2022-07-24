@@ -81,7 +81,8 @@ extern char *build_llcflags;
 
 struct vx_device_data_t {
 #if !defined(OCS_AVAILABLE)
-  vx_device_h vx_device;size_t vx_print_buf_d;
+  vx_device_h vx_device;
+  size_t vx_print_buf_d;
   vx_buffer_h vx_print_buf_h;
   uint32_t printf_buffer;
   uint32_t printf_buffer_position;   
@@ -102,6 +103,7 @@ struct vx_device_data_t {
 
 struct vx_buffer_data_t {
 #if !defined(OCS_AVAILABLE)
+  vx_device_h vx_device;
   vx_buffer_h staging_buf;
 #endif
   size_t dev_mem_addr;
@@ -276,7 +278,7 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   uint32_t print_buf_dev_size = PRINT_BUFFER_SIZE + sizeof(uint32_t);
 
   size_t vx_print_buf_d;
-  err = vx_alloc_dev_mem(vx_device, print_buf_dev_size, &vx_print_buf_d);
+  err = vx_mem_alloc(vx_device, print_buf_dev_size, &vx_print_buf_d);
   if (err != 0) {
     vx_dev_close(vx_device);
     free(d);
@@ -284,7 +286,7 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   }  
   
   vx_buffer_h vx_print_buf_h;
-  err = vx_alloc_shared_mem(vx_device, print_buf_dev_size, &vx_print_buf_h);
+  err = vx_buf_alloc(vx_device, print_buf_dev_size, &vx_print_buf_h);
   if (err != 0) {
     vx_dev_close(vx_device);
     free(d);
@@ -296,7 +298,7 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   memset(staging_ptr + PRINT_BUFFER_SIZE, 0, sizeof(uint32_t));
   err = vx_copy_to_dev(vx_print_buf_h, vx_print_buf_d + PRINT_BUFFER_SIZE, sizeof(uint32_t), PRINT_BUFFER_SIZE);
   if (err != 0) {
-    vx_buf_release(vx_print_buf_h);
+    vx_buf_free(vx_print_buf_h);
     vx_dev_close(vx_device);
     free(d);
     return CL_OUT_OF_HOST_MEMORY;
@@ -324,7 +326,7 @@ cl_int pocl_vortex_uninit(unsigned j, cl_device_id device) {
     return CL_SUCCESS;  
 
 #if !defined(OCS_AVAILABLE)
-  vx_buf_release(d->vx_print_buf_h);
+  vx_buf_free(d->vx_print_buf_h);
   vx_dev_close(d->vx_device);
 #endif
 
@@ -350,14 +352,14 @@ pocl_vortex_malloc(cl_device_id device, cl_mem_flags flags, size_t size,
   }
 
   vx_buffer_h staging_buf;
-  err = vx_alloc_shared_mem(d->vx_device, size, &staging_buf);
+  err = vx_buf_alloc(d->vx_device, size, &staging_buf);
   if (err != 0)
     return nullptr;
 
   size_t dev_mem_addr;
-  err = vx_alloc_dev_mem(d->vx_device, size, &dev_mem_addr);
+  err = vx_mem_alloc(d->vx_device, size, &dev_mem_addr);
   if (err != 0) {
-    vx_buf_release(staging_buf);
+    vx_buf_free(staging_buf);
     return nullptr;
   }
 
@@ -366,13 +368,14 @@ pocl_vortex_malloc(cl_device_id device, cl_mem_flags flags, size_t size,
     memcpy((void*)buf_ptr, host_ptr, size);
     err = vx_copy_to_dev(staging_buf, dev_mem_addr, size, 0);
     if (err != 0) {
-      vx_buf_release(staging_buf);
+      vx_buf_free(staging_buf);
       return nullptr;
     }
   }
 
   auto buf_data = new vx_buffer_data_t();
-  buf_data->staging_buf = staging_buf;
+  buf_data->vx_device    = d->vx_device;
+  buf_data->staging_buf  = staging_buf;
   buf_data->dev_mem_addr = dev_mem_addr;
 
   return buf_data;
@@ -424,7 +427,8 @@ void pocl_vortex_free(cl_device_id device, cl_mem memobj) {
    || memobj->shared_mem_allocation_owner != device) {
     std::abort(); //TODO
   } else {
-    vx_buf_release(buf_data->staging_buf);
+    vx_buf_free(buf_data->staging_buf);
+    vx_mem_free(buf_data->vx_device, buf_data->dev_mem_addr);
   }
   if (memobj->flags | CL_MEM_ALLOC_HOST_PTR)
     memobj->mem_host_ptr = NULL;
@@ -586,7 +590,7 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
 
   // allocate kernel arguments buffer
   vx_buffer_h staging_buf;
-  err = vx_alloc_shared_mem(d->vx_device, abuf_size, &staging_buf);
+  err = vx_buf_alloc(d->vx_device, abuf_size, &staging_buf);
   assert(0 == err);
 
   // update kernel arguments buffer
@@ -664,7 +668,7 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
     assert(0 == err);
 
     // release staging buffer
-    err = vx_buf_release(staging_buf);
+    err = vx_buf_free(staging_buf);
     assert(0 == err);
     
     // upload kernel to device
