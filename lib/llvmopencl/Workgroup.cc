@@ -1031,9 +1031,6 @@ Workgroup::createDefaultWorkgroupLauncher(llvm::Function *F) {
         Arg = Builder.CreateLoad(Arg);
       }
     }
-  #if defined(BUILD_VORTEX)
-    dyn_cast<Instruction>(Arg)->setMetadata("vortex.divergent", MDNode::get(Arg->getContext(), {}));
-  #endif
     Arguments.push_back(Arg);
     ++i;
   }

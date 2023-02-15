@@ -26,9 +26,9 @@
 - cd llvm
 - mkdir build
 - cd build
-- export LLVM_PREFIX=/opt/llvm-riscv
-- cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DBUILD_SHARED_LIBS=True -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX -DLLVM_BUILD_TESTS=False -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
-#- cmake -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DBUILD_SHARED_LIBS=True -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX -DLLVM_BUILD_TESTS=False -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
+- export LLVM_VORTEX=/opt/llvm-vortex
+- cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DBUILD_SHARED_LIBS=True -DCMAKE_INSTALL_PREFIX=$LLVM_VORTEX -DLLVM_BUILD_TESTS=False -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
+#- cmake -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DBUILD_SHARED_LIBS=True -DCMAKE_INSTALL_PREFIX=$LLVM_VORTEX -DLLVM_BUILD_TESTS=False -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
 - cmake --build . --target install
 
 ## Sanity test your new RISC-V LLVM
@@ -42,26 +42,26 @@
 - cd llvm-spirv
 - mkdir build
 - cd build
-- export LLVM_PREFIX=/opt/llvm-riscv
-- cmake .. -DLLVM_DIR=$LLVM_PREFIX -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX
+- export LLVM_VORTEX=/opt/llvm-vortex
+- cmake .. -DLLVM_DIR=$LLVM_VORTEX -DCMAKE_INSTALL_PREFIX=$LLVM_VORTEX
 - make llvm-spirv -j`nproc`
 - make install
 # manually copy over llvm-spirv binary
-- cp ./tools/llvm-spirv/llvm-spirv $LLVM_PREFIX/bin
+- cp ./tools/llvm-spirv/llvm-spirv $LLVM_VORTEX/bin
 
 ## build pocl for Vortex
 
 - git clone https://github.gatech.edu/casl/pocl.git
 - cd pocl
 
-- mkdir build_vortex_cc
-- cd build_vortex_cc
+- mkdir build_cc
+- cd build_cc
 - export POCL_CC_PATH=/opt/pocl/compiler
-- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$LLVM_PREFIX/bin/llvm-config -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DENABLE_ICD=OFF ..
+- cmake -G Ninja -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DCMAKE_BUILD_TYPE=Debug -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$LLVM_VORTEX/bin/llvm-config -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DENABLE_ICD=OFF ..
 - cmake --build . --target install
 
-- mkdir build_vortex_rt
-- cd build_vortex_rt
+- mkdir build_rt
+- cd build_rt
 - export POCL_RT_PATH=/opt/pocl/runtime
 - export VORTEX_DRIVER_INC=~/dev/vortex_live/driver/include
 - export VORTEX_DRIVER_LIB=~/dev/vortex_live/driver/stub/libvortex.so

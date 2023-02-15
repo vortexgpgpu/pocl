@@ -816,7 +816,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
               "_pocl_kernel_%s_workgroup", kernel->name);
     
     ss << "#include <vx_spawn.h>\n"
-          "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t*, uint32_t, uint32_t, uint32_t);\n"  
+          "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z);\n"  
           "int main() {\n"
           "  const context_t* ctx = (const context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
           "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n"
@@ -876,7 +876,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
 
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << objdump_path.c_str() << " -arch=riscv32 -mcpu=generic-rv32 -mattr=+m,+f -mattr=+vortex -D " << kernel_elf << " > " << kernel->name << ".dump";
+    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf << " > " << kernel->name << ".dump";
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
