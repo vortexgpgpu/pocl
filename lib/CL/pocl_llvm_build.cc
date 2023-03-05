@@ -365,7 +365,7 @@ int pocl_llvm_build_program(cl_program program,
     ss << "-target-cpu " << device->llvm_cpu << " ";
 
 #if defined(BUILD_VORTEX)
-    ss << "-target-abi ilp32f ";
+    ss << "-target-feature +m -target-feature +f -target-feature +vortex -target-abi ilp32f";
 #endif
 
   //debug passes

@@ -876,7 +876,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
 
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf << " > " << kernel->name << ".dump";
+    ss_cmd << objdump_path.c_str() << " -arch=riscv32 -mcpu=generic-rv32 -mattr=+m,+f,+vortex -D " << kernel_elf << " > " << kernel->name << ".dump";
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
