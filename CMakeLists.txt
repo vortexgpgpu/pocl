@@ -201,8 +201,13 @@ option(CROSS_COMPILATION "Generate pre-built kernel binaries" OFF)
 
 ###############################################################################
 
+if (ENABLE_NEWLIB OR ENABLE_VORTEX)
+  set(CROSS_COMPILATION 1)
+endif()
+
 if (CROSS_COMPILATION)
   set(CROSS_COMPILATION 1)
+  set(CMAKE_CROSSCOMPILING 1)
 endif()
 
 # currently only works with gcc as host compiler
@@ -852,7 +857,7 @@ endif()
 
 ######################################################################################
 
-if(NOT DEFINED DEFAULT_ENABLE_ICD)
+if((NOT DEFINED DEFAULT_ENABLE_ICD) AND (NOT CMAKE_CROSSCOMPILING))
 
 if (MSVC)
   message(STATUS "Building ICD not yet supported on Windows.")
@@ -1260,12 +1265,10 @@ endif()
 
 if (ENABLE_NEWLIB)
   set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Newlib targets")
-  set(CROSS_COMPILATION 1)
   set(BUILD_NEWLIB 1)
 endif()
 
 if (ENABLE_VORTEX)
-  set(CROSS_COMPILATION 1)
   set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
   set(OCL_TARGETS "${OCL_TARGETS} vortex")
   set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Vortex targets")
@@ -1713,3 +1716,4 @@ MESSAGE(STATUS "C Compiler path:" ${CMAKE_C_COMPILER})
 MESSAGE(STATUS "C Compiler flags:" ${CMAKE_C_FLAGS})
 MESSAGE(STATUS "CXX Compiler path:" ${CMAKE_CXX_COMPILER})
 MESSAGE(STATUS "CXX Compiler flags:" ${CMAKE_CXX_FLAGS})
+MESSAGE(STATUS "HwLoc Enabled:" ${ENABLE_HWLOC})
