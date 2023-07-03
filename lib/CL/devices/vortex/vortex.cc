@@ -77,7 +77,6 @@ extern "C" {
 
 extern char *build_cflags;
 extern char *build_ldflags;
-extern char *build_llcflags;
 
 struct vx_device_data_t {
 #if !defined(OCS_AVAILABLE)
@@ -778,33 +777,22 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       return -1;    
     }
     POCL_MSG_PRINT_INFO("using $LLVM_PREFIX=%s!\n", llvm_install_path);
+  }  
+
+  std::string clang_path(CLANG);
+  if (llvm_install_path) {
+    clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
   }
 
   {
-    std::string llc_path(LLVM_LLC);
-    if (llvm_install_path) {
-      llc_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
-    }
-
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << llc_path.c_str() << " " << build_llcflags << " -filetype=obj -o " << kernel_obj << " " << kernel_bc;
+    ss_cmd << clang_path.c_str() << " " << build_cflags << " " << kernel_bc << " -c -o " << kernel_obj;
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
       POCL_MSG_ERR("%s\n", ss_out.str().c_str());
       return err;
     }
-
-    /*
-    ss_cmd.str("");
-    ss_cmd << llc_path.c_str() << " " << build_llcflags << " -filetype=asm -o " << kernel->name << "_kernel.asm" << " " << kernel_bc;
-    POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
-    err = exec(ss_cmd.str().c_str(), ss_out);
-    if (err != 0) {
-      POCL_MSG_ERR("%s\n", ss_out.str().c_str());
-      return err;
-    }
-    */
   }
   
   {  
@@ -835,11 +823,6 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       return err;
 
     StaticStrFormat ssfmt(9);
-
-    std::string clang_path(CLANG);
-    if (llvm_install_path) {
-      clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
-    }
 
     {
       std::stringstream ss_cmd, ss_out;
@@ -876,7 +859,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
 
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << objdump_path.c_str() << " -arch=riscv32 -mcpu=generic-rv32 -mattr=+m,+f,+vortex -D " << kernel_elf << " > " << kernel->name << ".dump";
+    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf << " > " << kernel->name << ".dump";
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {

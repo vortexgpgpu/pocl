@@ -934,11 +934,10 @@ endif()
 
 endif()
 
-setup_cached_var(ENABLE_ICD "Using an ICD loader"
-  "Requested build with icd, but ICD loader not found! some examples will not work.."
-  "ICD loader found, but requested build without it")
-
 if(ENABLE_ICD)
+  setup_cached_var(ENABLE_ICD "Using an ICD loader"
+    "Requested build with icd, but ICD loader not found! some examples will not work.."
+    "ICD loader found, but requested build without it")
   # only meaningful to link tests with ocl-icd
   set(TESTS_USE_ICD ${HAVE_OCL_ICD})
   set(POCL_LIBRARY_NAME "pocl")
