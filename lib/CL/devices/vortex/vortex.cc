@@ -54,13 +54,15 @@ extern "C" {
 
 #include "pocl_llvm.h"
 
+#include "vortex_compiler_features.h"
+
 #ifdef __cplusplus
 }
 #endif
 
 #include <sstream>
-#include <vector>
 #include <stdarg.h>
+#include <vector>
 
 /* Maximum kernels occupancy */
 #define MAX_KERNELS 16
@@ -75,9 +77,9 @@ extern "C" {
 // allocate 1MB OpenCL print buffer
 #define PRINT_BUFFER_SIZE (1024 * 1024)
 
-extern char *build_cflags;
-extern char *build_ldflags;
-extern char *build_llcflags;
+extern char* build_cflags;
+extern char* build_ldflags;
+extern char* build_llcflags;
 
 struct vx_device_data_t {
 #if !defined(OCS_AVAILABLE)
@@ -85,20 +87,20 @@ struct vx_device_data_t {
   size_t vx_print_buf_d;
   vx_buffer_h vx_print_buf_h;
   uint32_t printf_buffer;
-  uint32_t printf_buffer_position;   
+  uint32_t printf_buffer_position;
 #endif
 
   /* Currently loaded kernel. */
   cl_kernel current_kernel;
 
   /* List of commands ready to be executed */
-  _cl_command_node *volatile ready_list;
+  _cl_command_node* volatile ready_list;
 
   /* List of commands not yet ready to be executed */
-  _cl_command_node *volatile command_list;
+  _cl_command_node* volatile command_list;
 
   /* Lock for command list related operations */
-  pocl_lock_t cq_lock;  
+  pocl_lock_t cq_lock;
 };
 
 struct vx_buffer_data_t {
@@ -112,49 +114,51 @@ struct vx_buffer_data_t {
 struct kernel_context_t {
   uint32_t num_groups[3];
   uint32_t global_offset[3];
-  uint32_t local_size[3];  
+  uint32_t local_size[3];
   uint32_t printf_buffer;
   uint32_t printf_buffer_position;
-  uint32_t printf_buffer_capacity;  
+  uint32_t printf_buffer_capacity;
   uint32_t work_dim;
 };
 
 static size_t ALIGNED_CTX_SIZE = 4 * ((sizeof(kernel_context_t) + 3) / 4);
 
 static const cl_image_format supported_image_formats[] = {
-    {CL_A, CL_SNORM_INT8},
-    {CL_A, CL_SNORM_INT16},
-    {CL_A, CL_UNORM_INT8},
-    {CL_A, CL_UNORM_INT16},
-    {CL_A, CL_SIGNED_INT8},
-    {CL_A, CL_SIGNED_INT16},
-    {CL_A, CL_SIGNED_INT32},
-    {CL_A, CL_UNSIGNED_INT8},
-    {CL_A, CL_UNSIGNED_INT16},
-    {CL_A, CL_UNSIGNED_INT32},
-    {CL_A, CL_FLOAT},
-    {CL_RGBA, CL_SNORM_INT8},
-    {CL_RGBA, CL_SNORM_INT16},
-    {CL_RGBA, CL_UNORM_INT8},
-    {CL_RGBA, CL_UNORM_INT16},
-    {CL_RGBA, CL_SIGNED_INT8},
-    {CL_RGBA, CL_SIGNED_INT16},
-    {CL_RGBA, CL_SIGNED_INT32},
-    {CL_RGBA, CL_UNSIGNED_INT8},
-    {CL_RGBA, CL_UNSIGNED_INT16},
-    {CL_RGBA, CL_UNSIGNED_INT32},
-    {CL_RGBA, CL_HALF_FLOAT},
-    {CL_RGBA, CL_FLOAT},
-    {CL_ARGB, CL_SNORM_INT8},
-    {CL_ARGB, CL_UNORM_INT8},
-    {CL_ARGB, CL_SIGNED_INT8},
-    {CL_ARGB, CL_UNSIGNED_INT8},
-    {CL_BGRA, CL_SNORM_INT8},
-    {CL_BGRA, CL_UNORM_INT8},
-    {CL_BGRA, CL_SIGNED_INT8},
-    {CL_BGRA, CL_UNSIGNED_INT8}};
+  { CL_A, CL_SNORM_INT8 },
+  { CL_A, CL_SNORM_INT16 },
+  { CL_A, CL_UNORM_INT8 },
+  { CL_A, CL_UNORM_INT16 },
+  { CL_A, CL_SIGNED_INT8 },
+  { CL_A, CL_SIGNED_INT16 },
+  { CL_A, CL_SIGNED_INT32 },
+  { CL_A, CL_UNSIGNED_INT8 },
+  { CL_A, CL_UNSIGNED_INT16 },
+  { CL_A, CL_UNSIGNED_INT32 },
+  { CL_A, CL_FLOAT },
+  { CL_RGBA, CL_SNORM_INT8 },
+  { CL_RGBA, CL_SNORM_INT16 },
+  { CL_RGBA, CL_UNORM_INT8 },
+  { CL_RGBA, CL_UNORM_INT16 },
+  { CL_RGBA, CL_SIGNED_INT8 },
+  { CL_RGBA, CL_SIGNED_INT16 },
+  { CL_RGBA, CL_SIGNED_INT32 },
+  { CL_RGBA, CL_UNSIGNED_INT8 },
+  { CL_RGBA, CL_UNSIGNED_INT16 },
+  { CL_RGBA, CL_UNSIGNED_INT32 },
+  { CL_RGBA, CL_HALF_FLOAT },
+  { CL_RGBA, CL_FLOAT },
+  { CL_ARGB, CL_SNORM_INT8 },
+  { CL_ARGB, CL_UNORM_INT8 },
+  { CL_ARGB, CL_SIGNED_INT8 },
+  { CL_ARGB, CL_UNSIGNED_INT8 },
+  { CL_BGRA, CL_SNORM_INT8 },
+  { CL_BGRA, CL_UNORM_INT8 },
+  { CL_BGRA, CL_SIGNED_INT8 },
+  { CL_BGRA, CL_UNSIGNED_INT8 }
+};
 
-void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
+void pocl_vortex_init_device_ops(struct pocl_device_ops* ops)
+{
   ops->device_name = "vortex";
   ops->probe = pocl_vortex_probe;
 
@@ -209,25 +213,28 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
 #endif
 }
 
-char *pocl_vortex_build_hash(cl_device_id device) {
-  char *res = (char *)calloc(1000, sizeof(char));
+char* pocl_vortex_build_hash(cl_device_id device)
+{
+  char* res = (char*)calloc(1000, sizeof(char));
   snprintf(res, 1000, "vortex-riscv32-unknown-unknown-elf");
   return res;
 }
 
-static cl_device_partition_property vortex_partition_properties[1] = {0};
+static cl_device_partition_property vortex_partition_properties[1] = { 0 };
 
-static const char *final_ld_flags[] = {"-nostartfiles", HOST_LD_FLAGS_ARRAY, NULL};
+static const char* final_ld_flags[] = { "-nostartfiles", HOST_LD_FLAGS_ARRAY, NULL };
 
-unsigned int pocl_vortex_probe(struct pocl_device_ops *ops) {
+unsigned int pocl_vortex_probe(struct pocl_device_ops* ops)
+{
   if (0 == strcmp(ops->device_name, "vortex"))
     return 1;
   return 0;
 }
 
 cl_int pocl_vortex_init(unsigned j, cl_device_id device,
-                        const char *parameters) {
-  struct vx_device_data_t *d;
+    const char* parameters)
+{
+  struct vx_device_data_t* d;
   cl_int ret = CL_SUCCESS;
   int err;
   static int first_vortex_init = 1;
@@ -245,18 +252,18 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   if (err != 0)
     return CL_INVALID_DEVICE;
 
-  d = (struct vx_device_data_t *)calloc(1, sizeof(struct vx_device_data_t));
+  d = (struct vx_device_data_t*)calloc(1, sizeof(struct vx_device_data_t));
   if (d == NULL)
     return CL_OUT_OF_HOST_MEMORY;
 
   pocl_cpuinfo_detect_device_info(device);
-  pocl_set_buffer_image_limits(device); 
+  pocl_set_buffer_image_limits(device);
 
   device->vendor = "Georgia Tech";
   device->vendor_id = 0;
   device->type = CL_DEVICE_TYPE_GPU;
 
-  device->address_bits = 32;  
+  device->address_bits = 32;
   device->llvm_target_triplet = "riscv32";
   device->llvm_cpu = "";
 
@@ -270,7 +277,7 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
     free(d);
     return CL_DEVICE_NOT_FOUND;
   }
-  
+
   device->device_side_printf = 1;
   device->printf_buffer_size = PRINT_BUFFER_SIZE;
 
@@ -283,16 +290,16 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
     vx_dev_close(vx_device);
     free(d);
     return CL_INVALID_DEVICE;
-  }  
-  
+  }
+
   vx_buffer_h vx_print_buf_h;
   err = vx_buf_alloc(vx_device, print_buf_dev_size, &vx_print_buf_h);
   if (err != 0) {
     vx_dev_close(vx_device);
     free(d);
     return CL_OUT_OF_HOST_MEMORY;
-  }  
-    
+  }
+
   // clear print position to zero
   uint8_t* staging_ptr = (uint8_t*)vx_host_ptr(vx_print_buf_h);
   memset(staging_ptr + PRINT_BUFFER_SIZE, 0, sizeof(uint32_t));
@@ -303,13 +310,13 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
     free(d);
     return CL_OUT_OF_HOST_MEMORY;
   }
-    
-  d->vx_device      = vx_device;
+
+  d->vx_device = vx_device;
   d->vx_print_buf_d = vx_print_buf_d;
-  d->vx_print_buf_h = vx_print_buf_h; 
-  d->printf_buffer  = vx_print_buf_d;
+  d->vx_print_buf_h = vx_print_buf_h;
+  d->printf_buffer = vx_print_buf_d;
   d->printf_buffer_position = vx_print_buf_d + PRINT_BUFFER_SIZE;
-#endif 
+#endif
 
   d->current_kernel = NULL;
 
@@ -320,10 +327,11 @@ cl_int pocl_vortex_init(unsigned j, cl_device_id device,
   return ret;
 }
 
-cl_int pocl_vortex_uninit(unsigned j, cl_device_id device) {
-  struct vx_device_data_t *d = (struct vx_device_data_t *)device->data;
+cl_int pocl_vortex_uninit(unsigned j, cl_device_id device)
+{
+  struct vx_device_data_t* d = (struct vx_device_data_t*)device->data;
   if (NULL == d)
-    return CL_SUCCESS;  
+    return CL_SUCCESS;
 
 #if !defined(OCS_AVAILABLE)
   vx_buf_free(d->vx_print_buf_h);
@@ -333,18 +341,19 @@ cl_int pocl_vortex_uninit(unsigned j, cl_device_id device) {
   POCL_DESTROY_LOCK(d->cq_lock);
   POCL_MEM_FREE(d);
   device->data = NULL;
-  
+
   return CL_SUCCESS;
 }
 
 #if !defined(OCS_AVAILABLE)
 
-static void *
+static void*
 pocl_vortex_malloc(cl_device_id device, cl_mem_flags flags, size_t size,
-                   void *host_ptr) {
-  auto d = (vx_device_data_t *)device->data;
-  void *b = NULL;
-  pocl_global_mem_t *mem = device->global_memory;
+    void* host_ptr)
+{
+  auto d = (vx_device_data_t*)device->data;
+  void* b = NULL;
+  pocl_global_mem_t* mem = device->global_memory;
   int err;
 
   if (flags & CL_MEM_USE_HOST_PTR) {
@@ -374,16 +383,17 @@ pocl_vortex_malloc(cl_device_id device, cl_mem_flags flags, size_t size,
   }
 
   auto buf_data = new vx_buffer_data_t();
-  buf_data->vx_device    = d->vx_device;
-  buf_data->staging_buf  = staging_buf;
+  buf_data->vx_device = d->vx_device;
+  buf_data->staging_buf = staging_buf;
   buf_data->dev_mem_addr = dev_mem_addr;
 
   return buf_data;
 }
 
 cl_int
-pocl_vortex_alloc_mem_obj(cl_device_id device, cl_mem mem_obj, void *host_ptr) {
-  void *b = NULL;
+pocl_vortex_alloc_mem_obj(cl_device_id device, cl_mem mem_obj, void* host_ptr)
+{
+  void* b = NULL;
   cl_mem_flags flags = mem_obj->flags;
   unsigned i;
 
@@ -419,12 +429,13 @@ pocl_vortex_alloc_mem_obj(cl_device_id device, cl_mem mem_obj, void *host_ptr) {
   return CL_SUCCESS;
 }
 
-void pocl_vortex_free(cl_device_id device, cl_mem memobj) {
+void pocl_vortex_free(cl_device_id device, cl_mem memobj)
+{
   cl_mem_flags flags = memobj->flags;
   auto buf_data = (vx_buffer_data_t*)memobj->device_ptrs[device->dev_id].mem_ptr;
 
-  if (flags & CL_MEM_USE_HOST_PTR 
-   || memobj->shared_mem_allocation_owner != device) {
+  if (flags & CL_MEM_USE_HOST_PTR
+      || memobj->shared_mem_allocation_owner != device) {
     std::abort(); //TODO
   } else {
     vx_buf_free(buf_data->staging_buf);
@@ -434,8 +445,9 @@ void pocl_vortex_free(cl_device_id device, cl_mem memobj) {
     memobj->mem_host_ptr = NULL;
 }
 
-static void vortex_command_scheduler(struct vx_device_data_t *d) {
-  _cl_command_node *node;
+static void vortex_command_scheduler(struct vx_device_data_t* d)
+{
+  _cl_command_node* node;
 
   /* execute commands from ready list */
   while ((node = d->ready_list)) {
@@ -450,8 +462,9 @@ static void vortex_command_scheduler(struct vx_device_data_t *d) {
   return;
 }
 
-void pocl_vortex_submit(_cl_command_node *node, cl_command_queue cq) {
-  struct vx_device_data_t *d = (struct vx_device_data_t *)node->device->data;
+void pocl_vortex_submit(_cl_command_node* node, cl_command_queue cq)
+{
+  struct vx_device_data_t* d = (struct vx_device_data_t*)node->device->data;
 
   if (node != NULL && node->type == CL_COMMAND_NDRANGE_KERNEL)
     pocl_check_kernel_dlhandle_cache(node, 1, 1);
@@ -467,16 +480,18 @@ void pocl_vortex_submit(_cl_command_node *node, cl_command_queue cq) {
   return;
 }
 
-void pocl_vortex_flush(cl_device_id device, cl_command_queue cq) {
-  struct vx_device_data_t *d = (struct vx_device_data_t *)device->data;
+void pocl_vortex_flush(cl_device_id device, cl_command_queue cq)
+{
+  struct vx_device_data_t* d = (struct vx_device_data_t*)device->data;
 
   POCL_LOCK(d->cq_lock);
   vortex_command_scheduler(d);
   POCL_UNLOCK(d->cq_lock);
 }
 
-void pocl_vortex_join(cl_device_id device, cl_command_queue cq) {
-  struct vx_device_data_t *d = (struct vx_device_data_t *)device->data;
+void pocl_vortex_join(cl_device_id device, cl_command_queue cq)
+{
+  struct vx_device_data_t* d = (struct vx_device_data_t*)device->data;
 
   POCL_LOCK(d->cq_lock);
   vortex_command_scheduler(d);
@@ -485,9 +500,10 @@ void pocl_vortex_join(cl_device_id device, cl_command_queue cq) {
   return;
 }
 
-void pocl_vortex_notify(cl_device_id device, cl_event event, cl_event finished) {
-  struct vx_device_data_t *d = (struct vx_device_data_t *)device->data;
-  _cl_command_node *volatile node = event->command;
+void pocl_vortex_notify(cl_device_id device, cl_event event, cl_event finished)
+{
+  struct vx_device_data_t* d = (struct vx_device_data_t*)device->data;
+  _cl_command_node* volatile node = event->command;
 
   if (finished->status < CL_COMPLETE) {
     pocl_update_event_failed(event);
@@ -510,76 +526,79 @@ void pocl_vortex_notify(cl_device_id device, cl_event event, cl_event finished) 
   }
 }
 
-void pocl_vortex_write(void *data,
-                       const void *__restrict__ host_ptr,
-                       pocl_mem_identifier *dst_mem_id,
-                       cl_mem dst_buf,
-                       size_t offset, 
-                       size_t size) {
+void pocl_vortex_write(void* data,
+    const void* __restrict__ host_ptr,
+    pocl_mem_identifier* dst_mem_id,
+    cl_mem dst_buf,
+    size_t offset,
+    size_t size)
+{
   auto buf_data = (vx_buffer_data_t*)dst_mem_id->mem_ptr;
   auto buf_ptr = vx_host_ptr(buf_data->staging_buf);
-  memcpy((char *)buf_ptr + offset, host_ptr, size);
+  memcpy((char*)buf_ptr + offset, host_ptr, size);
   auto vx_err = vx_copy_to_dev(buf_data->staging_buf, buf_data->dev_mem_addr, offset + size, 0);
   assert(0 == vx_err);
 }
 
-void pocl_vortex_read(void *data,
-                      void *__restrict__ host_ptr,
-                      pocl_mem_identifier *src_mem_id,
-                      cl_mem src_buf,
-                      size_t offset, 
-                      size_t size) {
+void pocl_vortex_read(void* data,
+    void* __restrict__ host_ptr,
+    pocl_mem_identifier* src_mem_id,
+    cl_mem src_buf,
+    size_t offset,
+    size_t size)
+{
   int vx_err;
-  struct vx_device_data_t *d = (struct vx_device_data_t *)data;                      
+  struct vx_device_data_t* d = (struct vx_device_data_t*)data;
   auto buf_data = (vx_buffer_data_t*)src_mem_id->mem_ptr;
   vx_err = vx_copy_from_dev(buf_data->staging_buf, buf_data->dev_mem_addr, offset + size, 0);
   assert(0 == vx_err);
   auto buf_ptr = vx_host_ptr(buf_data->staging_buf);
   assert(buf_ptr);
-  memcpy(host_ptr, (char *)buf_ptr + offset, size);
+  memcpy(host_ptr, (char*)buf_ptr + offset, size);
 }
 
-static void print_data(const char* text, const uint8_t* data, size_t size) {
+static void print_data(const char* text, const uint8_t* data, size_t size)
+{
   /*printf(text);
   for (size_t i = 0; i < size; ++i)
     printf("%02x", data[size-1-i]);
   printf("\n");*/
 }
 
-void pocl_vortex_run(void *data, _cl_command_node *cmd) {
-  struct vx_device_data_t *d;
+void pocl_vortex_run(void* data, _cl_command_node* cmd)
+{
+  struct vx_device_data_t* d;
   size_t x, y, z;
   unsigned i;
   unsigned dev_i = cmd->device_i;
   cl_kernel kernel = cmd->command.run.kernel;
   cl_program program = kernel->program;
-  pocl_kernel_metadata_t *meta = kernel->meta;
-  struct pocl_context *pc = &cmd->command.run.pc;
+  pocl_kernel_metadata_t* meta = kernel->meta;
+  struct pocl_context* pc = &cmd->command.run.pc;
   int err;
-  
+
   assert(data != NULL);
-  d = (struct vx_device_data_t *)data;
+  d = (struct vx_device_data_t*)data;
 
   // calculate kernel arguments buffer size
-  size_t abuf_size = 0;  
+  size_t abuf_size = 0;
   size_t abuf_args_size = 4 * (meta->num_args + meta->num_locals);
   size_t abuf_ext_size = 0;
   {
     // pocl_context data
-    abuf_size += ALIGNED_CTX_SIZE; 
-    // argument data    
+    abuf_size += ALIGNED_CTX_SIZE;
+    // argument data
     abuf_size += abuf_args_size;
-    for (i = 0; i < meta->num_args; ++i) {  
-      auto al = &(cmd->command.run.arguments[i]);  
+    for (i = 0; i < meta->num_args; ++i) {
+      auto al = &(cmd->command.run.arguments[i]);
       if (ARG_IS_LOCAL(meta->arg_info[i])
-       && !cmd->device->device_alloca_locals) {
+          && !cmd->device->device_alloca_locals) {
         abuf_size += 4;
         abuf_size += al->size;
         abuf_ext_size += al->size;
-      } else
-      if ((meta->arg_info[i].type == POCL_ARG_TYPE_POINTER)
-       || (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE)
-       || (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER)) {
+      } else if ((meta->arg_info[i].type == POCL_ARG_TYPE_POINTER)
+          || (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE)
+          || (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER)) {
         abuf_size += 4;
       } else {
         abuf_size += al->size;
@@ -604,9 +623,9 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
       for (int i = 0; i < 3; ++i) {
         ctx.num_groups[i] = pc->num_groups[i];
         ctx.global_offset[i] = pc->global_offset[i];
-        ctx.local_size[i] = pc->local_size[i];        
+        ctx.local_size[i] = pc->local_size[i];
       }
-      ctx.work_dim = pc->work_dim;      
+      ctx.work_dim = pc->work_dim;
       ctx.printf_buffer = d->printf_buffer;
       ctx.printf_buffer_position = d->printf_buffer_position;
       ctx.printf_buffer_capacity = PRINT_BUFFER_SIZE;
@@ -616,7 +635,7 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
       print_data("*** ctx=", abuf_ptr, ALIGNED_CTX_SIZE);
     }
 
-    // write arguments    
+    // write arguments
     uint32_t args_base_addr = KERNEL_ARG_BASE_ADDR;
     uint32_t args_addr = args_base_addr + ALIGNED_CTX_SIZE + abuf_args_size;
     uint32_t args_ext_addr = (args_base_addr + abuf_size) - abuf_ext_size;
@@ -628,31 +647,28 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
           memcpy(abuf_ptr + addr, &al->size, 4);
           print_data("*** locals=", abuf_ptr + addr, 4);
         } else {
-          memcpy(abuf_ptr + addr, &args_addr, 4);          
+          memcpy(abuf_ptr + addr, &args_addr, 4);
           memcpy(abuf_ptr + (args_addr - args_base_addr), &args_ext_addr, 4);
           args_addr += 4;
           args_ext_addr += al->size;
           std::abort();
         }
-      } else
-      if (meta->arg_info[i].type == POCL_ARG_TYPE_POINTER) {
-        memcpy(abuf_ptr + addr, &args_addr, 4);        
+      } else if (meta->arg_info[i].type == POCL_ARG_TYPE_POINTER) {
+        memcpy(abuf_ptr + addr, &args_addr, 4);
         if (al->value == NULL) {
           memset(abuf_ptr + (args_addr - args_base_addr), 0, 4);
-          print_data("*** null=", abuf_ptr + (args_addr - args_base_addr), 4); 
+          print_data("*** null=", abuf_ptr + (args_addr - args_base_addr), 4);
         } else {
-          cl_mem m = (*(cl_mem *)(al->value));
+          cl_mem m = (*(cl_mem*)(al->value));
           auto buf_data = (vx_buffer_data_t*)m->device_ptrs[cmd->device->dev_id].mem_ptr;
           auto dev_mem_addr = buf_data->dev_mem_addr + al->offset;
           memcpy(abuf_ptr + (args_addr - args_base_addr), &dev_mem_addr, 4);
           print_data("*** ptr=", abuf_ptr + (args_addr - args_base_addr), 4);
         }
         args_addr += 4;
-      } else 
-      if (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE) {
+      } else if (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE) {
         std::abort();
-      } else 
-      if (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER) {
+      } else if (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER) {
         std::abort();
       } else {
         memcpy(abuf_ptr + addr, &args_addr, 4);
@@ -670,18 +686,18 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
     // release staging buffer
     err = vx_buf_free(staging_buf);
     assert(0 == err);
-    
+
     // upload kernel to device
-    if (NULL == d->current_kernel 
-     || d->current_kernel != kernel) {    
-       d->current_kernel = kernel;
+    if (NULL == d->current_kernel
+        || d->current_kernel != kernel) {
+      d->current_kernel = kernel;
       char program_bin_path[POCL_FILENAME_LENGTH];
-      pocl_cache_final_binary_path (program_bin_path, program, dev_i, kernel, NULL, 0);
-      err = vx_upload_kernel_file(d->vx_device, program_bin_path);      
+      pocl_cache_final_binary_path(program_bin_path, program, dev_i, kernel, NULL, 0);
+      err = vx_upload_kernel_file(d->vx_device, program_bin_path);
       assert(0 == err);
     }
   }
-    
+
   // quick off kernel execution
   err = vx_start(d->vx_device);
   assert(0 == err);
@@ -690,7 +706,7 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
   err = vx_ready_wait(d->vx_device, -1);
   assert(0 == err);
 
-  // flush print buffer 
+  // flush print buffer
   {
     auto print_ptr = (uint8_t*)vx_host_ptr(d->vx_print_buf_h);
     err = vx_copy_from_dev(d->vx_print_buf_h, d->vx_print_buf_d + PRINT_BUFFER_SIZE, sizeof(uint32_t), PRINT_BUFFER_SIZE);
@@ -698,10 +714,10 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
     uint32_t print_size = *(uint32_t*)(print_ptr + PRINT_BUFFER_SIZE);
     if (print_size != 0) {
       err = vx_copy_from_dev(d->vx_print_buf_h, d->vx_print_buf_d, print_size, 0);
-      assert(0 == err);      
-      
-      write (STDOUT_FILENO, print_ptr, print_size);
-      
+      assert(0 == err);
+
+      write(STDOUT_FILENO, print_ptr, print_size);
+
       memset(print_ptr + PRINT_BUFFER_SIZE, 0, sizeof(uint32_t));
       err = vx_copy_to_dev(d->vx_print_buf_h, d->vx_print_buf_d, sizeof(uint32_t), PRINT_BUFFER_SIZE);
       assert(0 == err);
@@ -712,8 +728,9 @@ void pocl_vortex_run(void *data, _cl_command_node *cmd) {
 }
 #endif
 
-void pocl_vortex_compile_kernel(_cl_command_node *cmd, cl_kernel kernel,
-                                cl_device_id device, int specialize) {
+void pocl_vortex_compile_kernel(_cl_command_node* cmd, cl_kernel kernel,
+    cl_device_id device, int specialize)
+{
   if (cmd != NULL && cmd->type == CL_COMMAND_NDRANGE_KERNEL)
     pocl_check_kernel_dlhandle_cache(cmd, 0, specialize);
 }
@@ -721,12 +738,16 @@ void pocl_vortex_compile_kernel(_cl_command_node *cmd, cl_kernel kernel,
 #if defined(OCS_AVAILABLE)
 
 class StaticStrFormat {
-public:
+  public:
+  StaticStrFormat(size_t size)
+      : store_(size)
+      , index_(0)
+  {
+  }
 
-  StaticStrFormat(size_t size) : store_(size), index_(0) {}
-
-  const char* format(const char* format, ...) {
-    auto & buffer = store_.at(index_++);
+  const char* format(const char* format, ...)
+  {
+    auto& buffer = store_.at(index_++);
 
     va_list args_orig, args_copy;
     va_start(args_orig, format);
@@ -737,36 +758,38 @@ public:
 
     buffer.resize(size);
 
-    vsnprintf(buffer.data(), size, format, args_orig);       
+    vsnprintf(buffer.data(), size, format, args_orig);
     va_end(args_orig);
 
     return buffer.data();
   }
 
-private:
+  private:
   std::vector<std::vector<char>> store_;
   size_t index_;
 };
 
-int exec(const char* cmd, std::ostream& out) {  
+int exec(const char* cmd, std::ostream& out)
+{
   char buffer[128];
   auto pipe = popen(cmd, "r");
   if (!pipe) {
-      throw std::runtime_error("popen() failed!");
+    throw std::runtime_error("popen() failed!");
   }
   while (!feof(pipe)) {
-      if (fgets(buffer, 128, pipe) != nullptr)
-          out << buffer;
+    if (fgets(buffer, 128, pipe) != nullptr)
+      out << buffer;
   }
   return pclose(pipe);
 }
 
-int pocl_llvm_build_vortex_program(cl_kernel kernel, 
-                                   unsigned device_i, 
-                                   cl_device_id device,
-                                   const char *kernel_bc,
-                                   const char *kernel_obj,
-                                   char *kernel_out) {
+int pocl_llvm_build_vortex_program(cl_kernel kernel,
+    unsigned device_i,
+    cl_device_id device,
+    const char* kernel_bc,
+    const char* kernel_obj,
+    char* kernel_out)
+{
   char kernel_elf[POCL_FILENAME_LENGTH];
   cl_program program = kernel->program;
   int err;
@@ -775,7 +798,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   if (llvm_install_path) {
     if (!pocl_exists(llvm_install_path)) {
       POCL_MSG_ERR("$LLVM_PREFIX: '%s' doesn't exist\n", llvm_install_path);
-      return -1;    
+      return -1;
     }
     POCL_MSG_PRINT_INFO("using $LLVM_PREFIX=%s!\n", llvm_install_path);
   }
@@ -783,7 +806,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   {
     std::string llc_path(LLVM_LLC);
     if (llvm_install_path) {
-      llc_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+      llc_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
     }
 
     std::stringstream ss_cmd, ss_out;
@@ -806,30 +829,39 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
     */
   }
-  
-  {  
-    char wrapper_cc[POCL_FILENAME_LENGTH];    
+
+  {
+    char wrapper_cc[POCL_FILENAME_LENGTH];
     char pfn_workgroup_string[WORKGROUP_STRING_LENGTH];
     std::stringstream ss;
 
-    snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
-              "_pocl_kernel_%s_workgroup", kernel->name);
-    
+    snprintf(pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
+        "_pocl_kernel_%s_workgroup", kernel->name);
+
     ss << "#include <vx_spawn.h>\n"
-          "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z);\n"  
-          "int main() {\n"
-          "  const context_t* ctx = (const context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
-          "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n"
-          "  vx_spawn_kernel(ctx, (void*)" << pfn_workgroup_string << ", args);\n"
-          "  return 0;\n"
-          "}";
+          "void "
+       << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z);\n"
+                                  "int main() {\n"
+                                  "  const context_t* ctx = (const context_t*)"
+       << KERNEL_ARG_BASE_ADDR << ";\n"
+                                  "  void* args = (void*)"
+       << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n";
+
+    if (VORTEX_MAPPING == 0)
+      ss << " vx_spawn_kernel";
+    else if (VORTEX_MAPPING == 1)
+      ss << " vx_spawn_kernel_bmc";
+
+    ss << "(ctx, (void*)" << pfn_workgroup_string << ", args);\n"
+                                                     "  return 0;\n"
+                                                     "}";
 
     auto content = ss.str();
     err = pocl_write_tempfile(wrapper_cc, "/tmp/pocl_vortex_kernel", ".c",
-                              content.c_str(), content.size(), nullptr);
+        content.c_str(), content.size(), nullptr);
     if (err != 0)
       return err;
- 
+
     err = pocl_mk_tempname(kernel_elf, "/tmp/pocl_vortex_kernel", ".elf", nullptr);
     if (err != 0)
       return err;
@@ -838,12 +870,12 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
 
     std::string clang_path(CLANG);
     if (llvm_install_path) {
-      clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+      clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
     }
 
     {
       std::stringstream ss_cmd, ss_out;
-      ss_cmd << clang_path.c_str() << " " << build_cflags << " -I" POCL_INSTALL_PRIVATE_HEADER_DIR << " "<< wrapper_cc << " " << kernel_obj << " " << build_ldflags << " -o " << kernel_elf;
+      ss_cmd << clang_path.c_str() << " " << build_cflags << " -I" POCL_INSTALL_PRIVATE_HEADER_DIR << " " << wrapper_cc << " " << kernel_obj << " " << build_ldflags << " -o " << kernel_elf;
       POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
       err = exec(ss_cmd.str().c_str(), ss_out);
       if (err != 0) {
@@ -856,7 +888,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   {
     std::string objcopy_path(LLVM_OBJCOPY);
     if (llvm_install_path) {
-      objcopy_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+      objcopy_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
     }
 
     std::stringstream ss_cmd, ss_out;
@@ -872,7 +904,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   {
     std::string objdump_path(LLVM_OBJDUMP);
     if (llvm_install_path) {
-      objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+      objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
     }
 
     std::stringstream ss_cmd, ss_out;
@@ -884,7 +916,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       return err;
     }
   }
-  
+
   return 0;
 }
 
