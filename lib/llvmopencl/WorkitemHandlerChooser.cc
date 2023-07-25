@@ -21,8 +21,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#define DEBUG_TYPE "workitem-loops"
-
 #include <iostream>
 
 #include "CompilerWarnings.h"
@@ -30,6 +28,8 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/LoopInfo.h"
+
+#define DEBUG_TYPE "workitem-loops"
 
 #include "WorkitemHandlerChooser.h"
 #include "WorkitemLoops.h"
@@ -65,11 +65,6 @@ WorkitemHandlerChooser::runOnFunction(Function &F)
   if (!Workgroup::isKernelToProcess(F))
     return false;
 
-  if (WGDynamicLocalSize) {
-      chosenHandler_ = POCL_WIH_LOOPS;
-      return false;
-  }
-  
   Kernel *K = cast<Kernel> (&F);
 
   /* FIXME: this is not thread safe. We cannot compile multiple kernels at
@@ -84,10 +79,12 @@ WorkitemHandlerChooser::runOnFunction(Function &F)
   if (getenv("POCL_WORK_GROUP_METHOD") != NULL)
     {
       method = getenv("POCL_WORK_GROUP_METHOD");
-      if (method == "repl" || method == "workitemrepl")
+      if ((method == "repl" || method == "workitemrepl") && !WGDynamicLocalSize)
         chosenHandler_ = POCL_WIH_FULL_REPLICATION;
       else if (method == "loops" || method == "workitemloops" || method == "loopvec")
         chosenHandler_ = POCL_WIH_LOOPS;
+      else if (method == "cbs")
+        chosenHandler_ = POCL_WIH_CBS;
       else if (method != "auto")
         {
           std::cerr << "Unknown work group generation method. Using 'auto'." << std::endl;

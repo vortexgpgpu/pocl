@@ -81,8 +81,10 @@ class TCEDevice {
 
   virtual void setMachine(const TTAMachine::Machine& machine);
 
-  virtual void notifyKernelRunCommandSent
-      (__kernel_exec_cmd& /*dev_cmd*/, _cl_command_run* /*run_cmd*/) {};
+  virtual void notifyKernelRunCommandSent (__kernel_exec_cmd & /*dev_cmd*/,
+                                           _cl_command_run * /*run_cmd*/,
+                                           uint32_t * /*gmem_ptr_positions*/,
+                                           uint32_t /* gmem_count */){};
 
   virtual bool isNewKernel(const _cl_command_run* runCmd);
 
@@ -107,15 +109,18 @@ class TCEDevice {
   TTAMachine::AddressSpace *global_as;
   TTAMachine::AddressSpace *private_as;
   std::string machine_file;
-  
+  std::string build_hash;
+
   cl_device_id parent;
 
   bool needsByteSwap;
+  volatile bool shutdownRequested;
 
   const TTAProgram::Program* currentProgram;
   const TTAMachine::Machine* machine_;
 
   uint32_t commandQueueAddr;
+  uint32_t statusAddr;
 
   uint32_t curKernelAddr;
   cl_kernel curKernel;
@@ -124,13 +129,22 @@ class TCEDevice {
   size_t curLocalY;
   size_t curLocalZ;
 
+  size_t curGoffsX;
+  size_t curGoffsY;
+  size_t curGoffsZ;
+
   uint64_t globalCycleCount;
 
-  pthread_mutex_t cq_lock;
+  pocl_lock_t wq_lock;
+  pocl_cond_t wakeup_cond;
   pocl_lock_t tce_compile_lock;
-  _cl_command_node *volatile ready_list;
-  _cl_command_node *volatile command_list;
+  _cl_command_node *work_queue;
+
+  chunk_info_t *printf_buffer;
+  chunk_info_t *printf_position_chunk;
 };
+
+void *pocl_tce_driver_thread (void *cldev);
 
 #endif
 

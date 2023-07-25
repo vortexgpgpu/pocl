@@ -32,7 +32,7 @@ add_executable("matadd" matadd.c matadd_exec.c matadd.cl)
 
 target_link_libraries("matadd" ${POCLU_LINK_OPTIONS})
 
-add_test("examples/matadd" "matadd")
+add_test(NAME "examples/matadd" COMMAND "matadd")
 
 set(PROPS)
 if(NOT ENABLE_ANYSAN)
@@ -45,5 +45,5 @@ set_tests_properties( "examples/matadd"
     COST 3.0
     ${PROPS}
     PROCESSORS 1
-    LABELS "internal;"
+    LABELS "internal;vulkan;level0"
     DEPENDS "pocl_version_check")

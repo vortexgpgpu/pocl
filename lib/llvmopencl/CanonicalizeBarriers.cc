@@ -33,10 +33,11 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Dominators.h"
 
-#include "CanonicalizeBarriers.h"
 #include "Barrier.h"
-#include "Workgroup.h"
+#include "CanonicalizeBarriers.h"
 #include "VariableUniformityAnalysis.h"
+#include "Workgroup.h"
+#include "WorkitemHandlerChooser.h"
 
 POP_COMPILER_DIAGS
 
@@ -55,7 +56,9 @@ void
 CanonicalizeBarriers::getAnalysisUsage(AnalysisUsage &AU) const
 {
   AU.addRequired<DominatorTreeWrapperPass>();
-  AU.addPreserved<VariableUniformityAnalysis>();    
+  AU.addPreserved<VariableUniformityAnalysis>();
+  AU.addRequired<WorkitemHandlerChooser>();
+  AU.addPreserved<WorkitemHandlerChooser>();
 }
 
 bool
@@ -63,6 +66,7 @@ CanonicalizeBarriers::runOnFunction(Function &F)
 {
   if (!Workgroup::isKernelToProcess(F))
     return false;
+  bool changed = false;
 
   BasicBlock *entry = &F.getEntryBlock();
   if (!Barrier::hasOnlyBarrier(entry)) {
@@ -72,6 +76,7 @@ CanonicalizeBarriers::runOnFunction(Function &F)
     effective_entry->takeName(entry);
     entry->setName("entry.barrier");
     Barrier::Create(entry->getTerminator());
+    changed |= true;
   }
 
   for (Function::iterator i = F.begin(), e = F.end(); i != e; ++i) {
@@ -100,20 +105,22 @@ CanonicalizeBarriers::runOnFunction(Function &F)
         exit = SplitBlock(b, t);
       exit->setName("exit.barrier");
       Barrier::Create(t);
+      changed |= true;
     }
   }
 
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  return ProcessFunction(F);
+  return ProcessFunction(F) || changed;
 }
 
-
 // Canonicalize barriers: ensure all barriers are in a separate BB
 // containing only the barrier and the terminator, with just one
 // predecessor. This allows us to use those BBs as markers only, 
 // they will not be replicated.
 bool
 CanonicalizeBarriers::ProcessFunction(Function &F) {
+
+  auto WIH = getAnalysis<WorkitemHandlerChooser>().chosenHandler();
 
   bool changed = false;
 
@@ -145,10 +152,12 @@ CanonicalizeBarriers::ProcessFunction(Function &F) {
     // they just start several parallel regions. Simplifies
     // loop handling.
 
-    const bool HAS_NON_BRANCH_INSTRUCTIONS_AFTER_BARRIER = 
-      t->getPrevNode() != *i;
+    const bool HasNonBranchInstructionsAfterBarrier =
+        t->getPrevNode() != *i ||
+        (WIH == WorkitemHandlerChooser::POCL_WIH_CBS &&
+         t->getNumSuccessors() > 1);
 
-    if (HAS_NON_BRANCH_INSTRUCTIONS_AFTER_BARRIER) {
+    if (HasNonBranchInstructionsAfterBarrier) {
       BasicBlock *new_b = SplitBlock(b, (*i)->getNextNode());
       new_b->setName(b->getName() + ".postbarrier");
       changed = true;

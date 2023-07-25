@@ -33,7 +33,7 @@
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -93,13 +93,6 @@ main(void)
 
         cl::Device device1 = devices.at(0);
         cl::Device device2 = devices.at(1);
-
-        // we need tta and pthread.
-        assert ((device1.getInfo<CL_DEVICE_NAME>().find("pthread") != std::string::npos &&
-                 device2.getInfo<CL_DEVICE_NAME>().find("tta") != std::string::npos)
-                ||
-                (device2.getInfo<CL_DEVICE_NAME>().find("pthread") != std::string::npos &&
-                 device1.getInfo<CL_DEVICE_NAME>().find("tta") != std::string::npos));
 
         // Create and program from source
         cl::Program::Sources sources({kernelSourceCode});

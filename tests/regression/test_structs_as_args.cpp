@@ -21,11 +21,13 @@
    THE SOFTWARE.
 */
 
+#include "pocl_opencl.h"
+
 // Enable OpenCL C++ exceptions
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -60,11 +62,7 @@ struct test_struct {
     cl_long elementE;
     cl_float elementF;
     cl_short elementG;
-#ifdef _CL_DISABLE_DOUBLE
     cl_long elementH;
-#else
-    cl_double elementH;
-#endif
 };
 
 static char
@@ -84,11 +82,7 @@ kernelSourceCode[] =
 "    long elementE;\n"
 "    float elementF;\n"
 "    short elementG;\n"
-"#ifdef cl_khr_fp64\n"
-"    double elementH;\n"
-"#else\n"
 "    long elementH;\n"
-"#endif\n"
 "} test_struct;\n"
 "\n"
 "kernel void test_single(int_single input, global int* output) {"
@@ -274,13 +268,14 @@ main(void)
                 ok = false;
             }
         }
-        if (ok) 
-          return EXIT_SUCCESS;
-        else
-          return EXIT_FAILURE;
-        // There is no need to perform a finish on the final unmap
-        // or release any objects as this all happens implicitly with
-        // the C++ Wrapper API.
+
+        queue.finish();
+        platformList[0].unloadCompiler();
+
+        if (ok) {
+            std::cout << "OK" << std::endl;
+            return EXIT_SUCCESS;
+        }
     } 
     catch (cl::Error &err) {
          std::cerr
@@ -290,9 +285,7 @@ main(void)
              << err.err()
              << ")"
              << std::endl;
-
-         return EXIT_FAILURE;
     }
 
-    return EXIT_SUCCESS;
+    return EXIT_FAILURE;
 }

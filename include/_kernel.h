@@ -118,30 +118,40 @@
 
 /************************ setup Clang version macros ******************/
 
-#if (__clang_major__ == 6)
-
-# undef LLVM_6_0
-# define LLVM_6_0
-
-#elif (__clang_major__ == 7)
-
-# undef LLVM_7_0
-# define LLVM_7_0
-
-#elif (__clang_major__ == 8)
-
-# undef LLVM_8_0
-# define LLVM_8_0
-
-#elif (__clang_major__ == 9)
-
-# undef LLVM_9_0
-# define LLVM_9_0
-
-#elif (__clang_major__ == 10)
+#if (__clang_major__ == 10)
 
 # undef LLVM_10_0
 # define LLVM_10_0
+
+#elif (__clang_major__ == 11)
+
+# undef LLVM_11_0
+# define LLVM_11_0
+
+#elif (__clang_major__ == 12)
+
+# undef LLVM_12_0
+# define LLVM_12_0
+
+#elif (__clang_major__ == 13)
+
+# undef LLVM_13_0
+# define LLVM_13_0
+
+#elif (__clang_major__ == 14)
+
+#undef LLVM_14_0
+#define LLVM_14_0
+
+#elif (__clang_major__ == 15)
+
+#undef LLVM_15_0
+#define LLVM_15_0
+
+#elif (__clang_major__ == 16)
+
+#undef LLVM_16_0
+#define LLVM_16_0
 
 #else
 
@@ -149,26 +159,9 @@
 
 #endif
 
-#ifndef LLVM_10_0
-#define LLVM_OLDER_THAN_10_0 1
+#define CLANG_MAJOR __clang_major__
+#include "_libclang_versions_checks.h"
 
-#ifndef LLVM_9_0
-#define LLVM_OLDER_THAN_9_0 1
-
-#ifndef LLVM_8_0
-#define LLVM_OLDER_THAN_8_0 1
-
-#ifndef LLVM_7_0
-#define LLVM_OLDER_THAN_7_0 1
-
-#ifndef LLVM_6_0
-#define LLVM_OLDER_THAN_6_0 1
-
-#endif
-#endif
-#endif
-#endif
-#endif
 
 /****************************************************************************/
 
@@ -184,7 +177,7 @@
 #define IMG_RO_AQ __read_only
 #define IMG_WO_AQ __write_only
 
-#if (__OPENCL_C_VERSION__ > 199)
+#ifdef __opencl_c_read_write_images
 #define CLANG_HAS_RW_IMAGES
 #define IMG_RW_AQ __read_write
 #else
@@ -223,8 +216,8 @@
    be unified to avoid failing tests. */
 #undef FP_ILOGBNAN
 #undef FP_ILOGB0
-#define FP_ILOGBNAN INT_MIN
-#define FP_ILOGB0 INT_MIN
+#define FP_ILOGB0    INT_MIN
+#define FP_ILOGBNAN  INT_MAX
 
 /****************************************************************************/
 

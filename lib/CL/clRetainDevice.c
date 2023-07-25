@@ -25,12 +25,15 @@
 CL_API_ENTRY cl_int CL_API_CALL
 POname(clRetainDevice)(cl_device_id device) CL_API_SUFFIX__VERSION_1_2
 {
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (device)), CL_INVALID_DEVICE);
+
   if (device->parent_device == NULL)
     return CL_SUCCESS;
 
   int refc;
   POCL_RETAIN_OBJECT_REFCOUNT (device, refc);
-  POCL_MSG_PRINT_REFCOUNTS ("Retain Device %p  : %d\n", device, refc);
+  POCL_MSG_PRINT_REFCOUNTS ("Retain Device %d (%p), Refcount: %d\n",
+                            device->dev_id, device, refc);
   return CL_SUCCESS;
 }
 POsym(clRetainDevice)

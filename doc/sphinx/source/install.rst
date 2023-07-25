@@ -10,18 +10,27 @@ Requirements
 In order to build pocl, you need the following support libraries and
 tools:
 
-  * Latest released version of LLVM & Clang
+  * A supported version of LLVM & Clang (check release notes)
   * development files for LLVM & Clang + their transitive dependencies
     (e.g. libclang-dev, libllvm-dev, zlib1g-dev, libtinfo-dev...)
+  * CMake
   * GNU make or ninja
-  * pthread (should be installed by default)
-  * Optional: hwloc v1.0 or newer (e.g. libhwloc-dev)
   * pkg-config
-  * cmake
+  * pthread (should be installed by default)
+  * hwloc v1.0 or newer (e.g. libhwloc-dev) - optional
+  * python3 (for support of LLVM bitcode with SPIR target; optional but enabled by default)
+  * python3, llvm-spirv (version-compatible with LLVM) and spirv-tools (optional;
+    required for SPIR-V support in CPU / CUDA; Vulkan driver supports SPIR-V through clspv)
 
-Installing requirements for Ubuntu::
+Installing requirements for Ubuntu
+----------------------------------
 
-    apt install -y build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-dev clang llvm make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils
+Note: The binary packages from https://apt.llvm.org/ are recommended
+(and tested for each release) instead of the binary tar balls or
+the packages included in the distribution. The following assumes
+apt.llvm.org is added to your apt repos::
+
+    apt install -y python3-dev libpython3-dev build-essential ocl-icd-libopencl1 cmake git pkg-config libclang-${LLVM_VERSION}-dev clang llvm-${LLVM_VERSION} make ninja-build ocl-icd-libopencl1 ocl-icd-dev ocl-icd-opencl-dev libhwloc-dev zlib1g zlib1g-dev clinfo dialog apt-utils libxml2-dev libclang-cpp${LLVM_VERSION}-dev libclang-cpp${LLVM_VERSION} llvm-${LLVM_VERSION}-dev
 
 Installing requirements for Arch Linux::
 
@@ -33,6 +42,18 @@ Installing requirements for Fedora::
 
 There are also Dockerfiles available for a few most common linux
 distributions in ``tools/docker``, looking into them might be helpful.
+
+OpenCL 3.0 support
+------------------
+
+If you want PoCL built with ICD and OpenCL 3.0 support at platform level, you will
+need sufficiently new ocl-icd (2.3.x). For Ubuntu, it can be installed from
+this PPA: https://launchpad.net/~ocl-icd/+archive/ubuntu/ppa
+Additionally, if you want the CPU device to report as 3.0 OpenCL,
+you will need LLVM 14 or newer.
+
+Note: PoCL assumes that the OpenCL development headers and the ICD loader
+(if present on your system) are version compatible.
 
 Clang / LLVM Notes
 ------------------
@@ -55,7 +76,7 @@ Supported LLVM versions
 Configure & Build
 -----------------
 
-CMake version 2.8.12 or higher is required.
+CMake version 3.12 or higher is required.
 
 The build+install is the usual CMake way::
 
@@ -119,7 +140,7 @@ EXTRA_KERNEL_FLAGS
 EXTRA_KERNEL_{C,CL,CXX}_FLAGS
   cmake variables for per-language options for kernel library compilation
 
-
+.. _pocl-cmake-variables:
 
 CMake: other options & features
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -136,21 +157,14 @@ use ";" as separator (you'll have to escape it for bash).
   If not specified, pocl will try to find and link against
   llvm-config in PATH env var (usually means your system LLVM).
 
-- ``-DSTATIC_LLVM`` this option is deprecated and currently has no effect. See
-  the SINGLE_LLVM_LIB option.
-
-- ``-DSINGLE_LLVM_LIB`` when this option is enabled (default), pocl tries to
-  link to a single big LLVM library (libLLVM-<VERSION>.suffix). If this fails,
-  it fallbacks to linking LLVM libraries provided by ``llvm-config --libfiles``.
+- ``-DSTATIC_LLVM`` pocl uses ``llvm-config --libs`` to get list of LLVM libraries
+  it should link to. With this flag enabled, it additionally passes ``--link-static``
+  to ``llvm-config``; otherwise it passes ``--link-shared``. Default is OFF (=shared).
 
 - ``-DENABLE_ICD`` By default pocl's buildsystem will try to find an ICD
   and build pocl as a dynamic library named "libpocl". This option is useful
   if you want to avoid ICD and build pocl directly as libOpenCL library.
   See also :ref:`linking-with-icd`
-
-- ``-DENABLE_FP64`` - for ARM platform only. If your CPU doesn't support any
-  doubles (VFP is enough), disable this. Defaults to OFF when LLVM is older
-  than 4.0, otherwise defaults to ON.
 
 - ``-DPOCL_INSTALL_<something>_DIR`` The equivalent of ``--bindir``,
   ``--sbindir`` etc fine-tuning of paths for autotools. See the beginning
@@ -193,6 +207,10 @@ use ";" as separator (you'll have to escape it for bash).
   will find the suitable compiled library based on detected CPU features,
   so it cannot fail (at worst it'll degrade to SSE2 library).
 
+- ``-DLLC_TRIPLE=<something>`` Controls what target triple pocl is built for.
+  You can set this manually in case the autodetection fails.
+  Example value: ``x86_64-pc-linux-gnu``
+
 - ``-DENABLE_TESTSUITES`` Which external (source outside pocl) testsuites to enable.
   For the list of testsuites, see examples/CMakeLists.txt or the ``examples``
   directory. Set to ``all`` and pocl will try to autodetect & enable everything
@@ -205,18 +223,25 @@ use ";" as separator (you'll have to escape it for bash).
   with ``-DTESTSUITE_BASEDIR=/home/pocltest-build -DTESTSUITE_SOURCE_BASEDIR=/home/pocltest-src``,
   place the ``AMD-APP-SDK-v2.9-RC-lnx64.tgz`` file into ``/home/pocltest-src/AMDSDK2.9`` directory.
 
+- ``-DENABLE_TESTS=ON/OFF`` enable/disable compilation of internal tests.
+
+- ``-DENABLE_EXAMPLES=ON/OFF`` enable/disable compilation of all examples.
+  Disabling this makes ENABLE_TESTSUITES option unavailable.
+
+- ``-DENABLE_POCLCC=ON/OFF`` enable/disable compilation of poclcc.
+
 - ``-DENABLE_CONFORMANCE=ON/OFF``
   Ensures that certain build options which would result in non-conformant pocl
-  build stay disabled. Defaults to ON. Note that this does not quarantee a
+  build stay disabled. Defaults to OFF. Note that this does not quarantee a
   fully conformant build of pocl by itself. See :ref:`pocl-conformance` for details.
 
 - ``-DENABLE_{A,L,T,UB}SAN`` - compiles pocl's host code (and tests
   + examples) with various sanitizers. Using more than one sanitizer at
-  a time is untested. Using together with ``-DENABLE_ICD=OFF`` is highly
-  recommended to avoid issues with loading order of sanitizer libraries.
+  a time is untested. Using together with ``-DENABLE_ICD=OFF -DENABLE_LOADABLE_DRIVERS=OFF``
+  is highly recommended to avoid issues with loading order of sanitizer libraries.
 
-- ``-DENABLE_{CUDA,TCE,HSA}=ON/OFF`` - enable various (non-CPU) backends.
-  Usually requires some extra setup; see their documentation.
+- ``-DENABLE_{CUDA,TCE,HSA,VULKAN,LEVEL0}=ON/OFF`` - enable various (non-CPU) backends.
+  Usually requires some additional build dependencies; see their documentation.
 
 - ``-DPOCL_DEBUG_MESSAGES=ON`` - when disabled, pocl is compiled without
   debug messages (POCL_DEBUG env var) support.
@@ -227,8 +252,7 @@ use ";" as separator (you'll have to escape it for bash).
 
 - ``-DENABLE_POCL_FLOAT_CONVERSION=ON/OFF``
   When enabled, OpenCL printf() call's f/e/g formatters are handled by pocl.
-  When disabled (default), these are handled by system C library. Can only
-  be enabled when Clang's compiler-rt library is present.
+  When disabled (default), these are handled by system C library.
 
 - ``-DINTEL_SDE_AVX512=<PATH>``
   Path to Intel® Software Development Emulator. When this option is given,
@@ -258,16 +282,19 @@ The string after "HSTR:" is the device build hash.
 * now build the LLVM-less pocl. You will need the device build hash from
   previous step:
 
-  ``cmake -DOCS_AVAILABLE=0 -DHOST_DEVICE_BUILD_HASH=<something> ...``
+  ``cmake -DENABLE_LLVM=0 -DHOST_DEVICE_BUILD_HASH=<something> ...``
 
   This is required because pocl binaries contain a device hash, and the LLVM-less
   pocl needs to know which binaries it can load.
 
+**NOTE**: If you've enabled the :ref:`almaif device <almaif_usage>`
+, `HOST_DEVICE_BUILD_HASH` can be set to anything you want. Reason being, fixed function
+accelerators don't require compiling OpenCL kernels, therefore, no hash will ever be matched. 
 
-Cross-compile pocl LLVM-less build
------------------------------------
+Cross-compile pocl
+------------------
 It's now possible to cross-compile pocl on x86-64 to run on ARM/MIPS/etc,
-but only the LLVM-less build. There is a ToolchainExample.cmake file;
+There is a ToolchainExample.cmake file;
 copy it under different name, then follow the instructions in the file.
 
 
@@ -276,12 +303,6 @@ Known build-time issues
 
 There are unsolved issues and bugs in pocl. See the bug listing
 for a complete listing at https://github.com/pocl/pocl/issues
-
-Known issues not related to pocl are listed below.
-
-- Using Clang compiled with gcc 4.7 causes indeterminism in the
-  kernel compilation results. See LLVM bug report:
-  http://llvm.org/bugs/show_bug.cgi?id=12945
 
 building / running in Docker
 --------------------------------
@@ -298,10 +319,11 @@ Install Docker
 Build & start Pocl container
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* create an empty directory <D>
-* copy Dockerfile of your choice (any file from tools/docker/) to ``<D>/Dockerfile``
-* ``cd <D> ; sudo docker build -t TAG .`` .. where TAG is a name you can choose for the build.
-* ``sudo docker run -t TAG``
+* ``cd tools/docker``
+* pick a Dockerfile from tools/docker, e.g. Fedora/default
+* to build PoCL: ``sudo docker build -t TAG -f Fedora/default .``, where
+  TAG is a name you choose for the build (must be lowercase)
+* to run the tests on the built PoCL: ``sudo docker run -t TAG``
 * this will by default use master branch of pocl git; to use a different branch/commit,
   run docker build with ``--build-arg GIT_COMMIT=<branch/commit>``
 
@@ -319,11 +341,5 @@ Dockerfiles are named according to what they build, or the release they're based
    installs pocl into system path, then runs the internal tests
 * `<release>`: same as above, except uses specific release and specific LLVM version
   (the latest available in that release).
-* `X.32bit`: same as X but sets up i386 environment
 * `conformance`: builds & installs Pocl, then runs conformance test suite
   (the shortest version of it)
-
-Some additional notes:
-
-* TCE is built using three stages (LLVM, TCE, pocl)
-* PHSA built using three stages (LLVM, PHSA runtime, pocl)

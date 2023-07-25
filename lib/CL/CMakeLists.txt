@@ -28,13 +28,11 @@
 # C++ standard, which may be in conflict with pocl's default C++ standard.
 unset(CMAKE_CXX_STANDARD)
 
-if(SANITIZER_OPTIONS)
-  add_compile_options(${SANITIZER_OPTIONS})
-endif()
-
 include_directories(AFTER "devices" ".")
 
 add_subdirectory("devices")
+
+###############################################################################
 
 set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clReleaseContext.c"
@@ -80,6 +78,7 @@ set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clGetKernelArgInfo.c"
                    "clGetPlatformIDs.c"
                    "clGetPlatformInfo.c"
+                   "clGetDeviceAndHostTimer.c"
                    "clGetDeviceIDs.c"
                    "clGetDeviceInfo.c"
                    "clCreateContext.c"
@@ -96,6 +95,7 @@ set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clEnqueueBarrier.c"
                    "clEnqueueMarker.c"
                    "clGetKernelWorkGroupInfo.c"
+                   "clGetKernelSubGroupInfo.c"
                    "clGetProgramInfo.c"
                    "clGetEventProfilingInfo.c"
                    "clWaitForEvents.c"
@@ -118,9 +118,14 @@ set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clGetSamplerInfo.c"
                    "clEnqueueCopyImage.c"
                    "clEnqueueMapImage.c"
+                   "clGetHostTimer.c"
                    "clGetImageInfo.c"
+                   "clCreateFromGLTexture.c"
                    "clCreateFromGLTexture2D.c"
                    "clCreateFromGLTexture3D.c"
+                   "clEnqueueAcquireGLObjects.c"
+                   "clEnqueueReleaseGLObjects.c"
+                   "clGetGLContextInfoKHR.c"
                    "clUnloadCompiler.c"
                    "clGetSupportedImageFormats.c"
                    "clGetExtensionFunctionAddress.c"
@@ -130,55 +135,110 @@ set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clRetainDevice.c"
                    "clCreateSubDevices.c"
                    "clUnloadPlatformCompiler.c"
+                   "clSetContentSizeBufferPoCL.c"
+                   "clCreatePipe.c"
+                   "clGetPipeInfo.c"
+                   "clSetProgramReleaseCallback.c"
+                   "clSetContextDestructorCallback.c"
+                   "clSetProgramSpecializationConstant.c"
+                   "clCloneKernel.c"
+                   "clEnqueueSVMMigrateMem.c"
                    "pocl_cl.h" "pocl_util.h" "pocl_util.c"
                    "pocl_image_util.c" "pocl_image_util.h"
                    "pocl_img_buf_cpy.c"
+                   "pocl_fill_memobj.c"
+                   "pocl_ndrange_kernel.c"
                    "pocl_icd.h" "pocl_llvm.h"
                    "pocl_tracing.h" "pocl_tracing.c"
                    "pocl_runtime_config.c" "pocl_runtime_config.h"
                    "pocl_mem_management.c"  "pocl_mem_management.h"
-                   "pocl_hash.c"
+                   "pocl_hash.c" "pocl_file_util.c"
                    "pocl_debug.h" "pocl_debug.c" "pocl_timing.c"
                    "clSVMAlloc.c" "clSVMFree.c" "clEnqueueSVMFree.c"
                    "clEnqueueSVMMap.c" "clEnqueueSVMUnmap.c"
                    "clEnqueueSVMMemcpy.c" "clEnqueueSVMMemFill.c"
                    "clSetKernelArgSVMPointer.c" "clSetKernelExecInfo.c"
-                   "pocl_binary.c" "pocl_opengl.c" "pocl_cq_profiling.c")
+                   "clSetDefaultDeviceCommandQueue.c"
+                   "pocl_binary.c" "pocl_opengl.c" "pocl_cq_profiling.c"
+                   "clCommandBarrierWithWaitListKHR.c"
+                   "clCommandCopyBufferKHR.c"
+                   "clCommandCopyBufferRectKHR.c"
+                   "clCommandCopyBufferToImageKHR.c"
+                   "clCommandCopyImageKHR.c"
+                   "clCommandCopyImageToBufferKHR.c"
+                   "clCommandFillBufferKHR.c"
+                   "clCommandFillImageKHR.c"
+                   "clCommandNDRangeKernelKHR.c"
+                   "clCreateCommandBufferKHR.c"
+                   "clEnqueueCommandBufferKHR.c"
+                   "clFinalizeCommandBufferKHR.c"
+                   "clGetCommandBufferInfoKHR.c"
+                   "clReleaseCommandBufferKHR.c"
+                   "clRetainCommandBufferKHR.c"
+                   "clMemAllocINTEL.c"
+                   "clMemFreeINTEL.c"
+                   "clGetMemAllocInfoINTEL.c"
+                   "clSetKernelArgMemPointerINTEL.c"
+                   "clEnqueueMemFillINTEL.c"
+                   "clEnqueueMemcpyINTEL.c"
+                   "clEnqueueMemAdviseINTEL.c"
+                   "clEnqueueMigrateMemINTEL.c"
+)
 
 if(ANDROID)
   list(APPEND POCL_LIB_SOURCES "pocl_mkstemp.c")
 endif()
 
 set(LIBPOCL_OBJS "$<TARGET_OBJECTS:libpocl_unlinked_objs>"
-                 "$<TARGET_OBJECTS:pocl_cache>"
-                 ${POCL_DEVICES_OBJS})
+                 "$<TARGET_OBJECTS:pocl_cache>")
+
+if(ENABLE_LOADABLE_DRIVERS)
+  list(APPEND LIBPOCL_OBJS "$<TARGET_OBJECTS:pocl-devices>")
+  if(ENABLE_HOST_CPU_DEVICES OR ENABLE_HSA)
+    list(APPEND LIBPOCL_OBJS "$<TARGET_OBJECTS:pocl-devices-topology>")
+  endif()
+else()
+  # link drivers into libpocl
+  list(APPEND LIBPOCL_OBJS ${POCL_DEVICES_OBJS})
+endif()
 
 add_library("pocl_cache" OBJECT "pocl_cache.c")
+harden("pocl_cache")
 
-if (OCS_AVAILABLE)
+if(OCL_ICD_INCLUDE_DIRS)
+  target_include_directories("pocl_cache" SYSTEM PUBLIC ${OCL_ICD_INCLUDE_DIRS})
+endif()
+
+
+if (ENABLE_LLVM)
   include_directories(${LLVM_INCLUDE_DIRS})
-  set(LLVM_API_SOURCES "pocl_llvm_build.cc" "pocl_llvm_metadata.cc" "pocl_llvm_utils.cc" "pocl_llvm_wg.cc")
+  set(LLVM_API_SOURCES "pocl_llvm_build.cc" "pocl_llvm_metadata.cc" "pocl_llvm_utils.cc" "pocl_llvm_wg.cc" "pocl_llvm_build_vortex.cc")
   set_source_files_properties(${LLVM_API_SOURCES} PROPERTIES COMPILE_FLAGS "${LLVM_CXXFLAGS} -I\"${CMAKE_CURRENT_SOURCE_DIR}/../llvmopencl\"")
 
   add_library("lib_cl_llvm" OBJECT ${LLVM_API_SOURCES})
+  harden("lib_cl_llvm")
 
+  if(OCL_ICD_INCLUDE_DIRS)
+    target_include_directories("lib_cl_llvm" SYSTEM PUBLIC ${OCL_ICD_INCLUDE_DIRS})
+  endif()
 
   list(APPEND LIBPOCL_OBJS "$<TARGET_OBJECTS:llvmpasses>")
   list(APPEND LIBPOCL_OBJS "$<TARGET_OBJECTS:lib_cl_llvm>")
 
-
   # pocl_cache.c depends on a SHA1 hash of all built kernel-<target>.bc
   add_dependencies("pocl_cache" "kernellib_hash")
-else()
-  list(APPEND POCL_LIB_SOURCES "pocl_file_util.c")
 endif()
 
-add_compile_options(${OCL_ICD_CFLAGS} ${LTTNG_UST_CFLAGS})
+if(ENABLE_ICD)
+  if(OCL_ICD_CFLAGS)
+    add_compile_options(${OCL_ICD_CFLAGS})
+  endif()
+endif()
 
 if(HAVE_LTTNG_UST)
+  add_compile_options(${LTTNG_UST_CFLAGS})
   list(APPEND POCL_LIB_SOURCES "pocl_lttng.c" "pocl_lttng.h")
 endif()
-
 
 if(MSVC)
   set_source_files_properties( ${POCL_LIB_SOURCES} PROPERTIES LANGUAGE CXX )
@@ -186,46 +246,71 @@ endif(MSVC)
 
 # this is so that we don't compile twice when building both libpocl and libOpenCL
 add_library("libpocl_unlinked_objs" OBJECT ${POCL_LIB_SOURCES})
+harden("libpocl_unlinked_objs")
 
 #################################################################
 
-if (MSVC)
-  set(POCL_PUBLIC_LINK_LIST ${Pthreads_LIBRARIES} ${POCL_DEVICES_LINK_LIST} ${LTTNG_UST_LDFLAGS})
-else()
-  set(POCL_PUBLIC_LINK_LIST "${DL_LIB}" ${CMAKE_THREAD_LIBS_INIT} ${POCL_DEVICES_LINK_LIST} ${LTTNG_UST_LDFLAGS} ${LIBMATH})
-endif()
+set(POCL_PRIVATE_LINK_LIST)
 
-set(POCL_PRIVATE_LINK_LIST ${CLANG_LIBFILES} ${POCL_LLVM_LIBS} ${LLVM_SYSLIBS})
-
+# this must come 1st
 if(SANITIZER_OPTIONS)
-  list(INSERT POCL_PUBLIC_LINK_LIST 0 ${SANITIZER_LIBS})
+  set(POCL_PRIVATE_LINK_LIST ${SANITIZER_LIBS})
 endif()
 
+if(POCL_DEVICES_LINK_LIST)
+  list(APPEND POCL_PRIVATE_LINK_LIST ${POCL_DEVICES_LINK_LIST})
+endif()
+
+if(ENABLE_LLVM)
+   list(APPEND POCL_PRIVATE_LINK_LIST ${CLANG_LIBFILES} ${POCL_LLVM_LIBS} ${LLVM_SYSLIBS})
+endif()
+
+if(HAVE_LTTNG_UST)
+  list(APPEND POCL_PRIVATE_LINK_LIST ${LTTNG_UST_LDFLAGS})
+endif()
+
+# -lrt is required for glibc < 2.17
+if(HAVE_CLOCK_GETTIME AND CMAKE_SYSTEM_NAME MATCHES "Linux")
+  list(APPEND POCL_PRIVATE_LINK_LIST "rt")
+endif()
+
+if(HAVE_64BIT_ATOMICS_WITH_LIB)
+  list(APPEND POCL_PRIVATE_LINK_LIST "atomic")
+endif()
+
+list(APPEND POCL_PRIVATE_LINK_LIST ${LIBMATH} ${CMAKE_DL_LIBS} ${PTHREAD_LIBRARY})
 
 # see lib/CMakeLists.txt
 set(POCL_TRANSITIVE_LIBS ${POCL_PRIVATE_LINK_LIST} PARENT_SCOPE)
 
-# -lrt is required for glibc < 2.17
-if(HAVE_CLOCK_GETTIME AND CMAKE_SYSTEM_NAME MATCHES "Linux")
-  list(APPEND POCL_PUBLIC_LINK_LIST "rt")
-endif()
-
 #################################################################
 
+# most Android systems have their own libOpenCL, often directly linked
+# to the graphics drivers, which in turn are linked into every GUI program
+# ...and the libOpenCL is not an ICD, therefore building dynamically
+# on Android is pointless.
 if(ANDROID)
   add_library("${POCL_LIBRARY_NAME}" STATIC ${LIBPOCL_OBJS})
 else()
   add_library("${POCL_LIBRARY_NAME}" ${LIBPOCL_OBJS})
 endif()
+harden("${POCL_LIBRARY_NAME}")
 
 set_target_properties("${POCL_LIBRARY_NAME}" PROPERTIES SOVERSION "${LIB_API_VERSION}"
   VERSION "${LIB_BUILD_VERSION}" 
   LINK_FLAGS "-static-libgcc -static-libstdc++ ${LLVM_LDFLAGS}  ${ICD_LD_FLAGS}")
 
-target_link_libraries("${POCL_LIBRARY_NAME}" PUBLIC ${POCL_PUBLIC_LINK_LIST} PRIVATE ${POCL_PRIVATE_LINK_LIST} )
+target_link_libraries("${POCL_LIBRARY_NAME}" PRIVATE ${POCL_PRIVATE_LINK_LIST})
 install(TARGETS "${POCL_LIBRARY_NAME}"
         ARCHIVE DESTINATION ${POCL_INSTALL_PUBLIC_LIBDIR}/static
         COMPONENT "dev"
         LIBRARY DESTINATION ${POCL_INSTALL_PUBLIC_LIBDIR}
         COMPONENT "lib"
 )
+
+if(ENABLE_IPO)
+  if (ENABLE_LLVM)
+    set_property(TARGET "lib_cl_llvm" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  endif()
+  set_property(TARGET "${POCL_LIBRARY_NAME}" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()

@@ -55,7 +55,7 @@ static pocl_mem_manager *mm = NULL;
 void pocl_init_mem_manager (void)
 {
   static unsigned int init_done = 0;
-  static pocl_lock_t pocl_init_lock = POCL_LOCK_INITIALIZER;
+  static pocl_lock_t pocl_init_lock;
 
   if(!init_done)
     {
@@ -117,6 +117,13 @@ _cl_command_node* pocl_mem_manager_new_command ()
 
 void pocl_mem_manager_free_command (_cl_command_node *cmd_ptr)
 {
+  if (cmd && cmd->buffered)
+    {
+      /* TODO: recycle these somehow? */
+      POCL_MEM_FREE (cmd->sync.syncpoint.sync_point_wait_list);
+      POCL_MEM_FREE (cmd->memobj_list);
+      POCL_MEM_FREE (cmd->readonly_flag_list);
+    }
   POCL_LOCK (mm->cmd_lock);
   LL_PREPEND (mm->cmd_list, cmd_ptr);
   POCL_UNLOCK(mm->cmd_lock);

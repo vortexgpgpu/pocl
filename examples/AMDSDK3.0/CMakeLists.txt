@@ -23,13 +23,13 @@
 #
 #=============================================================================
 
-
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
 
   set(TS_NAME AMDSDK3.0)
   set(TS_BASEDIR "${TESTSUITE_BASEDIR}/${TS_NAME}")
   set(TS_SRCDIR "${TESTSUITE_SOURCE_BASEDIR}/${TS_NAME}")
   set(AMD_APP_SDK_TGZ "${TS_SRCDIR}/AMD-APP-SDK-v3.0.130.135-GA-linux64.sh")
+  set(TS_ROOT "${TS_BASEDIR}/src/${TS_NAME}")
 
   if(EXISTS "${AMD_APP_SDK_TGZ}")
 
@@ -37,16 +37,31 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
     list(APPEND ACTUALLY_ENABLED_TESTSUITES "${TS_NAME}")
     set(ACTUALLY_ENABLED_TESTSUITES ${ACTUALLY_ENABLED_TESTSUITES} PARENT_SCOPE)
 
+    set(UPSTREAM_CMAKE_ARGS "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
+    if(CMAKE_C_COMPILER_LAUNCHER)
+      list(APPEND UPSTREAM_CMAKE_ARGS "-DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}")
+    endif()
+    if(CMAKE_CXX_COMPILER_LAUNCHER)
+      list(APPEND UPSTREAM_CMAKE_ARGS "-DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}")
+    endif()
+
     ExternalProject_Add(
       ${TS_NAME}
       PREFIX "${TS_BASEDIR}"
-      DOWNLOAD_COMMAND "/bin/true"
+
+      SOURCE_DIR "${TS_ROOT}"
+      SOURCE_SUBDIR "AMD-APP-SDK-3.0/samples"
+
+      DOWNLOAD_COMMAND /bin/true
+      UPDATE_COMMAND /bin/true
+
       PATCH_COMMAND /bin/sh "${AMD_APP_SDK_TGZ}" --noexec --keep --target AMD-APP-SDK-3.0 &&
-             patch -p1 -i ${CMAKE_CURRENT_SOURCE_DIR}/amdsdk3_0.patch
-      CONFIGURE_COMMAND "/bin/true"
-      BUILD_IN_SOURCE 1
-      BUILD_COMMAND "/bin/true"
-      INSTALL_COMMAND "/bin/true"
+             patch -p1 -i ${CMAKE_CURRENT_SOURCE_DIR}/amdsdk3_0.patch &&
+             /bin/sh -c "rm ${TS_ROOT}/AMD-APP-SDK-3.0/lib/x86_64/libOpenCL*"
+
+      CMAKE_ARGS ${UPSTREAM_CMAKE_ARGS}
+        -DBUILD_OPENCL=ON -DBUILD_OPENCV=OFF -DBUILD_BOLT=OFF -DBUILD_AMP=OFF
+        INSTALL_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/install.sh "${TS_ROOT}"
     )
 
     set_target_properties(${TS_NAME} PROPERTIES EXCLUDE_FROM_ALL TRUE)

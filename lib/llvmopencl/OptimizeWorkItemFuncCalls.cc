@@ -22,9 +22,11 @@
 // THE SOFTWARE.
 
 #include "config.h"
+#include "pocl.h"
 
-#include <set>
 #include <iostream>
+#include <map>
+#include <set>
 
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
@@ -67,16 +69,17 @@ OptimizeWorkItemFuncCalls::runOnFunction(Function &F) {
   // reduce the inlining bloat.
 
   typedef std::set<std::string> WIFuncNameVec;
-  const WIFuncNameVec WIFuncNames = {
-    "_Z13get_global_idj",
-    "_Z17get_global_offsetj",
-    "_Z15get_global_sizej",
-    "_Z12get_group_idj",
-    "_Z12get_local_idj",
-    "_Z14get_local_sizej",
-    "_Z14get_num_groupsj",
-    "_Z12get_work_dimv"
-  };
+  const WIFuncNameVec WIFuncNames = {"_Z13get_global_idj",
+                                     "_Z17get_global_offsetj",
+                                     "_Z15get_global_sizej",
+                                     "_Z12get_group_idj",
+                                     "_Z12get_local_idj",
+                                     "_Z14get_local_sizej",
+                                     "_Z23get_enqueued_local_sizej",
+                                     "_Z14get_num_groupsj",
+                                     "_Z20get_global_linear_idv",
+                                     "_Z19get_local_linear_idv",
+                                     "_Z12get_work_dimv"};
 
   Function::iterator I = F.begin();
   Instruction *FirstInsnPt = &*(I++)->getFirstInsertionPt();
@@ -104,7 +107,9 @@ OptimizeWorkItemFuncCalls::runOnFunction(Function &F) {
 
       bool Unsupported = false;
       // Check that the argument list is something we can handle.
-      for (unsigned I = 0; I < Call->getNumArgOperands(); ++I) {
+
+      const unsigned CallNumArg = Call->arg_size();
+      for (unsigned I = 0; I < CallNumArg; ++I) {
         llvm::ConstantInt *CallOperand =
           dyn_cast<llvm::ConstantInt>(Call->getArgOperand(I));
         if (CallOperand == nullptr)
@@ -130,11 +135,12 @@ OptimizeWorkItemFuncCalls::runOnFunction(Function &F) {
         llvm::CallInst *MovedCall = dyn_cast<llvm::CallInst>(M);
 
         // WI functions do not have variable argument lists.
-        assert (MovedCall->getNumArgOperands() ==
-                CallInst->getNumArgOperands());
 
+        const unsigned MovedCallNumArg = MovedCall->arg_size();
+        assert(MovedCallNumArg == CallInst->arg_size());
         bool IsApplicable = true;
-        for (unsigned I = 0; I < MovedCall->getNumArgOperands(); ++I) {
+
+        for (unsigned I = 0; I < MovedCallNumArg; ++I) {
           llvm::ConstantInt *CallOperand =
             dyn_cast<llvm::ConstantInt>(CallInst->getArgOperand(I));
           llvm::ConstantInt *PrevCallOperand =

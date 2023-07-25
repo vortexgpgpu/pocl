@@ -26,11 +26,11 @@
 CL_API_ENTRY cl_int CL_API_CALL POname (clRetainSampler) (cl_sampler sampler)
     CL_API_SUFFIX__VERSION_1_0
 {
-  POCL_RETURN_ERROR_COND ((sampler == NULL), CL_INVALID_SAMPLER);
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (sampler)), CL_INVALID_SAMPLER);
 
   POCL_RETAIN_OBJECT (sampler);
-  POCL_MSG_PRINT_REFCOUNTS ("RETAIN Sampler %p  : %d\n", sampler,
-                            sampler->pocl_refcount);
+  POCL_MSG_PRINT_REFCOUNTS ("Retain Sampler %" PRId64 " (%p), Refcount: %d\n",
+                            sampler->id, sampler, sampler->pocl_refcount);
 
   return CL_SUCCESS;
 }

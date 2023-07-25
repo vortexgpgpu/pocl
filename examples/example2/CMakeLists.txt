@@ -32,10 +32,16 @@ add_executable("example2" example2.c example2.cl)
 
 target_link_libraries("example2" ${POCLU_LINK_OPTIONS})
 
-add_test("examples/example2" "example2")
+add_test(NAME "examples/example2" COMMAND "example2")
 
 if (ENABLE_SPIR)
-  add_test("examples/example2_spir" "example2" "s")
+  add_test(NAME "examples/example2_spir"
+           COMMAND ${CMAKE_COMMAND}
+           "-DCMD1=${CLANG}####${SPIR_COMMON_FLAGS}####-target####spir-unknown-unknown####-o####${CMAKE_BINARY_DIR}/example2.spir32####-c####${CMAKE_CURRENT_SOURCE_DIR}/example2.cl"
+           "-DCMD2=${CLANG}####${SPIR_COMMON_FLAGS}####-target####spir64-unknown-unknown####-o####${CMAKE_BINARY_DIR}/example2.spir64####-c####${CMAKE_CURRENT_SOURCE_DIR}/example2.cl"
+           "-DCMD3=${CMAKE_BINARY_DIR}/examples/example2/example2####s"
+           "-DCMD4=${CMAKE_COMMAND}####-E####remove####-f####${CMAKE_BINARY_DIR}/example2.spir32####${CMAKE_BINARY_DIR}/example2.spir64"
+            -P ${CMAKE_SOURCE_DIR}/cmake/multi_exec_test.cmake)
   set(SPIREX "examples/example2_spir")
 endif()
 
@@ -51,11 +57,27 @@ set_tests_properties( "examples/example2" ${SPIREX}
     COST 3.0
     ${PROPS}
     PROCESSORS 1
-    ENVIRONMENT "POCL_TTASIM0_PARAMETERS=${CMAKE_SOURCE_DIR}/tools/data/test_machine_LE.adf"
-    LABELS "internal;cuda"
+    # devices which support SPIR
+    LABELS "internal;cuda;level0"
     DEPENDS "pocl_version_check")
 
 # devices which don't support SPIR
 set_property(TEST "examples/example2"
-  APPEND PROPERTY LABELS "tce;hsa;hsa-native")
+  APPEND PROPERTY LABELS "tce;hsa;hsa-native;vulkan")
 
+add_test(NAME "examples/example2_poclbin"
+         COMMAND ${CMAKE_COMMAND}
+            "-DCMD1=${CMAKE_BINARY_DIR}/bin/poclcc####-o####${CMAKE_BINARY_DIR}/example2.bin####${CMAKE_CURRENT_SOURCE_DIR}/example2.cl"
+            "-DCMD2=${CMAKE_COMMAND}####-E####rm####-rf####${CMAKE_BINARY_DIR}/Testing/Cache"
+            "-DCMD3=${CMAKE_BINARY_DIR}/examples/example2/example2####b####${CMAKE_BINARY_DIR}/example2.bin"
+            "-DCMD4=${CMAKE_COMMAND}####-E####remove####-f####${CMAKE_BINARY_DIR}/example2.bin"
+            -P ${CMAKE_SOURCE_DIR}/cmake/multi_exec_test.cmake)
+
+set_tests_properties( "examples/example2_poclbin"
+  PROPERTIES
+    COST 3.0
+    ${PROPS}
+    PROCESSORS 1
+    ENVIRONMENT "POCL_KERNEL_CACHE=0"
+    LABELS "poclbin;internal;level0"
+    DEPENDS "pocl_version_check")

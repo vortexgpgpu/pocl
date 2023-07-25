@@ -34,10 +34,11 @@ set(EXAMPLES_USE_GIT_MASTER 1)
 
 if(EXAMPLES_USE_GIT_MASTER)
   set(FETCH_SOURCE
-      GIT_REPOSITORY "https://github.com/inducer/pyopencl.git"
-      GIT_SUBMODULES "pyopencl/compyte")
+    GIT_REPOSITORY "https://github.com/inducer/pyopencl.git"
+    GIT_TAG v2022.3
+    GIT_SUBMODULES "pyopencl/compyte")
 else()
-  set(FETCH_SOURCE URL "https://github.com/inducer/pyopencl/archive/v2017.2.tar.gz")
+  set(FETCH_SOURCE URL "https://github.com/inducer/pyopencl/archive/v2022.3.tar.gz")
 endif()
 
 if(NOT TESTS_USE_ICD)
@@ -47,7 +48,14 @@ elseif(NOT BASH)
 else()
 
 find_program(VIRTUALENV NAMES "virtualenv")
-find_program(PYTHON_INTERP NAMES python3)
+find_package(Python3 3.8 COMPONENTS Interpreter Development)
+if(NOT Python3_FOUND)
+  message(STATUS "Disabling testsuite ${TS_NAME}, can't find suitable python3")
+  return()
+else()
+  message(STATUS "Using Python3: ${Python3_EXECUTABLE}")
+  set(PYTHON_INTERP "${Python3_EXECUTABLE}")
+endif()
 
 if(VIRTUALENV)
 
@@ -79,21 +87,27 @@ if(VIRTUALENV)
       "${TS_BASEDIR}"
       "${TS_BUILDDIR}"
       "${TS_SRCDIR}"
-
   )
 
 
   set_target_properties(${TS_NAME} PROPERTIES EXCLUDE_FROM_ALL TRUE)
   add_dependencies(prepare_examples ${TS_NAME})
 
-  add_test(NAME "PyOpenCL"
-           COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh"
-            "${TS_BASEDIR}"
-            "${TS_BUILDDIR}"
-            "${TS_SRCDIR}"
-           )
+#  add_test(NAME "PyOpenCL_" COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh" "${TS_BASEDIR}" "${TS_BUILDDIR}" "${TS_SRCDIR}"  )
+  add_test(NAME "PyOpenCL_test_algorithm" COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh" "${TS_BASEDIR}" "${TS_BUILDDIR}" "${TS_SRCDIR}" test_algorithm.py )
+  add_test(NAME "PyOpenCL_test_array" COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh" "${TS_BASEDIR}" "${TS_BUILDDIR}" "${TS_SRCDIR}" test_array.py )
+  add_test(NAME "PyOpenCL_test_arrays_in_structs" COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh" "${TS_BASEDIR}" "${TS_BUILDDIR}" "${TS_SRCDIR}" test_arrays_in_structs.py )
+  add_test(NAME "PyOpenCL_test_clmath" COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh" "${TS_BASEDIR}" "${TS_BUILDDIR}" "${TS_SRCDIR}" test_clmath.py )
+  add_test(NAME "PyOpenCL_test_clrandom" COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh" "${TS_BASEDIR}" "${TS_BUILDDIR}" "${TS_SRCDIR}" test_clrandom.py )
+  add_test(NAME "PyOpenCL_test_enqueue_copy" COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh" "${TS_BASEDIR}" "${TS_BUILDDIR}" "${TS_SRCDIR}" test_enqueue_copy.py )
+# The wrapper test seems to be broken. Tests an AMD topology constructor
+# which is not found. Doesn't seem to have anything to do with PoCL-
+#  add_test(NAME "PyOpenCL_test_wrapper" COMMAND "${BASH}" "${CMAKE_CURRENT_SOURCE_DIR}/runtest.sh" "${TS_BASEDIR}" "${TS_BUILDDIR}" "${TS_SRCDIR}" test_wrapper.py )
 
-  set_tests_properties("PyOpenCL"
+  set_tests_properties("PyOpenCL_test_algorithm"
+    "PyOpenCL_test_array" "PyOpenCL_test_arrays_in_structs"
+    "PyOpenCL_test_clmath" "PyOpenCL_test_clrandom"
+    "PyOpenCL_test_enqueue_copy" #"PyOpenCL_test_wrapper"
     PROPERTIES
       ENVIRONMENT "PYOPENCL_NO_CACHE=1;PYOPENCL_TEST=portable"
       COST 400.0

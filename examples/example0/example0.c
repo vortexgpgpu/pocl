@@ -21,12 +21,12 @@
    IN THE SOFTWARE.
 */
 
-#include <CL/opencl.h>
 #include <assert.h>
-#include <poclu.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+
+#include "poclu.h"
 
 #define N 128
 
@@ -64,7 +64,7 @@ main (int argc, char **argv)
   spir = (argc > 1 && argv[1][0] == 's');
   spirv = (argc > 1 && argv[1][0] == 'v');
   poclbin = (argc > 1 && argv[1][0] == 'b');
-  const char *explicit_binary_path = (poclbin && (argc > 2)) ? argv[2] : NULL;
+  const char *explicit_binary_path = (argc > 2) ? argv[2] : NULL;
 
   const char *basename = "example0";
   err = poclu_load_program (context, device, basename, spir, spirv, poclbin,
@@ -105,13 +105,26 @@ main (int argc, char **argv)
   if (err)
     printf ("FAIL\n");
   else
-    printf ("PASS\n");
+    {
+      printf ("PASS\n");
+
+      int generate_output = (argc > 1 && argv[1][0] == 'o');
+      if (generate_output)
+        {
+          FILE *f = fopen ("golden_output.txt", "w");
+          for (i = 0; i < N; ++i)
+            {
+              fprintf (f, "%d\n", dst[i]);
+            }
+          fclose (f);
+        }
+    }
 
 FINISH:
   CHECK_CL_ERROR (clReleaseProgram (program));
   CHECK_CL_ERROR (clReleaseCommandQueue (queue));
-  CHECK_CL_ERROR (clUnloadPlatformCompiler (platform));
   CHECK_CL_ERROR (clReleaseContext (context));
+  CHECK_CL_ERROR (clUnloadPlatformCompiler (platform));
 
   return err;
 }

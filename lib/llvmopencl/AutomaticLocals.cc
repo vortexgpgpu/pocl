@@ -24,6 +24,7 @@
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
+#include "pocl_cl.h"
 #include "pocl_spir.h"
 
 #include "llvm/Pass.h"
@@ -40,6 +41,7 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 
+#include "AutomaticLocals.h"
 #include "LLVMUtils.h"
 #include "Workgroup.h"
 
@@ -54,7 +56,10 @@ namespace {
 
   public:
     static char ID;
-    AutomaticLocals() : ModulePass(ID) {}
+    pocl_autolocals_to_args_strategy autolocals_to_args;
+    AutomaticLocals(pocl_autolocals_to_args_strategy autolocals_to_args =
+                        POCL_AUTOLOCALS_TO_ARGS_ALWAYS)
+        : ModulePass(ID), autolocals_to_args(autolocals_to_args) {}
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
     virtual bool runOnModule(Module &M);
@@ -62,6 +67,11 @@ namespace {
   private:
     Function *processAutomaticLocals(Function *F);
   };
+}
+
+llvm::ModulePass *pocl::createAutomaticLocalsPass(
+    pocl_autolocals_to_args_strategy autolocals_to_args) {
+  return new AutomaticLocals(autolocals_to_args);
 }
 
 char AutomaticLocals::ID = 0;
@@ -75,6 +85,9 @@ AutomaticLocals::getAnalysisUsage(AnalysisUsage &) const {
 bool
 AutomaticLocals::runOnModule(Module &M)
 {
+  if (autolocals_to_args == POCL_AUTOLOCALS_TO_ARGS_NEVER) {
+    return false;
+  }
   bool changed = false;
 
   // store the new and old kernel pairs in order to regenerate
@@ -117,24 +130,6 @@ AutomaticLocals::runOnModule(Module &M)
   return changed;
 }
 
-// Recursively descend a Value's users and convert any constant expressions into
-// regular instructions.
-static void breakConstantExpressions(llvm::Value *Val, llvm::Function *Func) {
-  std::vector<llvm::Value *> Users(Val->user_begin(), Val->user_end());
-  for (auto *U : Users) {
-    if (auto *CE = llvm::dyn_cast<llvm::ConstantExpr>(U)) {
-      // First, make sure no users of this constant expression are themselves
-      // constant expressions.
-      breakConstantExpressions(U, Func);
-
-      // Convert this constant expression to an instruction.
-      llvm::Instruction *I = CE->getAsInstruction();
-      I->insertBefore(&*Func->begin()->begin());
-      CE->replaceAllUsesWith(I);
-      CE->destroyConstant();
-    }
-  }
-}
 
 Function *
 AutomaticLocals::processAutomaticLocals(Function *F) {
@@ -150,9 +145,8 @@ AutomaticLocals::processAutomaticLocals(Function *F) {
 
   for (Module::global_iterator i = M->global_begin(),
          e = M->global_end(); i != e; ++i) {
-    std::string FuncName = "";
-    FuncName = F->getName().str();
-    if (isAutomaticLocal(FuncName, *i)) {
+
+    if (isAutomaticLocal(F, *i)) {
       Locals.push_back(&*i);
 
       // Add the parameters to the end of the function parameter list.
@@ -167,6 +161,21 @@ AutomaticLocals::processAutomaticLocals(Function *F) {
   if (Locals.empty()) {
     // This kernel fingerprint has not changed.
     return F;
+  }
+
+  if (autolocals_to_args ==
+      POCL_AUTOLOCALS_TO_ARGS_ONLY_IF_DYNAMIC_LOCALS_PRESENT) {
+    bool NeedsArgOffsets = false;
+    for (auto &Arg : F->args()) {
+      // Check for local memory pointer.
+      llvm::Type *ArgType = Arg.getType();
+      if (ArgType->isPointerTy() && ArgType->getPointerAddressSpace() == 3) {
+        NeedsArgOffsets = true;
+        break;
+      }
+    }
+    if (!NeedsArgOffsets)
+      return F;
   }
 
   // Create the new function.
@@ -195,7 +204,7 @@ AutomaticLocals::processAutomaticLocals(Function *F) {
   // otherwise there will be an assertion. The changes are likely
   // additional debug info nodes added when cloning the function into
   // the other.  For some reason it doesn't want to reuse the old ones.
-  CloneFunctionInto(NewKernel, F, VV, true, RI);
+  CloneFunctionIntoAbs(NewKernel, F, VV, RI);
 
   for (size_t i = 0; i < Locals.size(); ++i) {
     setFuncArgAddressSpaceMD(NewKernel, F->arg_size() + i,

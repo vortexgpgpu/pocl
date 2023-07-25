@@ -1,7 +1,30 @@
+/* Tests clCreateProgramWithBinary().
+
+   Copyright (c) 2010-2021 pocl developers
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   THE SOFTWARE.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <CL/cl.h>
+
 #include "poclu.h"
 
 #define MAX_PLATFORMS 32
@@ -140,9 +163,10 @@ main(void){
   
   binary_sizes = (size_t*)malloc(num_binaries * sizeof(size_t));
   binaries = (const unsigned char**)calloc(num_binaries, sizeof(unsigned char*));
-  
-  err = clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, 1*sizeof(size_t), 
-			 binary_sizes , &num_bytes_copied);
+
+  err = clGetProgramInfo (program, CL_PROGRAM_BINARY_SIZES,
+                          num_binaries * sizeof (size_t), binary_sizes,
+                          &num_bytes_copied);
   CHECK_OPENCL_ERROR_IN("clGetProgramInfo");
   
   binary_sizes[1] = binary_sizes[0];
@@ -151,9 +175,10 @@ main(void){
 					      sizeof(const unsigned char));
   binaries[1] = (const unsigned char*) malloc(binary_sizes[1] *
 					      sizeof(const unsigned char));
-  
-  err = clGetProgramInfo(program, CL_PROGRAM_BINARIES, 1 * sizeof(char*), 
-			 binaries, &num_bytes_copied);
+
+  err = clGetProgramInfo (program, CL_PROGRAM_BINARIES,
+                          num_binaries * sizeof (char *), binaries,
+                          &num_bytes_copied);
   CHECK_OPENCL_ERROR_IN("clGetProgramInfo");
   
   memcpy((void*)binaries[1], (void*)binaries[0], binary_sizes[0]);      
@@ -186,5 +211,10 @@ main(void){
 
   CHECK_CL_ERROR (clUnloadCompiler ());
 
-  return err == CL_SUCCESS ? EXIT_SUCCESS : EXIT_FAILURE;
+  if (err == CL_SUCCESS)
+    {
+      printf ("OK\n");
+      return EXIT_SUCCESS;
+    }
+  return EXIT_FAILURE;
 }

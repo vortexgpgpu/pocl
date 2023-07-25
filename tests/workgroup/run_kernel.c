@@ -95,6 +95,8 @@ main (int argc, char **argv)
   CHECK_CL_ERROR2 (err);
 
   err = clBuildProgram (program, 0, NULL, NULL, NULL, NULL);
+  if (err != CL_SUCCESS)
+    poclu_show_program_build_log (program);
   CHECK_CL_ERROR2 (err);
 
   kernel = clCreateKernel (program, "test_kernel", &err);
@@ -150,5 +152,10 @@ ERROR:
   if (context)
     clReleaseContext (context);
 
-  return (err == CL_SUCCESS) ? 0 : 1;
+  if (err == CL_SUCCESS)
+    {
+      printf ("OK\n");
+      return EXIT_SUCCESS;
+    }
+  return EXIT_FAILURE;
 }

@@ -33,7 +33,7 @@ POname(clGetSupportedImageFormats) (cl_context           context,
                                     cl_uint *            num_image_formats) 
 CL_API_SUFFIX__VERSION_1_0
 {
-  POCL_RETURN_ERROR_COND((context == NULL), CL_INVALID_CONTEXT);
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (context)), CL_INVALID_CONTEXT);
 
   POCL_RETURN_ERROR_COND((context->num_devices == 0), CL_INVALID_CONTEXT);
   
@@ -44,12 +44,22 @@ CL_API_SUFFIX__VERSION_1_0
   POCL_RETURN_ERROR_ON ((idx < 0), CL_INVALID_VALUE,
                         "invalid image type\n");
 
+#ifdef ENABLE_CONFORMANCE
+  if (flags & CL_MEM_KERNEL_READ_AND_WRITE)
+    {
+      if (num_image_formats != NULL)
+        *num_image_formats = 0;
+      return CL_SUCCESS;
+    }
+#endif
+
   if (image_formats != NULL)
     {
       if (num_entries > context->num_image_formats[idx])
           num_entries = context->num_image_formats[idx];
-      memcpy (image_formats, context->image_formats[idx],
-              sizeof (cl_image_format) * num_entries);
+      if (num_entries)
+        memcpy (image_formats, context->image_formats[idx],
+                sizeof (cl_image_format) * num_entries);
     }
 
   if (num_image_formats != NULL)

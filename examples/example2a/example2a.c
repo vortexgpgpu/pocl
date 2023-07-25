@@ -25,10 +25,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <CL/opencl.h>
-#include "poclu.h"
 
-#ifdef _MSC_VER
+#include "pocl_opencl.h"
+
+#ifdef _WIN32
 #  include "vccompat.hpp"
 #endif
 
@@ -50,14 +50,15 @@ main (int argc, char **argv)
   cl_command_queue queue = NULL;
   cl_program program = NULL;
   cl_kernel kernel = NULL;
+  cl_platform_id platform = NULL;
 
-  err = poclu_get_any_device (&context, &device, &queue);
+  err = poclu_get_any_device2 (&context, &device, &queue, &platform);
   CHECK_OPENCL_ERROR_IN ("clCreateContext");
 
   spir = (argc > 1 && argv[1][0] == 's');
   spirv = (argc > 1 && argv[1][0] == 'v');
   poclbin = (argc > 1 && argv[1][0] == 'b');
-  const char *explicit_binary_path = (poclbin && (argc > 2)) ? argv[2] : NULL;
+  const char *explicit_binary_path = (argc > 2) ? argv[2] : NULL;
 
   const char *basename = "example2a";
   err = poclu_load_program (context, device, basename, spir, spirv, poclbin,
@@ -70,12 +71,13 @@ main (int argc, char **argv)
   output = (cl_float *) malloc (WIDTH * (HEIGHT + PADDING) * sizeof (cl_float));
 
   srand48(0);
-  for (i = 0; i < HEIGHT; ++i)
+  for (i = 0; i < WIDTH; ++i)
     {
-      for (j = 0; j < WIDTH; ++j)
-      input[i * WIDTH + j] = (cl_float)drand48();
+      for (j = 0; j < HEIGHT; ++j)
+      input[i * HEIGHT + j] = (cl_float)drand48();
+      for (j = 0; j < (HEIGHT + PADDING); ++j)
+      output[i * (HEIGHT + PADDING) + j] = 0.0f;
     }
-  
 
   memobjs[0] = clCreateBuffer(context,
 			      CL_MEM_READ_WRITE,
@@ -133,7 +135,7 @@ ERROR:
   CHECK_CL_ERROR (clReleaseProgram (program));
   CHECK_CL_ERROR (clReleaseCommandQueue (queue));
   CHECK_CL_ERROR (clReleaseContext (context));
-  CHECK_CL_ERROR (clUnloadCompiler ());
+  CHECK_CL_ERROR (clUnloadPlatformCompiler (platform));
   free (input);
   free (output);
 

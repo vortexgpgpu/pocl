@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2014 pocl developers
+#   Copyright (c) 2014-2021 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -26,5 +26,8 @@
 if(MSVC)
   set_source_files_properties( basic.h basic.c PROPERTIES LANGUAGE CXX )
 endif(MSVC)
-add_library("pocl-devices-basic" OBJECT basic.h basic.c)
-set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}" "$<TARGET_OBJECTS:pocl-devices-basic>" PARENT_SCOPE)
+add_pocl_device_library("pocl-devices-basic" basic.h basic.c)
+
+if(ENABLE_LOADABLE_DRIVERS)
+  target_link_libraries(pocl-devices-basic PRIVATE pocl-devices-topology)
+endif()

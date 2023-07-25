@@ -36,6 +36,11 @@
 
 #ifdef __OPENCL_VERSION__
 
+#if (__clang_major__ >= 13)
+/* required for LLVM 13+ */
+typedef unsigned reserve_id_t;
+#endif
+
 #ifdef __USE_CLANG_OPENCL_C_H
 
 /* Minimal definitions, only the target specific macro overrides,
@@ -61,13 +66,16 @@
 #if defined(POCL_DEVICE_ADDRESS_BITS) && POCL_DEVICE_ADDRESS_BITS == 32
 #define __SIZE_TYPE__ uint
 #define __SIZE_MAX__ UINT_MAX
+#define __INTPTR_TYPE__ int
+#define __UINTPTR_TYPE__ uint
 #else
 #define __SIZE_TYPE__ ulong
 #define __SIZE_MAX__ ULONG_MAX
+#define __INTPTR_TYPE__ long
+#define __UINTPTR_TYPE__ ulong
 #endif
 
-#define __INTPTR_TYPE__ __SIZE_TYPE__
-#define __UINTPTR_TYPE__ __INTPTR_TYPE__
+
 
 #else
 
@@ -101,13 +109,13 @@ typedef uint16_t ushort;
 typedef uint32_t uint;
 
 #ifdef cl_khr_int64
+#if __APPLE__
+typedef unsigned long ulong;
+#else
 typedef uint64_t ulong;
+#endif
 #else
 typedef uint32_t ulong;
-#endif
-
-#ifndef cl_khr_fp16
-typedef short half;
 #endif
 
 #endif

@@ -26,36 +26,61 @@
 #include "pocl_util.h"
 #include "devices.h"
 
-CL_API_ENTRY cl_int CL_API_CALL
-POname(clSetKernelArgSVMPointer)(cl_kernel kernel,
-                                 cl_uint arg_index,
-                                 const void *arg_value) CL_API_SUFFIX__VERSION_2_0
+int
+pocl_set_kernel_arg_pointer (cl_kernel kernel, cl_uint arg_index,
+                             const void *arg_value)
 {
-  POCL_RETURN_ERROR_COND((kernel == NULL), CL_INVALID_VALUE);
+  POCL_RETURN_ERROR_ON ((kernel->dyn_arguments == NULL), CL_INVALID_KERNEL,
+                        "This kernel has no arguments that could be set\n");
 
-  POCL_RETURN_ERROR_ON((!kernel->context->svm_allocdev), CL_INVALID_CONTEXT,
-                       "None of the devices in this context is SVM-capable\n");
+  POCL_MSG_PRINT_INFO ("Setting kernel arg %i to pointer: %p\n", arg_index,
+                       arg_value);
 
-  cl_mem mem = malloc(sizeof(struct _cl_mem));
-  POCL_INIT_OBJECT(mem);
-  mem->mem_host_ptr = (void*)arg_value;
-  mem->parent = NULL;
-  mem->map_count = 0;
-  mem->mappings = NULL;
-  mem->type = CL_MEM_OBJECT_BUFFER;
-  mem->flags = CL_MEM_USE_HOST_PTR | CL_MEM_READ_WRITE;
-  mem->device_ptrs = NULL;
-  mem->owning_device = NULL;
-  mem->is_image = CL_FALSE;
-  mem->is_pipe = 0;
-  mem->pipe_packet_size = 0;
-  mem->pipe_max_packets = 0;
-  mem->size = MAX_EXTENDED_ALIGNMENT;
-  mem->context = kernel->context;
+  struct pocl_argument *p;
+  struct pocl_argument_info *pi;
+  POCL_RETURN_ERROR_ON ((arg_index >= kernel->meta->num_args),
+                        CL_INVALID_ARG_INDEX,
+                        "This kernel has %u args, cannot set arg %u\n",
+                        (unsigned)kernel->meta->num_args, (unsigned)arg_index);
 
-  POCL_MSG_PRINT_INFO("Setting kernel ARG %i to SVM %p using cl_mem: %p\n", arg_index, arg_value, mem);
+  p = &(kernel->dyn_arguments[arg_index]);
+  pi = &(kernel->meta->arg_info[arg_index]);
+  POCL_RETURN_ERROR_ON ((ARGP_IS_LOCAL (pi)), CL_INVALID_ARG_VALUE,
+                        "arg %u is in local address space\n", arg_index);
 
-  return POname(clSetKernelArg)(kernel, arg_index, sizeof(cl_mem), &mem);
+  POCL_RETURN_ERROR_ON ((pi->type != POCL_ARG_TYPE_POINTER),
+                        CL_INVALID_ARG_VALUE, "arg %u is not a pointer\n",
+                        arg_index);
 
+  if (kernel->dyn_argument_storage != NULL)
+    p->value = kernel->dyn_argument_offsets[arg_index];
+  else if (p->value == NULL)
+    {
+      p->value = pocl_aligned_malloc (sizeof (void *), sizeof (void *));
+      POCL_RETURN_ERROR_COND ((p->value == NULL), CL_OUT_OF_HOST_MEMORY);
+    }
+  memcpy (p->value, &arg_value, sizeof (void *));
+
+  p->offset = 0;
+  p->is_set = 1;
+  p->is_readonly = 0;
+  p->is_svm = 1;
+  p->size = sizeof (void *);
+
+  return CL_SUCCESS;
+}
+
+CL_API_ENTRY cl_int CL_API_CALL
+POname (clSetKernelArgSVMPointer) (cl_kernel kernel, cl_uint arg_index,
+                                   const void *arg_value)
+    CL_API_SUFFIX__VERSION_2_0
+{
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (kernel)), CL_INVALID_KERNEL);
+
+  POCL_RETURN_ERROR_ON (
+      (!kernel->context->svm_allocdev), CL_INVALID_OPERATION,
+      "None of the devices in this context is SVM-capable\n");
+
+  return pocl_set_kernel_arg_pointer (kernel, arg_index, arg_value);
 }
 POsym(clSetKernelArgSVMPointer)

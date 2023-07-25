@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <CL/opencl.h>
+
 #include "poclu.h"
 #include "config.h"
 
@@ -45,8 +45,5 @@ int main(int argc, char **argv)
   free ((void *)krn_src);
 
   printf("OK\n");
-
-  return 0;
+  return EXIT_SUCCESS;
 }
-
-

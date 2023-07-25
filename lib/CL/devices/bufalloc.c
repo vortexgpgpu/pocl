@@ -1,6 +1,6 @@
 /* OpenCL runtime/device driver library: custom buffer allocator
 
-   Copyright (c) 2011 Tampere University of Technology
+   Copyright (c) 2011-2020 pocl contributors
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -69,7 +69,6 @@
 
 #include "bufalloc.h"
 #include "utlist.h"
-#include "pocl_icd.h"
 
 //#define DEBUG_BUFALLOC
 
@@ -182,8 +181,8 @@ append_new_chunk (memory_region_t *region,
  *
  * @return The chunk, or NULL if no space available in the region.
  */
-chunk_info_t*
-alloc_buffer_from_region (memory_region_t *region, size_t size)
+chunk_info_t *
+pocl_alloc_buffer_from_region (memory_region_t *region, size_t size)
 {
 #ifdef ENABLE_ASSERTS
   assert (region != NULL);
@@ -252,13 +251,13 @@ alloc_buffer_from_region (memory_region_t *region, size_t size)
 
 #ifndef BUFALLOC_NO_MULTIPLE_REGIONS 
 chunk_info_t *
-alloc_buffer (memory_region_t *regions, size_t size)
+pocl_alloc_buffer (memory_region_t *regions, size_t size)
 {
   chunk_info_t *chunk = NULL;
   memory_region_t *region = NULL;
   LL_FOREACH(regions, region)
     {
-      chunk = alloc_buffer_from_region (region, size);
+      chunk = pocl_alloc_buffer_from_region (region, size);
       if (chunk != NULL)
         return chunk;
     }
@@ -309,6 +308,8 @@ coalesce_chunks (chunk_info_t* first,
      detect that here and do not merge first with the second. */
   if (first->start_address > second->start_address) return second;
 
+  if(first == second) return first;
+
 #ifdef DEBUG_BUFALLOC
   printf ("### coalescing chunks:\n");
   print_chunk (first);
@@ -332,7 +333,7 @@ coalesce_chunks (chunk_info_t* first,
 #endif
 
 memory_region_t *
-free_buffer (memory_region_t *regions, memory_address_t addr)
+pocl_free_buffer (memory_region_t *regions, memory_address_t addr)
 {
   memory_region_t *region = NULL;
 
@@ -374,18 +375,19 @@ free_buffer (memory_region_t *regions, memory_address_t addr)
  * form larger unallocated chunks.
  */
 void
-free_chunk (chunk_info_t* chunk)
+pocl_free_chunk (chunk_info_t *chunk)
 {
   memory_region_t *region = chunk->parent_region;
   BA_LOCK (region->lock);
   chunk->is_allocated = 0;
 #ifndef BUFALLOC_NO_CHUNK_COALESCING
-  coalesce_chunks (coalesce_chunks (chunk->prev, chunk), chunk->next);
+  chunk = coalesce_chunks (coalesce_chunks (chunk->prev, chunk), chunk->next);
+  chunk = coalesce_chunks (coalesce_chunks (chunk->prev, chunk), chunk->next);
 #endif
   BA_UNLOCK (region->lock);
 
 #ifdef DEBUG_BUFALLOC
-  printf ("#### after free_chunk (%x)\n", chunk);
+  printf ("#### after pocl_free_chunk (%x)\n", chunk);
   print_chunks (region->chunks);
   printf ("\n");
 #endif
@@ -398,7 +400,8 @@ free_chunk (chunk_info_t* chunk)
  * @Param size  the size of the region (in bytes?)
  */
 void
-init_mem_region (memory_region_t *region, memory_address_t start, size_t size)
+pocl_init_mem_region (memory_region_t *region, memory_address_t start,
+                      size_t size)
 {
   int i;
   BA_INIT_LOCK (region->lock);

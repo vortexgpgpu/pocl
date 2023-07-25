@@ -48,6 +48,56 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 using namespace llvm;
 
+#ifndef LLVM_OPAQUE_POINTERS
+static inline bool is_image_type(const llvm::Type &t) {
+  if (t.isPointerTy() && t.getPointerElementType()->isStructTy()) {
+    llvm::StringRef name = t.getPointerElementType()->getStructName();
+    if (name.startswith("opencl.image2d_") ||
+        name.startswith("opencl.image3d_") ||
+        name.startswith("opencl.image1d_") ||
+        name.startswith("struct._pocl_image"))
+      return true;
+  }
+  return false;
+}
+
+static inline bool is_sampler_type(const llvm::Type &t) {
+  if (t.isPointerTy() && t.getPointerElementType()->isStructTy()) {
+    llvm::StringRef name = t.getPointerElementType()->getStructName();
+    if (name.startswith("opencl.sampler_t"))
+      return true;
+  }
+  return false;
+}
+#else
+static inline bool is_image_type(struct pocl_argument_info &ArgInfo,
+                                 cl_bitfield has_arg_meta) {
+  if (ArgInfo.type == POCL_ARG_TYPE_POINTER) {
+    //    assert(has_arg_meta & POCL_HAS_KERNEL_ARG_ADDRESS_QUALIFIER);
+
+    assert(has_arg_meta & POCL_HAS_KERNEL_ARG_TYPE_NAME);
+    llvm::StringRef name(ArgInfo.type_name);
+    if ((has_arg_meta & POCL_HAS_KERNEL_ARG_ACCESS_QUALIFIER) &&
+        (ArgInfo.access_qualifier != CL_KERNEL_ARG_ACCESS_NONE)) {
+      if (name.startswith("image2d_") || name.startswith("image3d_") ||
+          name.startswith("image1d_") || name.startswith("_pocl_image"))
+        return true;
+    }
+  }
+  return false;
+}
+
+static inline bool is_sampler_type(struct pocl_argument_info &ArgInfo,
+                                   cl_bitfield has_arg_meta) {
+  assert(has_arg_meta & POCL_HAS_KERNEL_ARG_TYPE_NAME);
+  llvm::StringRef name(ArgInfo.type_name);
+  if (name.equals("sampler_t"))
+    return true;
+  else
+    return false;
+}
+#endif
+
 // The old way of getting kernel metadata from "opencl.kernels" module meta.
 // LLVM < 3.9 and SPIR
 static int pocl_get_kernel_arg_module_metadata(llvm::Function *Kernel,
@@ -182,6 +232,24 @@ static int pocl_get_kernel_arg_module_metadata(llvm::Function *Kernel,
         std::cout << "UNKNOWN opencl metadata class for: " << meta_name
                   << std::endl;
     }
+
+    bool has_name_metadata = true;
+    if ((kernel_meta->has_arg_metadata & POCL_HAS_KERNEL_ARG_NAME) == 0) {
+      for (unsigned j = 0; j < arg_num; ++j) {
+        struct pocl_argument_info *current_arg = &kernel_meta->arg_info[j];
+        Argument* Arg = Kernel->getArg(j);
+        if (Arg->hasName()) {
+          const char *ArgName = Arg->getName().data();
+          current_arg->name = strdup(ArgName);
+        } else {
+          has_name_metadata = false;
+          break;
+        }
+      }
+      if (has_name_metadata)
+        kernel_meta->has_arg_metadata |= POCL_HAS_KERNEL_ARG_NAME;
+    }
+
   }
   return 0;
 }
@@ -380,10 +448,13 @@ static int pocl_get_kernel_arg_function_metadata(llvm::Function *Kernel,
     current_arg = &kernel_meta->arg_info[j];
     kernel_meta->has_arg_metadata |= POCL_HAS_KERNEL_ARG_TYPE_NAME;
     current_arg->type_name = (char *)malloc(val.size() + 1);
-    if (type_size_map.find(val) != type_size_map.end())
+    if (current_arg->address_qualifier != CL_KERNEL_ARG_ADDRESS_PRIVATE) {
+      current_arg->type_size = sizeof(void *);
+    } else if (type_size_map.find(val) != type_size_map.end()) {
       current_arg->type_size = type_size_map[val];
-    else
+    } else {
       current_arg->type_size = 0;
+    }
     std::strcpy(current_arg->type_name, val.c_str());
   }
 
@@ -448,8 +519,9 @@ static int pocl_get_kernel_arg_function_metadata(llvm::Function *Kernel,
 
 int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i) {
 
-  PoclCompilerMutexGuard lockHolder(nullptr);
-  InitializeLLVM();
+  cl_context ctx = program->context;
+  PoclLLVMContextData *llvm_ctx = (PoclLLVMContextData *)ctx->llvm_context_data;
+  PoclCompilerMutexGuard lockHolder(&llvm_ctx->Lock);
 
   unsigned i,j;
   llvm::Module *input = nullptr;
@@ -457,7 +529,7 @@ int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i) {
   cl_device_id Device = program->devices[device_i];
   assert(Device->llvm_target_triplet && "Device has no target triple set");
 
-  if (program->llvm_irs != nullptr && program->llvm_irs[device_i] != nullptr)
+  if (program->llvm_irs[device_i] != nullptr)
     input = static_cast<llvm::Module *>(program->llvm_irs[device_i]);
   else {
     return CL_INVALID_PROGRAM_EXECUTABLE;
@@ -479,14 +551,15 @@ int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i) {
       llvm::Value *meta =
           dyn_cast<llvm::ValueAsMetadata>(kernel_iter->getOperand(0))->getValue();
       llvm::Function *kernel = llvm::cast<llvm::Function>(meta);
-      //kernel_names.push_back(kernel_prototype->getName().str());
-      kernels.push_back(kernel);
+      if (kernel->getName() != POCL_GVAR_INIT_KERNEL_NAME)
+        kernels.push_back(kernel);
     }
   }
   // LLVM 3.9 does not use opencl.kernels meta, but kernel_arg_* function meta
   else {
     for (llvm::Module::iterator i = input->begin(), e = input->end(); i != e; ++i) {
-      if (i->getMetadata("kernel_arg_access_qual")) {
+      if (i->getMetadata("kernel_arg_access_qual")
+          && i->getName() != POCL_GVAR_INIT_KERNEL_NAME) {
          kernels.push_back(&*i);
       }
     }
@@ -507,7 +580,8 @@ int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i) {
     llvm::Function *KernelFunction = kernels[j];
 
     meta->num_args = KernelFunction->arg_size();
-    meta->name = strdup(KernelFunction->getName().str().c_str());
+    std::string funcName = KernelFunction->getName().str();
+    meta->name = strdup(funcName.c_str());
 
     if (pocl_get_kernel_arg_function_metadata(KernelFunction, input, meta)) {
       return CL_INVALID_KERNEL;
@@ -521,12 +595,10 @@ int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i) {
 
     locals.clear();
 
-    std::string funcName = KernelFunction->getName().str();
-
     for (llvm::Module::global_iterator i = input->global_begin(),
                                        e = input->global_end();
          i != e; ++i) {
-      if (pocl::isAutomaticLocal(funcName, *i)) {
+      if (pocl::isAutomaticLocal(KernelFunction, *i)) {
         POCL_MSG_PRINT_LLVM("Automatic local detected in kernel %s: %s\n",
                             meta->name, (*i).getName().data());
         locals.push_back(&*i);
@@ -560,18 +632,30 @@ int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i) {
         // index 0 is for function attributes, parameters start at 1.
         // TODO: detect the address space from MD.
       }
-      if (pocl::is_image_type(*t)) {
+#ifndef LLVM_OPAQUE_POINTERS
+      if (is_image_type(*t)) {
         ArgInfo.type = POCL_ARG_TYPE_IMAGE;
-      } else if (pocl::is_sampler_type(*t)) {
+      }
+      if (is_sampler_type(*t)) {
         ArgInfo.type = POCL_ARG_TYPE_SAMPLER;
       }
+#else
+      if (is_image_type(ArgInfo, meta->has_arg_metadata)) {
+        ArgInfo.type = POCL_ARG_TYPE_IMAGE;
+      }
+      if (is_sampler_type(ArgInfo, meta->has_arg_metadata)) {
+        ArgInfo.type = POCL_ARG_TYPE_SAMPLER;
+      }
+#endif
       i++;
     }
 
     std::stringstream attrstr;
     std::string vectypehint;
+    std::string wgsizehint;
 
     size_t reqdx = 0, reqdy = 0, reqdz = 0;
+    size_t wghintx = 0, wghinty = 0, wghintz = 0;
 
     llvm::MDNode *ReqdWGSize =
         KernelFunction->getMetadata("reqd_work_group_size");
@@ -587,19 +671,133 @@ int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i) {
                    ReqdWGSize->getOperand(2))->getValue()))->getLimitedValue();
     }
 
-    // TODO: implement vec_type_hint / work_group_size_hint attributes
-    meta->reqd_wg_size[0] = reqdx;
-    meta->reqd_wg_size[1] = reqdy;
-    meta->reqd_wg_size[2] = reqdz;
-    if (reqdx || reqdy || reqdz)
+    llvm::MDNode *WGSizeHint =
+        KernelFunction->getMetadata("work_group_size_hint");
+    if (WGSizeHint != nullptr) {
+      wghintx = (llvm::cast<ConstantInt>(
+                 llvm::dyn_cast<ConstantAsMetadata>(
+                   WGSizeHint->getOperand(0))->getValue()))->getLimitedValue();
+      wghinty = (llvm::cast<ConstantInt>(
+                 llvm::dyn_cast<ConstantAsMetadata>(
+                   WGSizeHint->getOperand(1))->getValue()))->getLimitedValue();
+      wghintz = (llvm::cast<ConstantInt>(
+                 llvm::dyn_cast<ConstantAsMetadata>(
+                   WGSizeHint->getOperand(2))->getValue()))->getLimitedValue();
+    }
+
+#ifndef LLVM_OLDER_THAN_11_0
+    llvm::MDNode *VecTypeHint = KernelFunction->getMetadata("vec_type_hint");
+    if (VecTypeHint != nullptr) {
+      llvm::Value *VTHvalue = nullptr;
+      if (isa<ValueAsMetadata>(VecTypeHint->getOperand(0))) {
+        llvm::Value *val =
+            dyn_cast<ValueAsMetadata>(VecTypeHint->getOperand(0))->getValue();
+        llvm::Type *ty = val->getType();
+        llvm::FixedVectorType *VectorTy = nullptr;
+        if (ty != nullptr)
+          VectorTy = dyn_cast<llvm::FixedVectorType>(ty);
+
+        if (VectorTy) {
+          llvm::Type *ElemType = VectorTy->getElementType();
+          switch (ElemType->getTypeID()) {
+          case Type::TypeID::HalfTyID:
+            vectypehint = "half";
+            break;
+          case Type::TypeID::FloatTyID:
+            vectypehint = "float";
+            break;
+          case Type::TypeID::DoubleTyID:
+            vectypehint = "double";
+            break;
+          case Type::TypeID::IntegerTyID: {
+            const llvm::MDOperand &SignMD = VecTypeHint->getOperand(1);
+            llvm::Constant *SignVal =
+              dyn_cast<ConstantAsMetadata>(SignMD)->getValue();
+            llvm::ConstantInt *SignValInt = llvm::cast<ConstantInt>(SignVal);
+            assert(SignValInt);
+            if (SignValInt->getLimitedValue() == 0)
+              vectypehint = "u";
+            else
+              vectypehint.clear();
+            switch (ElemType->getIntegerBitWidth()) {
+            case 8:
+              vectypehint += "char";
+              break;
+            case 16:
+              vectypehint += "short";
+              break;
+            case 32:
+              vectypehint += "int";
+              break;
+            case 64:
+              vectypehint += "long";
+              break;
+            default:
+              vectypehint += "unknownInt";
+              break;
+            }
+            break;
+          }
+          default:
+            vectypehint = "unknownType";
+            break;
+          }
+          switch (VectorTy->getNumElements()) {
+          case 1:
+            break;
+          case 2:
+            vectypehint += "2";
+            break;
+          case 3:
+            vectypehint += "3";
+            break;
+          case 4:
+            vectypehint += "4";
+            break;
+          case 8:
+            vectypehint += "8";
+            break;
+          case 16:
+            vectypehint += "16";
+            break;
+          default:
+            vectypehint += "99";
+            break;
+          }
+        }
+      }
+    }
+#endif
+
+    if (reqdx || reqdy || reqdz) {
+      meta->reqd_wg_size[0] = reqdx;
+      meta->reqd_wg_size[1] = reqdy;
+      meta->reqd_wg_size[2] = reqdz;
       attrstr << "__attribute__((reqd_work_group_size("
               << reqdx << ", " << reqdy
               << ", " << reqdz << " )))";
+    }
+
+    if (wghintx || wghinty || wghintz) {
+      meta->wg_size_hint[0] = wghintx;
+      meta->wg_size_hint[1] = wghinty;
+      meta->wg_size_hint[2] = wghintz;
+      if (attrstr.tellp() > 0)
+        attrstr << " ";
+      attrstr << "__attribute__((work_group_size_hint("
+              << wghintx << ", " << wghinty
+              << ", " << wghintz << " )))";
+    }
+
+#ifndef LLVM_OLDER_THAN_11_0
     if (vectypehint.size() > 0) {
-      if (reqdx || reqdy || reqdz)
+      strncpy(meta->vectypehint, vectypehint.c_str(),
+              sizeof(meta->vectypehint));
+      if (attrstr.tellp() > 0)
         attrstr << " ";
       attrstr << "__attribute__ ((vec_type_hint (" << vectypehint << ")))";
     }
+#endif
 
     std::string r = attrstr.str();
     if (r.size() > 0) {
@@ -619,13 +817,18 @@ int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i) {
 
 unsigned pocl_llvm_get_kernel_count(cl_program program, unsigned device_i) {
 
-  PoclCompilerMutexGuard lockHolder(nullptr);
-  InitializeLLVM();
+  cl_context ctx = program->context;
+  PoclLLVMContextData *llvm_ctx = (PoclLLVMContextData *)ctx->llvm_context_data;
+  PoclCompilerMutexGuard lockHolder(&llvm_ctx->Lock);
 
   /* any device's module will do for metadata, just use first non-nullptr */
-  llvm::Module *mod = (llvm::Module *)program->llvm_irs[device_i];
-  if (mod == nullptr)
-    return 0;
+  llvm::Module *mod = nullptr;
+  if (program->llvm_irs[device_i] != nullptr)
+    mod = static_cast<llvm::Module *>(program->llvm_irs[device_i]);
+  else {
+    return CL_INVALID_PROGRAM_EXECUTABLE;
+  }
+
   llvm::NamedMDNode *md = mod->getNamedMetadata("opencl.kernels");
   if (md) {
     return md->getNumOperands();
@@ -634,7 +837,8 @@ unsigned pocl_llvm_get_kernel_count(cl_program program, unsigned device_i) {
   else {
     unsigned kernel_count = 0;
     for (llvm::Module::iterator i = mod->begin(), e = mod->end(); i != e; ++i) {
-      if (i->getMetadata("kernel_arg_access_qual")) {
+      if (i->getMetadata("kernel_arg_access_qual")
+          && i->getName() != POCL_GVAR_INIT_KERNEL_NAME) {
         ++kernel_count;
       }
     }

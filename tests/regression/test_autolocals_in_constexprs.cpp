@@ -23,11 +23,13 @@
    THE SOFTWARE.
 */
 
+#include "pocl_opencl.h"
+
 // Enable OpenCL C++ exceptions
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -95,6 +97,8 @@ main(void)
     queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(1));
     queue.finish();
 
+    platformList[0].unloadCompiler();
+
     // We don't actually care about the result.
   }
   catch (cl::Error &err) {
@@ -108,5 +112,6 @@ main(void)
     return EXIT_FAILURE;
   }
 
+  std::cout << "OK" << std::endl;
   return EXIT_SUCCESS;
 }

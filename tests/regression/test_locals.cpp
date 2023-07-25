@@ -25,13 +25,13 @@
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp>
 
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 
-#include "poclu.h"
+#include "pocl_opencl.h"
 
 #define WORK_ITEMS 2
 #define BUFFER_SIZE (WORK_ITEMS)
@@ -61,6 +61,7 @@ int
 main(void)
 {
     float A[BUFFER_SIZE];
+    bool success;
 
     try {
         std::vector<cl::Platform> platformList;
@@ -125,23 +126,23 @@ main(void)
 
         res[0] = poclu_bswap_cl_float (dev_id, res[0]);
         res[1] = poclu_bswap_cl_float (dev_id, res[1]);
-        bool ok = res[0] == 8 && res[1] == 10;
-        if (ok) {
-            return EXIT_SUCCESS;
-        } else {
-            std::cout << "NOK " << res[0] << " " << res[1] << std::endl;
+        success = (res[0] == 8 && res[1] == 10);
+        if (!success) {
+            std::cout << "FAIL: " << res[0] << " " << res[1] << std::endl;
             std::cout << "res@" << std::hex << res << std::endl;
-            return EXIT_FAILURE;
         }
 
         // Finally release our hold on accessing the memory
         queue.enqueueUnmapMemObject(
             aBuffer, (void *) res);
- 
-        // There is no need to perform a finish on the final unmap
-        // or release any objects as this all happens implicitly with
-        // the C++ Wrapper API.
-    } 
+        queue.finish();
+        platformList[0].unloadCompiler();
+
+        if (success) {
+            std::cout << "OK" << std::endl;
+            return EXIT_SUCCESS;
+        }
+    }
     catch (cl::Error &err) {
          std::cerr
              << "ERROR: "
@@ -150,9 +151,7 @@ main(void)
              << err.err()
              << ")"
              << std::endl;
-
-         return EXIT_FAILURE;
     }
 
-    return EXIT_SUCCESS;
+    return EXIT_FAILURE;
 }

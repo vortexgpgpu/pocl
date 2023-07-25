@@ -28,7 +28,7 @@
 #include <algorithm>
 
 #include "pocl.h"
-#include "pocl_cl.h"
+#include "pocl_llvm_api.h"
 
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
@@ -55,10 +55,7 @@ using namespace pocl;
 
 int ParallelRegion::idGen = 0;
 
-extern cl_device_id currentPoclDevice;
-
-ParallelRegion::ParallelRegion(int forcedRegionId) : 
-  std::vector<llvm::BasicBlock *>(), 
+ParallelRegion::ParallelRegion(int forcedRegionId) :
   LocalIDXLoadInstr(NULL), LocalIDYLoadInstr(NULL), LocalIDZLoadInstr(NULL),
   exitIndex_(0), entryIndex_(0), pRegionId(forcedRegionId)
 {
@@ -204,12 +201,18 @@ ParallelRegion::chainAfter(ParallelRegion *region)
 #endif
 
   BasicBlock *successor = t->getSuccessor(0);
-  Function::BasicBlockListType &bb_list = 
-    successor->getParent()->getBasicBlockList();
-  
-  for (iterator i = begin(), e = end(); i != e; ++i)
+  Function *F = successor->getParent();
 
+#ifdef LLVM_OLDER_THAN_16_0
+  Function::BasicBlockListType &bb_list =
+    F->getBasicBlockList();
+  for (iterator i = begin(), e = end(); i != e; ++i)
     bb_list.insertAfter(tail->getIterator(), *i);
+#else
+  for (iterator i = begin(), e = end(); i != e; ++i)
+    F->insert(tail->getIterator(), *i);
+#endif
+
   t->setSuccessor(0, entryBB());
 
   t = exitBB()->getTerminator();
@@ -289,8 +292,10 @@ ParallelRegion::insertLocalIdInit(llvm::BasicBlock* Entry,
 
   Module *M = Entry->getParent()->getParent();
 
-  llvm::Type *SizeT =
-    IntegerType::get(M->getContext(), currentPoclDevice->address_bits);
+  unsigned long address_bits;
+  getModuleIntMetadata(*M, "device_address_bits", address_bits);
+
+  llvm::Type *SizeT = IntegerType::get(M->getContext(), address_bits);
 
   GlobalVariable *GVX = M->getGlobalVariable(POCL_LOCAL_ID_X_GLOBAL);
   if (GVX != NULL)
@@ -441,6 +446,8 @@ ParallelRegion::Verify()
   return true;
 }
 
+#define PARALLEL_MD_NAME "llvm.access.group"
+
 /**
  * Adds metadata to all the memory instructions to denote
  * they originate from a parallel loop.
@@ -448,40 +455,67 @@ ParallelRegion::Verify()
  * Due to nested parallel loops, there can be multiple loop
  * references.
  *
- * Format:
- * llvm.mem.parallel_loop_access !0
+ * Format (LLVM 8+):
  *
- * !0 { metadata !0 }
+ *     !llvm.access.group !0
+ *
+ *     !0 distinct !{}
  *
  * In a 2-nested loop:
  *
- * llvm.mem.parallel_loop_access !0
+ *     !llvm.access.group !0
  *
- * !0 { metadata !1, metadata !2}
- * !1 { metadata !1 }
- * !2 { metadata !2 }
+ *     !0 { !1, !2 }
+ *     !1 distinct !{}
+ *     !2 distinct !{}
+ *
+ * Parallel loop metadata prior to LLVM 12.0.1 on memory reads also implies that
+ * if-conversion (i.e., speculative execution within a loop iteration) is safe.
+ * Given an instruction reading from memory, IsLoadUnconditionallySafe should
+ * return whether it is safe under (unconditional, unpredicated) speculative
+ * execution. See https://bugs.llvm.org/show_bug.cgi?id=46666 and
+ * https://github.com/pocl/pocl/issues/757.
+ *
+ * From LLVM 12.0.1 onward parallel loop metadata does not imply if-conversion
+ * safety anymore. This got fixed by this change:
+ * https://reviews.llvm.org/D103907 for LLVM 13 which also got backported to
+ * LLVM 12.0.1. In other words this means that before the fix, the loop
+ * vectorizer was not able to vectorize some kernels because they would required
+ * a huge runtime memory check code insertion. Leading to vectorizer to give up.
+ * With above fix, we can add metadata to every load.  This will cause
+ * vectorizer to skip runtime memory check code insertion part because it
+ * indicates that iterations do not depend on each other. Which in turn makes
+ * vectorization easier. In this case using of IsLoadUnconditionallySafe
+ * parameter will be skipped.
  */
-
-#ifdef LLVM_OLDER_THAN_8_0
-#define PARALLEL_MD_NAME "llvm.mem.parallel_loop_access"
-#else
-#define PARALLEL_MD_NAME "llvm.access.group"
-#endif
-
-void ParallelRegion::AddParallelLoopMetadata(llvm::MDNode *Identifier) {
+void
+ParallelRegion::AddParallelLoopMetadata(
+    llvm::MDNode *Identifier,
+    std::function<bool(llvm::Instruction *)> IsLoadUnconditionallySafe) {
   for (iterator i = begin(), e = end(); i != e; ++i) {
     BasicBlock* bb = *i;      
     for (BasicBlock::iterator ii = bb->begin(), ee = bb->end();
          ii != ee; ii++) {
-
-      if (ii->mayReadOrWriteMemory()) {
-        MDNode *NewMD = MDNode::get(bb->getContext(), Identifier);
-        MDNode *OldMD = ii->getMetadata(PARALLEL_MD_NAME);
-        if (OldMD != nullptr) {
-          NewMD = llvm::MDNode::concatenate(OldMD, NewMD);
-        }
-        ii->setMetadata(PARALLEL_MD_NAME, NewMD);
+      if (!ii->mayReadOrWriteMemory()) {
+        continue;
       }
+
+#if LLVM_VERSION_MAJOR < 13 &&                                                 \
+    !(LLVM_VERSION_MAJOR == 12 && LLVM_VERSION_MINOR >= 0 &&                   \
+      LLVM_VERSION_PATCH >= 1)
+      // This check will skip insertion of metadata on loads inside conditions
+      // before LLVM 12.0.1.
+      if (ii->mayReadFromMemory() && !IsLoadUnconditionallySafe(&*ii)) {
+        continue;
+      }
+#endif
+
+      MDNode *NewMD = MDNode::get(bb->getContext(), Identifier);
+      MDNode *OldMD = ii->getMetadata(PARALLEL_MD_NAME);
+      if (OldMD != nullptr) {
+        NewMD = llvm::MDNode::concatenate(OldMD, NewMD);
+      }
+      ii->setMetadata(PARALLEL_MD_NAME, NewMD);
     }
   }
 }
@@ -590,9 +624,15 @@ ParallelRegion::LocalIDZLoad()
 {
   if (LocalIDZLoadInstr != NULL) return LocalIDZLoadInstr;
   IRBuilder<> builder(&*(entryBB()->getFirstInsertionPt()));
-  return LocalIDZLoadInstr =
-    builder.CreateLoad
-    (entryBB()->getParent()->getParent()->getGlobalVariable(POCL_LOCAL_ID_Z_GLOBAL));
+  GlobalVariable *Ptr = entryBB()->getParent()->getParent()->getGlobalVariable(
+      POCL_LOCAL_ID_Z_GLOBAL);
+  return LocalIDZLoadInstr = builder.CreateLoad(
+#if !defined(LLVM_OLDER_THAN_15_0)
+             Ptr->getValueType(),
+#elif !defined(LLVM_OLDER_THAN_13_0)
+             Ptr->getType()->getPointerElementType(),
+#endif
+             Ptr);
 }
 
 /**
@@ -604,9 +644,15 @@ ParallelRegion::LocalIDYLoad()
 {
   if (LocalIDYLoadInstr != NULL) return LocalIDYLoadInstr;
   IRBuilder<> builder(&*(entryBB()->getFirstInsertionPt()));
-  return LocalIDYLoadInstr = 
-    builder.CreateLoad
-    (entryBB()->getParent()->getParent()->getGlobalVariable(POCL_LOCAL_ID_Y_GLOBAL));
+  GlobalVariable *Ptr = entryBB()->getParent()->getParent()->getGlobalVariable(
+      POCL_LOCAL_ID_Y_GLOBAL);
+  return LocalIDYLoadInstr = builder.CreateLoad(
+#if !defined(LLVM_OLDER_THAN_15_0)
+             Ptr->getValueType(),
+#elif !defined(LLVM_OLDER_THAN_13_0)
+             Ptr->getType()->getPointerElementType(),
+#endif
+             Ptr);
 }
 
 /**
@@ -618,9 +664,15 @@ ParallelRegion::LocalIDXLoad()
 {
   if (LocalIDXLoadInstr != NULL) return LocalIDXLoadInstr;
   IRBuilder<> builder(&*(entryBB()->getFirstInsertionPt()));
-  return LocalIDXLoadInstr = 
-    builder.CreateLoad
-    (entryBB()->getParent()->getParent()->getGlobalVariable(POCL_LOCAL_ID_X_GLOBAL));
+  GlobalVariable *Ptr = entryBB()->getParent()->getParent()->getGlobalVariable(
+      POCL_LOCAL_ID_X_GLOBAL);
+  return LocalIDXLoadInstr = builder.CreateLoad(
+#if !defined(LLVM_OLDER_THAN_15_0)
+             Ptr->getValueType(),
+#elif !defined(LLVM_OLDER_THAN_13_0)
+             Ptr->getType()->getPointerElementType(),
+#endif
+             Ptr);
 }
 
 void
@@ -634,7 +686,7 @@ ParallelRegion::InjectPrintF
   llvm::Value *stringArg = 
     builder.CreateGlobalString(formatStr);
     
-  /* generated with help from http://llvm.org/demo/index.cgi */
+  /* generated with help from https://llvm.org/demo/index.cgi */
   Function* printfFunc = M->getFunction("printf");
   if (printfFunc == NULL) {
     PointerType* PointerTy_4 = PointerType::get(IntegerType::get(M->getContext(), 8), 0);
@@ -655,11 +707,19 @@ ParallelRegion::InjectPrintF
        /*Name=*/"printf", M); 
     printfFunc->setCallingConv(CallingConv::C);
 
-    AttributeList func_printf_PAL;
-    {
-      func_printf_PAL.addAttribute( M->getContext(), 1U, Attribute::NoCapture);
-      func_printf_PAL.addAttribute( M->getContext(), 4294967295U, Attribute::NoUnwind);
-    }
+#ifndef LLVM_OLDER_THAN_14_0
+    AttributeList func_printf_PAL =
+        AttributeList()
+            .addAttributeAtIndex(M->getContext(), 1U, Attribute::NoCapture)
+            .addAttributeAtIndex(M->getContext(), 4294967295U,
+                                 Attribute::NoUnwind);
+#else
+    AttributeList func_printf_PAL =
+        AttributeList()
+            .addAttribute(M->getContext(), 1U, Attribute::NoCapture)
+            .addAttribute(M->getContext(), 4294967295U, Attribute::NoUnwind);
+#endif
+
     printfFunc->setAttributes(func_printf_PAL);
   }
 

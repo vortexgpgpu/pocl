@@ -28,6 +28,10 @@
 #  error this file must be included through pocl_cl.h, not directly
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 POdeclsym(clBuildProgram)
 POdeclsym(clLinkProgram)
 POdeclsym(clCompileProgram)
@@ -88,6 +92,7 @@ POdeclsym(clGetImageInfo)
 POdeclsym(clGetKernelInfo)
 POdeclsym(clGetKernelArgInfo)
 POdeclsym(clGetKernelWorkGroupInfo)
+POdeclsym(clGetKernelSubGroupInfo)
 POdeclsym(clGetMemObjectInfo)
 POdeclsym(clGetPlatformIDs)
 POdeclsym(clGetPlatformInfo)
@@ -97,9 +102,9 @@ POdeclsym(clGetSamplerInfo)
 POdeclsym(clGetSupportedImageFormats)
 POdeclsymICD(clIcdGetPlatformIDsKHR)
 POdeclsym(clReleaseCommandQueue)
-POdeclsym(clReleaseContext)
-POdeclsym(clReleaseDevice)
-POdeclsym(clReleaseEvent)
+POdeclsymExport(clReleaseContext)
+POdeclsymExport(clReleaseDevice)
+POdeclsymExport(clReleaseEvent)
 POdeclsym(clReleaseKernel)
 POdeclsym(clReleaseMemObject)
 POdeclsym(clReleaseProgram)
@@ -107,7 +112,7 @@ POdeclsym(clReleaseSampler)
 POdeclsym(clRetainCommandQueue)
 POdeclsym(clRetainContext)
 POdeclsym(clRetainDevice)
-POdeclsym(clRetainEvent)
+POdeclsymExport(clRetainEvent)
 POdeclsym(clRetainKernel)
 POdeclsym(clRetainMemObject)
 POdeclsym(clRetainProgram)
@@ -139,5 +144,54 @@ POdeclsym(clGetGLTextureInfo)
 POdeclsym(clEnqueueAcquireGLObjects)
 POdeclsym(clEnqueueReleaseGLObjects)
 POdeclsym(clGetGLContextInfoKHR)
+POdeclsym(clSetContentSizeBufferPoCL)
+POdeclsym(clCreatePipe)
+POdeclsym(clGetPipeInfo)
+POdeclsym(clSetDefaultDeviceCommandQueue)
+POdeclsym(clGetDeviceAndHostTimer)
+POdeclsym(clGetHostTimer)
+POdeclsym(clSetProgramReleaseCallback)
+POdeclsym(clSetContextDestructorCallback)
+POdeclsym(clSetProgramSpecializationConstant)
+POdeclsym(clCreateSamplerWithProperties)
+POdeclsym(clCreateBufferWithProperties)
+POdeclsym(clCreateImageWithProperties)
+POdeclsym(clCloneKernel)
+POdeclsym(clEnqueueSVMMigrateMem)
+
+/* cl_khr_command_buffer */
+POdeclsym(clCreateCommandBufferKHR)
+POdeclsym(clRetainCommandBufferKHR)
+POdeclsym(clReleaseCommandBufferKHR)
+POdeclsym(clFinalizeCommandBufferKHR)
+POdeclsym(clEnqueueCommandBufferKHR)
+POdeclsym(clCommandBarrierWithWaitListKHR)
+POdeclsym(clCommandNDRangeKernelKHR)
+POdeclsym(clCommandCopyBufferKHR)
+POdeclsym(clCommandCopyBufferRectKHR)
+POdeclsym(clCommandCopyBufferToImageKHR)
+POdeclsym(clCommandCopyImageKHR)
+POdeclsym(clCommandCopyImageToBufferKHR)
+POdeclsym(clCommandFillBufferKHR)
+POdeclsym(clCommandFillImageKHR)
+POdeclsym(clGetCommandBufferInfoKHR)
+
+/* cl_intel_unified_shared_memory */
+POdeclsym(clHostMemAllocINTEL)
+POdeclsym(clDeviceMemAllocINTEL)
+POdeclsym(clSharedMemAllocINTEL)
+POdeclsym(clMemFreeINTEL)
+POdeclsym(clMemBlockingFreeINTEL)
+POdeclsym(clGetMemAllocInfoINTEL)
+POdeclsym(clSetKernelArgMemPointerINTEL)
+POdeclsym(clEnqueueMemFillINTEL)
+POdeclsym(clEnqueueMemcpyINTEL)
+POdeclsym(clEnqueueMemAdviseINTEL)
+POdeclsym(clEnqueueMigrateMemINTEL)
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

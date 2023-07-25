@@ -23,6 +23,16 @@
 #
 #=============================================================================
 
+# do not link test_dlopen with -lOpenCL
+if (UNIX AND HAVE_DLFCN_H)
+  add_executable("test_dlopen" "test_dlopen.c")
+  if(SANITIZER_OPTIONS)
+    target_link_libraries("test_dlopen" ${SANITIZER_LIBS})
+  endif()
+  target_link_libraries("test_dlopen" ${DL_LIB})
+endif ()
+
+include_directories(${CMAKE_SOURCE_DIR})
 
 set(PROGRAMS_TO_BUILD test_clFinish test_clGetDeviceInfo test_clGetEventInfo
   test_clCreateProgramWithBinary test_clGetSupportedImageFormats
@@ -30,8 +40,11 @@ set(PROGRAMS_TO_BUILD test_clFinish test_clGetDeviceInfo test_clGetEventInfo
   test_clCreateKernelsInProgram test_clCreateKernel test_clGetKernelArgInfo
   test_version test_kernel_cache_includes test_event_cycle test_link_error
   test_read-copy-write-buffer test_buffer-image-copy test_clCreateSubDevices test_event_free
-  test_enqueue_kernel_from_binary test_user_event
-  test_clSetMemObjectDestructorCallback)
+  test_event_double_wait test_buffer_migration test_buffer_ping_pong
+  test_enqueue_kernel_from_binary test_user_event test_fill-buffer
+  test_clSetMemObjectDestructorCallback
+  test_cl_pocl_content_size test_deviceside_enqueue
+  test_command_buffer test_command_buffer_images)
 
 add_compile_options(${OPENCL_CFLAGS})
 
@@ -46,53 +59,72 @@ endforeach()
 #######################################################################
 
 
-add_test_pocl(NAME "runtime/clGetDeviceInfo" COMMAND "test_clGetDeviceInfo")
+add_test_pocl(NAME "runtime/clGetDeviceInfo" COMMAND "test_clGetDeviceInfo" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/clEnqueueNativeKernel" COMMAND "test_clEnqueueNativeKernel")
+add_test(NAME "runtime/clEnqueueNativeKernel" COMMAND "test_clEnqueueNativeKernel")
 
-add_test_pocl(NAME "runtime/clGetEventInfo" COMMAND "test_clGetEventInfo")
+add_test_pocl(NAME "runtime/clGetEventInfo" COMMAND "test_clGetEventInfo" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/clCreateProgramWithBinary" COMMAND "test_clCreateProgramWithBinary")
+add_test_pocl(NAME "runtime/clCreateProgramWithBinary" COMMAND "test_clCreateProgramWithBinary" WORKITEM_HANDLER "loopvec")
 
 add_test_pocl(NAME "runtime/clBuildProgram"
               WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-              COMMAND "test_clBuildProgram")
+              COMMAND "test_clBuildProgram"
+              WORKITEM_HANDLER "loopvec")
 
 add_test_pocl(NAME "runtime/test_kernel_cache_includes"
               WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-              COMMAND "test_kernel_cache_includes")
+              COMMAND "test_kernel_cache_includes"
+              WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/clFinish" COMMAND "test_clFinish")
+add_test_pocl(NAME "runtime/clFinish" COMMAND "test_clFinish" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/test_event_cycle" COMMAND "test_event_cycle")
+add_test_pocl(NAME "runtime/test_event_cycle" COMMAND "test_event_cycle" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/test_link_error" COMMAND "test_link_error")
+add_test_pocl(NAME "runtime/test_link_error" COMMAND "test_link_error" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/test_read-copy-write-buffer" COMMAND "test_read-copy-write-buffer")
+add_test_pocl(NAME "runtime/test_read-copy-write-buffer" COMMAND "test_read-copy-write-buffer" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/test_buffer-image-copy" COMMAND "test_buffer-image-copy")
+add_test_pocl(NAME "runtime/test_fill-buffer" COMMAND "test_fill-buffer" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/clCreateKernel" COMMAND "test_clCreateKernel")
+add_test(NAME "runtime/test_buffer-image-copy" COMMAND "test_buffer-image-copy")
 
-add_test_pocl(NAME "runtime/clGetKernelArgInfo" COMMAND "test_clGetKernelArgInfo")
+add_test_pocl(NAME "runtime/clCreateKernel" COMMAND "test_clCreateKernel" WORKITEM_HANDLER "loopvec")
+
+add_test_pocl(NAME "runtime/clGetKernelArgInfo" COMMAND "test_clGetKernelArgInfo" WORKITEM_HANDLER "loopvec")
 
 add_test_pocl(NAME "runtime/clSetEventCallback"
               COMMAND "test_clSetEventCallback"
-              EXPECTED_OUTPUT "test_clSetEventCallback_expout.txt" )
+              EXPECTED_OUTPUT "test_clSetEventCallback_expout.txt"
+              WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/clGetSupportedImageFormats" COMMAND "test_clGetSupportedImageFormats")
+add_test(NAME "runtime/clGetSupportedImageFormats" COMMAND "test_clGetSupportedImageFormats")
 
-add_test_pocl(NAME "runtime/clCreateKernelsInProgram" COMMAND "test_clCreateKernelsInProgram")
+add_test_pocl(NAME "runtime/clCreateKernelsInProgram" COMMAND "test_clCreateKernelsInProgram" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/clCreateSubDevices" COMMAND  "test_clCreateSubDevices")
+add_test(NAME "runtime/clCreateSubDevices" COMMAND  "test_clCreateSubDevices")
 
-add_test_pocl(NAME "runtime/test_event_free" COMMAND  "test_event_free")
+add_test_pocl(NAME "runtime/test_event_free" COMMAND  "test_event_free" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/test_enqueue_kernel_from_binary" COMMAND "test_enqueue_kernel_from_binary")
+add_test_pocl(NAME "runtime/test_event_double_wait" COMMAND  "test_event_double_wait" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/test_user_event" COMMAND  "test_user_event")
+add_test_pocl(NAME "runtime/test_enqueue_kernel_from_binary" COMMAND "test_enqueue_kernel_from_binary" WORKITEM_HANDLER "loopvec")
 
-add_test_pocl(NAME "runtime/clSetMemObjectDestructorCallback" COMMAND  "test_clSetMemObjectDestructorCallback")
+add_test_pocl(NAME "runtime/test_user_event" COMMAND  "test_user_event" WORKITEM_HANDLER "loopvec")
+
+add_test(NAME "runtime/test_buffer_migration" COMMAND "test_buffer_migration")
+
+add_test(NAME "runtime/test_buffer_ping_pong" COMMAND "test_buffer_ping_pong")
+
+add_test_pocl(NAME "runtime/clSetMemObjectDestructorCallback" COMMAND  "test_clSetMemObjectDestructorCallback" WORKITEM_HANDLER "loopvec")
+
+add_test(NAME "runtime/test_cl_pocl_content_size" COMMAND "test_cl_pocl_content_size")
+
+add_test_pocl(NAME "runtime/test_deviceside_enqueue" COMMAND "test_deviceside_enqueue" WORKITEM_HANDLER "loopvec")
+
+add_test(NAME "runtime/test_command_buffer" COMMAND "test_command_buffer")
+
+add_test(NAME "runtime/test_command_buffer_images" COMMAND "test_command_buffer_images")
 
 set_tests_properties( "runtime/clGetDeviceInfo" "runtime/clEnqueueNativeKernel"
   "runtime/clGetEventInfo" "runtime/clCreateProgramWithBinary"
@@ -101,18 +133,31 @@ set_tests_properties( "runtime/clGetDeviceInfo" "runtime/clEnqueueNativeKernel"
   "runtime/clCreateKernel" "runtime/clGetKernelArgInfo"
   "runtime/test_kernel_cache_includes" "runtime/test_event_cycle"
   "runtime/test_read-copy-write-buffer" "runtime/test_buffer-image-copy"
-  "runtime/test_event_free" "runtime/clCreateSubDevices"
+  "runtime/test_fill-buffer"
+  "runtime/test_event_free" "runtime/test_event_double_wait" "runtime/clCreateSubDevices"
   "runtime/test_enqueue_kernel_from_binary" "runtime/test_user_event"
+  "runtime/test_buffer_migration"
+  "runtime/test_buffer_ping_pong"
   "runtime/clSetMemObjectDestructorCallback" "runtime/test_link_error"
+  "runtime/test_cl_pocl_content_size" "runtime/test_deviceside_enqueue"
+  "runtime/test_command_buffer" "runtime/test_command_buffer_images"
   PROPERTIES
     COST 2.0
     PROCESSORS 1
     DEPENDS "pocl_version_check"
     LABELS "internal;runtime")
 
-set_tests_properties("runtime/clGetSupportedImageFormats"
-  PROPERTIES
-    ENVIRONMENT "POCL_DEVICES=pthread\ pthread")
+set_tests_properties(
+  "runtime/clCreateSubDevices"
+  "runtime/test_buffer_migration"
+  "runtime/test_buffer_ping_pong"
+  "runtime/test_cl_pocl_content_size"
+  "runtime/test_buffer-image-copy"
+  "runtime/clGetSupportedImageFormats"
+  "runtime/clEnqueueNativeKernel"
+  "runtime/test_command_buffer"
+  "runtime/test_command_buffer_images"
+  PROPERTIES SKIP_RETURN_CODE 77)
 
 if(NOT ENABLE_ANYSAN)
   set_tests_properties("runtime/clCreateKernelsInProgram"
@@ -121,11 +166,16 @@ if(NOT ENABLE_ANYSAN)
 
   set_tests_properties("runtime/clFinish"
   PROPERTIES
-    PASS_REGULAR_EXPRESSION "ABABC")
+    PASS_REGULAR_EXPRESSION "ABABC;A\nB\nA\nB\nC\n")
 
   set_tests_properties("runtime/test_kernel_cache_includes"
   PROPERTIES PASS_REGULAR_EXPRESSION
   "function 1.*first include.*function 2.*second include")
+endif()
+
+if(NOT HAVE_WORKING_IMAGES_WITH_SPIR)
+  set_tests_properties("runtime/clGetKernelArgInfo"
+    PROPERTIES DISABLED 1)
 endif()
 
 # Label tests that work with CUDA backend
@@ -136,15 +186,24 @@ set_property(TEST
   "runtime/test_kernel_cache_includes"
   "runtime/clFinish"
   "runtime/test_read-copy-write-buffer"
+  "runtime/test_fill-buffer"
   "runtime/test_buffer-image-copy"
   "runtime/clSetEventCallback"
   "runtime/clGetSupportedImageFormats"
   "runtime/clCreateKernelsInProgram"
   "runtime/test_event_cycle"
+  "runtime/test_event_free"
+  "runtime/test_event_double_wait"
   "runtime/test_user_event"
   "runtime/clSetMemObjectDestructorCallback"
-  "runtime/test_enqueue_kernel_from_binary"
+  "runtime/test_deviceside_enqueue"
   APPEND PROPERTY LABELS "cuda")
+
+# Label tests that work with TCE backend
+set_property(TEST
+  "runtime/test_fill-buffer"
+  APPEND PROPERTY LABELS "tce")
+
 
 set_property(TEST
   "runtime/clGetDeviceInfo"
@@ -164,4 +223,54 @@ set_property(TEST
   "runtime/test_enqueue_kernel_from_binary"
   "runtime/test_user_event"
   "runtime/clSetMemObjectDestructorCallback"
+  "runtime/test_deviceside_enqueue"
   APPEND PROPERTY LABELS "hsa-native")
+
+set_property(TEST
+  "runtime/clGetEventInfo"
+  "runtime/clFinish"
+  "runtime/test_read-copy-write-buffer"
+  "runtime/test_fill-buffer"
+  "runtime/test_buffer-image-copy"
+  "runtime/clSetEventCallback"
+  "runtime/clGetSupportedImageFormats"
+  "runtime/test_event_cycle"
+  "runtime/test_event_free"
+  "runtime/test_user_event"
+  "runtime/clSetMemObjectDestructorCallback"
+  APPEND PROPERTY LABELS "proxy")
+
+# Label tests that work with Vulkan
+set_property(TEST
+  "runtime/clGetEventInfo"
+  "runtime/test_event_cycle"
+  "runtime/test_event_free"
+  "runtime/test_user_event"
+  "runtime/clSetMemObjectDestructorCallback"
+  APPEND PROPERTY LABELS "vulkan")
+
+if (ENABLE_TCE)
+    # Label tests that work with Almaif (with compiler) backend
+    set_property(TEST
+        "runtime/test_fill-buffer"
+        APPEND PROPERTY LABELS "almaif")
+endif()
+
+# all except "runtime/test_command_buffer_images" "runtime/clGetKernelArgInfo"
+set_property(TEST
+  "runtime/clGetDeviceInfo" "runtime/clEnqueueNativeKernel"
+  "runtime/clGetEventInfo" "runtime/clCreateProgramWithBinary"
+  "runtime/clBuildProgram" "runtime/clFinish" "runtime/clSetEventCallback"
+  "runtime/clGetSupportedImageFormats" "runtime/clCreateKernelsInProgram"
+  "runtime/clCreateKernel"
+  "runtime/test_kernel_cache_includes" "runtime/test_event_cycle"
+  "runtime/test_read-copy-write-buffer" "runtime/test_buffer-image-copy"
+  "runtime/test_fill-buffer"
+  "runtime/test_event_free" "runtime/test_event_double_wait" "runtime/clCreateSubDevices"
+  "runtime/test_enqueue_kernel_from_binary" "runtime/test_user_event"
+  "runtime/test_buffer_migration"
+  "runtime/test_buffer_ping_pong"
+  "runtime/clSetMemObjectDestructorCallback" "runtime/test_link_error"
+  "runtime/test_cl_pocl_content_size" "runtime/test_deviceside_enqueue"
+  "runtime/test_command_buffer"
+  APPEND PROPERTY LABELS "level0")

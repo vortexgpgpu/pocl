@@ -1,12 +1,14 @@
-
 // 0.14rc1 introduced a regression where private kernel local variable (array)
 // was detected as an automatic local address space variable.
 // See https://github.com/pocl/pocl/issues/445
 
+#include "pocl_opencl.h"
+
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#define CL_HPP_CL_1_2_DEFAULT_BUILD
+#include <CL/opencl.hpp>
 #include <iostream>
 
 using namespace std;
@@ -30,6 +32,7 @@ private_local_array(__global int *__restrict__ out)
 
 int main(int, char **)
 {
+  bool success = true;
   try {
     int N = 9;
 
@@ -47,14 +50,24 @@ int main(int, char **)
     cl_int *output = (cl_int*)queue.enqueueMapBuffer(
       buffer, CL_TRUE, CL_MAP_READ, 0, N*sizeof(int));
     for (int i = 0; i < N; i++) {
-      if ((int)output[i] != i + 1)
+      if ((int)output[i] != i + 1) {
         std::cout << "FAIL: " << output[i] << " should be " << i + 1
 		  << std::endl;
+        success = false;
+      }
     }
     queue.enqueueUnmapMemObject(buffer, output);
+    queue.finish();
+    cl::Platform::getDefault().unloadCompiler();
   }
   catch (cl::Error& err) {
     std::cout << "FAIL with OpenCL error = " << err.err() << std::endl;
+    return EXIT_FAILURE;
   }
-  return 0;
+
+  if (success) {
+    std::cout << "OK" << std::endl;
+    return EXIT_SUCCESS;
+  }
+  return EXIT_FAILURE;
 }

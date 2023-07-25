@@ -1,12 +1,13 @@
-
 // Trying to build a faulty program twice results in NULL deref
 // See https://github.com/pocl/pocl/issues/577
 // should print "BUILD ERROR" twice then "OK" once.
 
+#include "pocl_opencl.h"
+
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp>
 #include <iostream>
 
 const char *SOURCE = R"RAW(
@@ -31,11 +32,13 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  cl::Platform::getDefault().unloadCompiler();
+
   if (error_count == 2) {
     std::cout << "OK\n";
-    return 0;
+    return EXIT_SUCCESS;
   } else {
     std::cout << "FAIL\n";
-    return 1;
+    return EXIT_FAILURE;
   }
 }

@@ -20,7 +20,7 @@
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
    THE SOFTWARE.
 */
-#include <CL/cl.h>
+
 #include <string.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -161,6 +161,6 @@ int main()
   CHECK_CL_ERROR (clReleaseContext (context));
   CHECK_CL_ERROR (clUnloadCompiler ());
 
+  printf ("OK\n");
   return EXIT_SUCCESS;
-
 }

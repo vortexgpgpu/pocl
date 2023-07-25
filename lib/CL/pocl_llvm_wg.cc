@@ -3,6 +3,7 @@
 
    Copyright (c) 2013 Kalle Raiskila
                  2013-2019 Pekka Jääskeläinen
+                 2023 Pekka Jääskeläinen / Intel Finland Oy
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -23,30 +24,40 @@
    THE SOFTWARE.
 */
 
+#include "AutomaticLocals.h"
 #include "config.h"
 #include "pocl.h"
 #include "pocl_cache.h"
-#include "pocl_llvm_api.h"
 #include "pocl_file_util.h"
+#include "pocl_llvm_api.h"
+#include "pocl_spir.h"
+#include "pocl_util.h"
 
-#include <string>
-#include <map>
-#include <vector>
 #include <iostream>
+#include <map>
+#include <regex>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #include <llvm/Support/Casting.h>
+#ifdef LLVM_OLDER_THAN_14_0
 #include <llvm/Support/TargetRegistry.h>
+#else
+#include <llvm/MC/TargetRegistry.h>
+#endif
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/CommandLine.h>
 
 #include <llvm/ADT/Triple.h>
 #include <llvm/ADT/StringRef.h>
 
-#include <llvm/IR/Module.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Verifier.h>
 
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/Target/TargetMachine.h>
@@ -70,12 +81,8 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 // each work-group IR function generation. Requires LLVM > 7.
 // #define DUMP_LLVM_PASS_TIMINGS
 
-#ifndef LLVM_OLDER_THAN_10_0
 #include <llvm/IR/PassTimingInfo.h>
 #define CODEGEN_FILE_TYPE_NS llvm
-#else
-#define CODEGEN_FILE_TYPE_NS llvm::TargetMachine
-#endif
 
 using namespace llvm;
 
@@ -89,9 +96,6 @@ using namespace llvm;
 
 static std::map<cl_device_id, llvm::TargetMachine *> targetMachines;
 static std::map<cl_device_id, PassManager *> kernelPasses;
-
-// This is used to control the kernel we process in the kernel compilation.
-extern cl::opt<std::string> KernelName;
 
 /* FIXME: these options should come from the cl_device, and
  * cl_program's options. */
@@ -144,15 +148,9 @@ static TargetMachine *GetTargetMachine(cl_device_id device, Triple &triple) {
     return 0;
   }
 
-#ifdef LLVM_OLDER_THAN_6_0
-  TargetMachine *TM = TheTarget->createTargetMachine(
-      triple.getTriple(), MCPU, StringRef(""), GetTargetOptions(), Reloc::PIC_,
-      CodeModel::Default, CodeGenOpt::Aggressive);
-#else
   TargetMachine *TM = TheTarget->createTargetMachine(
       triple.getTriple(), MCPU, StringRef("+m,+f"), GetTargetOptions(), Reloc::PIC_,      
       CodeModel::Small, CodeGenOpt::Aggressive);
-#endif
 
   assert(TM != NULL && "llvm target has no targetMachine constructor");
   if (device->ops->init_target_machine)
@@ -163,9 +161,7 @@ static TargetMachine *GetTargetMachine(cl_device_id device, Triple &triple) {
 }
 /* helpers copied from LLVM opt END */
 
-static PassManager &
-kernel_compiler_passes(cl_device_id device, llvm::Module *input,
-                       const std::string &module_data_layout) {
+static PassManager &kernel_compiler_passes(cl_device_id device) {
 
   PassManager *Passes = nullptr;
   PassRegistry *Registry = nullptr;
@@ -203,7 +199,7 @@ kernel_compiler_passes(cl_device_id device, llvm::Module *input,
      Notes about the kernel compiler phase ordering:
 
      -mem2reg first because we get unoptimized output from Clang where all
-     variables are allocas. Avoid context saving the allocas and make the
+     variables are allocas. Avoid context saving the allocas and make them
      more readable by calling -mem2reg at the beginning.
 
      -implicit-cond-barriers after -implicit-loop-barriers because the latter
@@ -217,17 +213,28 @@ kernel_compiler_passes(cl_device_id device, llvm::Module *input,
      -phistoallocas before -workitemloops as otherwise it cannot inject context
      restore code (PHIs need to be at the beginning of the BB and so one cannot
      context restore them with non-PHI code if the value is needed in another
-     PHI). */
+     PHI).
+
+     -automatic-locals after inline and always-inline; if we have a kernel
+     that calls a non-kernel, and the non-kernel uses an automatic local
+     (= GlobalVariable in LLVM), the 'automatic-locals' will skip processing
+     of the non-kernel function, and the kernel function appears to it as not
+     having any locals. Therefore the local variable remains a GV instead of
+     being transformed into a kernel argument. This can lead to surprising
+     result, as the final object ELF will contain a static variable, so the
+     program will work with single-threaded execution, but multiple CPU
+     threads will overwrite the static variable and produce garbage results.
+  */
 
   std::vector<std::string> passes;
+  passes.push_back("inline-kernels");
   passes.push_back("remove-optnone");
   passes.push_back("optimize-wi-func-calls");
   passes.push_back("handle-samplers");
+  passes.push_back("infer-address-spaces");
   passes.push_back("workitem-handler-chooser");
   passes.push_back("mem2reg");
   passes.push_back("domtree");
-  if (device->autolocals_to_args)
-    passes.push_back("automatic-locals");
 
   if (SPMDDevice) {
     passes.push_back("flatten-inline-all");
@@ -238,6 +245,9 @@ kernel_compiler_passes(cl_device_id device, llvm::Module *input,
     passes.push_back("always-inline");
     passes.push_back("inline");
   }
+
+  // this must be done AFTER inlining, see note above
+  passes.push_back("automatic-locals");
 
   // It should be now safe to run -O3 over the single work-item kernel
   // as the barrier has the attributes preventing illegal motions and
@@ -261,6 +271,10 @@ kernel_compiler_passes(cl_device_id device, llvm::Module *input,
     passes.push_back("wi-aa");
     passes.push_back("workitemrepl");
     //passes.push_back("print-module");
+    passes.push_back("subcfgformation");
+    // subcfgformation before workitemloops, as wiloops creates the loops for
+    // kernels without barriers, but after the transformation the kernel looks
+    // like it has barriers, so subcfg would do its thing.
     passes.push_back("workitemloops");
     // Remove the (pseudo) barriers.   They have no use anymore due to the
     // work-item loop control taking care of them.
@@ -313,16 +327,21 @@ kernel_compiler_passes(cl_device_id device, llvm::Module *input,
       // to get the vectorizers initialized properly. Assume SPMD
       // devices do not want to vectorize intra work-item at this
       // stage.
-      if (currentWgMethod == "loopvec" && !SPMDDevice) {
+      if ((CurrentWgMethod == "loopvec" || CurrentWgMethod == "cbs") &&
+          !SPMDDevice) {
         Builder.LoopVectorize = true;
         Builder.SLPVectorize = true;
       } else {
         Builder.LoopVectorize = false;
         Builder.SLPVectorize = false;
       }
-      Builder.VerifyInput = true;
-      Builder.VerifyOutput = true;
+      Builder.VerifyInput = LLVM_VERIFY_MODULE_DEFAULT > 0;
+      Builder.VerifyOutput = LLVM_VERIFY_MODULE_DEFAULT > 0;
       Builder.populateModulePassManager(*Passes);
+      continue;
+    }
+    if (passes[i] == "automatic-locals") {
+      Passes->add(pocl::createAutomaticLocalsPass(device->autolocals_to_args));
       continue;
     }
 
@@ -342,31 +361,265 @@ kernel_compiler_passes(cl_device_id device, llvm::Module *input,
   return *Passes;
 }
 
-void pocl_destroy_llvm_module(void *modp) {
+void pocl_destroy_llvm_module(void *modp, cl_context ctx) {
 
-  PoclCompilerMutexGuard lockHolder(NULL);
-  InitializeLLVM();
+  PoclLLVMContextData *llvm_ctx = (PoclLLVMContextData *)ctx->llvm_context_data;
+  PoclCompilerMutexGuard lockHolder(&llvm_ctx->Lock);
 
   llvm::Module *mod = (llvm::Module *)modp;
   if (mod) {
     delete mod;
-    --numberOfIRs;
+    --llvm_ctx->number_of_IRs;
   }
 }
 
-// The global variables used to control the WG function generation's
-// specialization parameteres. Defined in lib/llvmopencl/WorkitemHandler.cc.
 namespace pocl {
-extern size_t WGLocalSizeX;
-extern size_t WGLocalSizeY;
-extern size_t WGLocalSizeZ;
-extern bool WGDynamicLocalSize;
-extern size_t WGMaxGridDimWidth;
-extern bool WGAssumeZeroGlobalOffset;
+class ProgramWithContext {
+
+  llvm::LLVMContext LLVMCtx;
+  std::unique_ptr<llvm::Module> ProgramBC;
+  std::unique_ptr<llvm::Module> ProgramGVarsNonKernelsBC;
+  std::mutex Lock;
+  unsigned Num = 0;
+
+public:
+
+  bool init(const char *ProgramBcBytes,
+            size_t ProgramBcSize,
+            char* LinkinOutputBCPath) {
+    Num = 0;
+    llvm::Module *P = parseModuleIRMem(ProgramBcBytes, ProgramBcSize, &LLVMCtx);
+    if (P == nullptr)
+      return false;
+    ProgramBC.reset(P);
+
+    ProgramGVarsNonKernelsBC.reset(
+        new llvm::Module(llvm::StringRef("program_gvars.bc"), LLVMCtx));
+
+    ProgramGVarsNonKernelsBC->setTargetTriple(ProgramBC->getTargetTriple());
+    ProgramGVarsNonKernelsBC->setDataLayout(ProgramBC->getDataLayout());
+
+    if (!moveProgramScopeVarsOutOfProgramBc(&LLVMCtx, ProgramBC.get(),
+                                            ProgramGVarsNonKernelsBC.get(),
+                                            SPIR_ADDRESS_SPACE_LOCAL))
+      return false;
+
+    pocl_cache_tempname(LinkinOutputBCPath, ".bc", NULL);
+    int r = pocl_write_module(ProgramGVarsNonKernelsBC.get(),
+                              LinkinOutputBCPath, 0);
+    if (r != 0) {
+      POCL_MSG_ERR("ProgramWithContext->init: failed to write module\n");
+      return false;
+    }
+
+    if (pocl_get_bool_option("POCL_LLVM_VERIFY", LLVM_VERIFY_MODULE_DEFAULT)) {
+      std::string ErrorLog;
+      llvm::raw_string_ostream Errs(ErrorLog);
+      if (llvm::verifyModule(*ProgramGVarsNonKernelsBC.get(), &Errs)) {
+        POCL_MSG_ERR("Failed to verify Program GVars Module:\n%s\n",
+                     ErrorLog.c_str());
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  bool getBitcodeForKernel(const char* KernelName,
+                           char* OutputPath,
+                           std::string *BuildLog) {
+    std::lock_guard<std::mutex> LockGuard(Lock);
+
+    // Create an empty Module and copy only the kernel+callgraph from
+    // program.bc.
+    std::unique_ptr<llvm::Module> KernelBC(
+        new llvm::Module(llvm::StringRef("parallel_bc"), LLVMCtx));
+
+    KernelBC->setTargetTriple(ProgramBC->getTargetTriple());
+    KernelBC->setDataLayout(ProgramBC->getDataLayout());
+
+    copyKernelFromBitcode(KernelName, KernelBC.get(), ProgramBC.get(), nullptr);
+
+    if (pocl_get_bool_option("POCL_LLVM_VERIFY", LLVM_VERIFY_MODULE_DEFAULT)) {
+      llvm::raw_string_ostream Errs(*BuildLog);
+      if (llvm::verifyModule(*KernelBC.get(), &Errs)) {
+        POCL_MSG_ERR("Failed to verify Kernel Module:\n%s\n",
+                     BuildLog->c_str());
+        BuildLog->append("Failed to verify Kernel Module\n");
+        return false;
+      }
+    }
+
+    pocl_cache_tempname(OutputPath, ".bc", NULL);
+    int r = pocl_write_module(KernelBC.get(), OutputPath, 0);
+    if (r != 0) {
+      POCL_MSG_ERR("getBitcodeForKernel: failed to write module\n");
+      BuildLog->append("getBitcodeForKernel: failed to write module\n");
+      return false;
+    }
+    return true;
+  }
+};
+
+static int convertBitcodeToSpv(char* TempBitcodePath,
+                               std::string *BuildLog,
+                               char **SpirvContent,
+                               uint64_t *SpirvSize) {
+
+  char TempSpirvPath[POCL_MAX_PATHNAME_LENGTH];
+
+// max bytes in output of 'llvm-spirv'
+#define MAX_OUTPUT_BYTES 65536
+
+//   --spirv-ext=<+SPV_extenstion1_name,-SPV_extension2_name>
+//   Specify list of allowed/disallowed extensions
+#define ALLOW_EXTS                                                             \
+  "--spirv-ext=+SPV_INTEL_subgroups,+SPV_INTEL_usm_storage_classes,+SPV_"      \
+  "INTEL_arbitrary_precision_integers,+SPV_INTEL_arbitrary_precision_fixed_"   \
+  "point,+SPV_INTEL_arbitrary_precision_floating_point,+SPV_INTEL_kernel_"     \
+  "attributes"
+  /*
+  possibly useful:
+    "+SPV_INTEL_unstructured_loop_controls,"
+    "+SPV_INTEL_blocking_pipes,"
+    "+SPV_INTEL_function_pointers,"
+    "+SPV_INTEL_io_pipes,"
+    "+SPV_INTEL_inline_assembly,"
+    "+SPV_INTEL_optimization_hints,"
+    "+SPV_INTEL_float_controls2,"
+    "+SPV_INTEL_vector_compute,"
+    "+SPV_INTEL_fast_composite,"
+    "+SPV_INTEL_variable_length_array,"
+    "+SPV_INTEL_fp_fast_math_mode,"
+    "+SPV_INTEL_long_constant_composite,"
+    "+SPV_INTEL_memory_access_aliasing,"
+    "+SPV_INTEL_runtime_aligned,"
+    "+SPV_INTEL_arithmetic_fence,"
+    "+SPV_INTEL_bfloat16_conversion,"
+    "+SPV_INTEL_global_variable_decorations,"
+    "+SPV_INTEL_non_constant_addrspace_printf,"
+    "+SPV_INTEL_hw_thread_queries,"
+    "+SPV_INTEL_complex_float_mul_div,"
+    "+SPV_INTEL_split_barrier,"
+    "+SPV_INTEL_masked_gather_scatter"
+
+  probably not useful:
+    "+SPV_INTEL_media_block_io,+SPV_INTEL_device_side_avc_motion_estimation,"
+    "+SPV_INTEL_fpga_loop_controls,+SPV_INTEL_fpga_memory_attributes,"
+    "+SPV_INTEL_fpga_memory_accesses,"
+    "+SPV_INTEL_fpga_reg,+SPV_INTEL_fpga_buffer_location,"
+    "+SPV_INTEL_fpga_cluster_attributes,"
+    "+SPV_INTEL_loop_fuse,"
+    "+SPV_INTEL_optnone," // this one causes crash
+    "+SPV_INTEL_fpga_dsp_control,"
+    "+SPV_INTEL_fpga_invocation_pipelining_attributes,"
+    "+SPV_INTEL_token_type,"
+    "+SPV_INTEL_debug_module,"
+    "+SPV_INTEL_joint_matrix,"
+  */
+  pocl_cache_tempname(TempSpirvPath, ".spirv", NULL);
+  char LLVMspirv[] = LLVM_SPIRV;
+  char AllowedExtOption[] = ALLOW_EXTS;
+  // TODO ze_device_module_properties_t.spirvVersionSupported
+  char MaxSPIRVOption[] = "--spirv-max-version=1.2";
+#ifdef LLVM_OPAQUE_POINTERS
+  char OpaquePtrsOption[] = "--opaque-pointers";
+#endif
+  char OutputOption[] = { '-', 'o', 0 };
+  char *CmdArgs[] = { LLVMspirv, AllowedExtOption,
+#ifdef LLVM_OPAQUE_POINTERS
+                      OpaquePtrsOption,
+#endif
+                      MaxSPIRVOption, OutputOption,
+                      TempSpirvPath, TempBitcodePath, NULL };
+  char CapturedOutput[MAX_OUTPUT_BYTES];
+  size_t CapturedBytes = MAX_OUTPUT_BYTES;
+
+  int r =
+      pocl_run_command_capture_output(CapturedOutput, &CapturedBytes, CmdArgs);
+  if (r != 0) {
+    BuildLog->append("llvm-spirv failed with output:\n");
+    std::string Captured(CapturedOutput, CapturedBytes);
+    BuildLog->append(Captured);
+    return -1;
+  }
+
+  r = pocl_read_file(TempSpirvPath, SpirvContent, SpirvSize);
+  if (r != 0) {
+    BuildLog->append("failed to read output file from llvm-spirv\n");
+    return -1;
+  }
+
+  if (pocl_get_bool_option("POCL_LEAVE_KERNEL_COMPILER_TEMP_FILES", 0) == 0) {
+    pocl_remove(TempBitcodePath);
+    pocl_remove(TempSpirvPath);
+  } else {
+    POCL_MSG_PRINT_GENERAL("LLVM SPIR-V conversion tempfiles: %s -> %s",
+                           TempBitcodePath, TempSpirvPath);
+  }
+  return 0;
 }
 
-int pocl_update_program_llvm_irs_unlocked(cl_program program,
-                                          unsigned device_i);
+} // namespace pocl
+
+void *pocl_llvm_create_context_for_program(const char *ProgramBcBytes,
+                                           size_t ProgramBcSize,
+                                           char **LinkinSpirvContent,
+                                           uint64_t *LinkinSpirvSize) {
+  assert(ProgramBcBytes);
+  assert(ProgramBcSize > 0);
+
+  char TempBitcodePath[POCL_MAX_PATHNAME_LENGTH];
+
+  pocl::ProgramWithContext *P = new pocl::ProgramWithContext;
+  // parse the program's bytes into a llvm::Module
+  if (P == nullptr ||
+      !P->init(ProgramBcBytes, ProgramBcSize, TempBitcodePath)) {
+    POCL_MSG_ERR("failed to create program for context");
+    return nullptr;
+  }
+
+  std::string BuildLog;
+  if (pocl::convertBitcodeToSpv(TempBitcodePath, &BuildLog,
+                                LinkinSpirvContent, LinkinSpirvSize) != 0) {
+    POCL_MSG_ERR("failed to create program for context, log:%s\n",
+                 BuildLog.c_str());
+    return nullptr;
+  }
+
+  return (void *)P;
+}
+
+void pocl_llvm_release_context_for_program(void *ProgCtx) {
+  if (ProgCtx == nullptr)
+    return;
+  pocl::ProgramWithContext *P = (pocl::ProgramWithContext *)ProgCtx;
+  delete P;
+}
+
+// extract SPIRV of a single Kernel from a program
+int pocl_llvm_extract_kernel_spirv(void* ProgCtx,
+                                   const char* KernelName,
+                                   void* BuildLogStr,
+                                   char **SpirvContent,
+                                   uint64_t *SpirvSize) {
+
+  POCL_MEASURE_START(extractKernel);
+
+  std::string *BuildLog = (std::string *)BuildLogStr;
+
+  char TempBitcodePath[POCL_MAX_PATHNAME_LENGTH];
+  pocl::ProgramWithContext *P = (pocl::ProgramWithContext *)ProgCtx;
+  if (!P->getBitcodeForKernel(KernelName, TempBitcodePath, BuildLog)) {
+    return -1;
+  }
+
+  int r = pocl::convertBitcodeToSpv(TempBitcodePath, BuildLog,
+                                    SpirvContent, SpirvSize);
+
+  POCL_MEASURE_FINISH(extractKernel);
+  return r;
+}
 
 int pocl_llvm_generate_workgroup_function_nowrite(
     unsigned DeviceI, cl_device_id Device, cl_kernel Kernel,
@@ -374,77 +627,155 @@ int pocl_llvm_generate_workgroup_function_nowrite(
 
   _cl_command_run *RunCommand = &Command->command.run;
   cl_program Program = Kernel->program;
+  cl_context ctx = Program->context;
+  PoclLLVMContextData *PoCLLLVMContext =
+      (PoclLLVMContextData *)ctx->llvm_context_data;
+  PoclCompilerMutexGuard lockHolder(&PoCLLLVMContext->Lock);
+  llvm::LLVMContext *LLVMContext = PoCLLLVMContext->Context;
 
-  currentPoclDevice = Device;
-
-  PoclCompilerMutexGuard LockHolder(NULL);
-  InitializeLLVM();
-
-  if (Program->llvm_irs[DeviceI] == NULL)
-    pocl_update_program_llvm_irs_unlocked(Program, DeviceI);
-
+#ifdef DEBUG_POCL_LLVM_API
+  printf("### calling the kernel compiler for kernel %s local_x %zu "
+         "local_y %zu local_z %zu parallel_filename: %s\n",
+         kernel->name, local_x, local_y, local_z, parallel_bc_path);
+#endif
   llvm::Module *ProgramBC = (llvm::Module *)Program->llvm_irs[DeviceI];
 
   // Create an empty Module and copy only the kernel+callgraph from
   // program.bc.
   llvm::Module *ParallelBC =
-      new llvm::Module(StringRef("parallel_bc"), GlobalContext());
+      new llvm::Module(StringRef("parallel_bc"), *LLVMContext);
 
   ParallelBC->setTargetTriple(ProgramBC->getTargetTriple());
   ParallelBC->setDataLayout(ProgramBC->getDataLayout());
 
-  copyKernelFromBitcode(Kernel->name, ParallelBC, ProgramBC);
+  copyKernelFromBitcode(Kernel->name, ParallelBC, ProgramBC,
+                        Device->device_aux_functions);
+
+  // Set to true to generate a global offset 0 specialized WG function.
+  bool WGAssumeZeroGlobalOffset;
+  // If set to true, the next 3 parameters define the local size to specialize
+  // for.
+  bool WGDynamicLocalSize;
+  size_t WGLocalSizeX;
+  size_t WGLocalSizeY;
+  size_t WGLocalSizeZ;
+  // If set to non-zero, assume each grid dimension is at most this
+  // work-items wide.
+  size_t WGMaxGridDimWidth;
 
   // Set the specialization properties.
   if (Specialize) {
-    pocl::WGLocalSizeX = RunCommand->pc.local_size[0];
-    pocl::WGLocalSizeY = RunCommand->pc.local_size[1];
-    pocl::WGLocalSizeZ = RunCommand->pc.local_size[2];
-    pocl::WGDynamicLocalSize = pocl::WGLocalSizeX == 0 &&
-                               pocl::WGLocalSizeY == 0 &&
-                               pocl::WGLocalSizeZ == 0;
-    pocl::WGAssumeZeroGlobalOffset = RunCommand->pc.global_offset[0] == 0 &&
-                                     RunCommand->pc.global_offset[1] == 0 &&
-                                     RunCommand->pc.global_offset[2] == 0;
+    WGLocalSizeX = RunCommand->pc.local_size[0];
+    WGLocalSizeY = RunCommand->pc.local_size[1];
+    WGLocalSizeZ = RunCommand->pc.local_size[2];
+    WGDynamicLocalSize =
+        WGLocalSizeX == 0 && WGLocalSizeY == 0 && WGLocalSizeZ == 0;
+    WGAssumeZeroGlobalOffset = RunCommand->pc.global_offset[0] == 0 &&
+                               RunCommand->pc.global_offset[1] == 0 &&
+                               RunCommand->pc.global_offset[2] == 0;
     // Compile a smallgrid version or a generic one?
     if (RunCommand->force_large_grid_wg_func ||
         pocl_cmd_max_grid_dim_width(RunCommand) >=
             Device->grid_width_specialization_limit) {
-      pocl::WGMaxGridDimWidth = 0; // The generic / large / unlimited size one.
+      WGMaxGridDimWidth = 0; // The generic / large / unlimited size one.
     } else {
       // Limited grid dimension width by the device specific limit.
-      pocl::WGMaxGridDimWidth = Device->grid_width_specialization_limit;
+      WGMaxGridDimWidth = Device->grid_width_specialization_limit;
     }
   } else {
-    pocl::WGDynamicLocalSize = true;
-    pocl::WGLocalSizeX = pocl::WGLocalSizeY = pocl::WGLocalSizeZ = 0;
-    pocl::WGAssumeZeroGlobalOffset = false;
-    pocl::WGMaxGridDimWidth = 0;
+    WGDynamicLocalSize = true;
+    WGLocalSizeX = WGLocalSizeY = WGLocalSizeZ = 0;
+    WGAssumeZeroGlobalOffset = false;
+    WGMaxGridDimWidth = 0;
   }
 
-  KernelName = Kernel->name;
+  if (Device->device_aux_functions) {
+    std::string concat;
+    const char **tmp = Device->device_aux_functions;
+    while (*tmp != nullptr) {
+      concat.append(*tmp);
+      ++tmp;
+      if (*tmp)
+        concat.append(";");
+    }
+    setModuleStringMetadata(ParallelBC, "device_aux_functions", concat.c_str());
+  }
+
+  setModuleIntMetadata(ParallelBC, "device_address_bits", Device->address_bits);
+  setModuleBoolMetadata(ParallelBC, "device_arg_buffer_launcher",
+                        Device->arg_buffer_launcher);
+  setModuleBoolMetadata(ParallelBC, "device_grid_launcher",
+                        Device->grid_launcher);
+  setModuleBoolMetadata(ParallelBC, "device_is_spmd", Device->spmd);
+
+  setModuleStringMetadata(ParallelBC, "KernelName", Kernel->name);
+  setModuleIntMetadata(ParallelBC, "WGMaxGridDimWidth", WGMaxGridDimWidth);
+  setModuleIntMetadata(ParallelBC, "WGLocalSizeX", WGLocalSizeX);
+  setModuleIntMetadata(ParallelBC, "WGLocalSizeY", WGLocalSizeY);
+  setModuleIntMetadata(ParallelBC, "WGLocalSizeZ", WGLocalSizeZ);
+  setModuleBoolMetadata(ParallelBC, "WGDynamicLocalSize", WGDynamicLocalSize);
+  setModuleBoolMetadata(ParallelBC, "WGAssumeZeroGlobalOffset",
+                        WGAssumeZeroGlobalOffset);
+
+  setModuleIntMetadata(ParallelBC, "device_global_as_id", Device->global_as_id);
+  setModuleIntMetadata(ParallelBC, "device_local_as_id", Device->local_as_id);
+  setModuleIntMetadata(ParallelBC, "device_constant_as_id",
+                       Device->constant_as_id);
+  setModuleIntMetadata(ParallelBC, "device_args_as_id", Device->args_as_id);
+  setModuleIntMetadata(ParallelBC, "device_context_as_id",
+                       Device->context_as_id);
+
+  setModuleBoolMetadata(ParallelBC, "device_side_printf",
+                        Device->device_side_printf);
+  setModuleBoolMetadata(ParallelBC, "device_alloca_locals",
+                        Device->device_alloca_locals);
+
+  setModuleIntMetadata(ParallelBC, "device_max_witem_dim",
+                       Device->max_work_item_dimensions);
+  setModuleIntMetadata(ParallelBC, "device_max_witem_sizes_0",
+                       Device->max_work_item_sizes[0]);
+  setModuleIntMetadata(ParallelBC, "device_max_witem_sizes_1",
+                       Device->max_work_item_sizes[1]);
+  setModuleIntMetadata(ParallelBC, "device_max_witem_sizes_2",
+                       Device->max_work_item_sizes[2]);
 
 #ifdef DUMP_LLVM_PASS_TIMINGS
   llvm::TimePassesIsEnabled = true;
 #endif
   POCL_MEASURE_START(llvm_workgroup_ir_func_gen);
-#ifdef LLVM_OLDER_THAN_3_7
-  kernel_compiler_passes(Device, ParallelBC,
-                         ParallelBC->getDataLayout()->getStringRepresentation())
-      .run(*ParallelBC);
-#else
-  kernel_compiler_passes(Device, ParallelBC,
-                         ParallelBC->getDataLayout().getStringRepresentation())
-      .run(*ParallelBC);
-#endif
+  kernel_compiler_passes(Device).run(*ParallelBC);
   POCL_MEASURE_FINISH(llvm_workgroup_ir_func_gen);
 #ifdef DUMP_LLVM_PASS_TIMINGS
   llvm::reportAndResetTimings();
 #endif
 
+  // Print loop vectorizer remarks if enabled.
+  if (pocl_get_bool_option("POCL_VECTORIZER_REMARKS", 0) == 1) {
+    std::cout << getDiagString(ctx);
+  }
+
+  std::string FinalizerCommand =
+      pocl_get_string_option("POCL_BITCODE_FINALIZER", "");
+  if (FinalizerCommand != "") {
+    // Run a user-defined command on the final bitcode.
+    char TempParallelBCFileName[POCL_MAX_PATHNAME_LENGTH];
+    int FD = -1, Err = 0;
+
+    Err = pocl_mk_tempname(TempParallelBCFileName, "/tmp/pocl-parallel", ".bc",
+                           &FD);
+    pocl_write_module((char *)ParallelBC, TempParallelBCFileName, 0);
+
+    std::string Command = std::regex_replace(
+        FinalizerCommand, std::regex(R"(%\(bc\))"), TempParallelBCFileName);
+    system(Command.c_str());
+
+    delete ParallelBC;
+    ParallelBC = parseModuleIR(TempParallelBCFileName, LLVMContext);
+  }
+
   assert(Output != NULL);
   *Output = (void *)ParallelBC;
-  ++numberOfIRs;
+  ++PoCLLLVMContext->number_of_IRs;
   return 0;
 }
 
@@ -452,17 +783,17 @@ int pocl_llvm_generate_workgroup_function(unsigned DeviceI, cl_device_id Device,
                                           cl_kernel Kernel,
                                           _cl_command_node *Command,
                                           int Specialize) {
-
+  cl_context ctx = Kernel->context;
   void *Module = NULL;
 
-  char ParallelBCPath[POCL_FILENAME_LENGTH];
+  char ParallelBCPath[POCL_MAX_PATHNAME_LENGTH];
   pocl_cache_work_group_function_path(ParallelBCPath, Kernel->program, DeviceI,
                                       Kernel, Command, Specialize);
 
   if (pocl_exists(ParallelBCPath))
     return CL_SUCCESS;
 
-  char FinalBinaryPath[POCL_FILENAME_LENGTH];
+  char FinalBinaryPath[POCL_MAX_PATHNAME_LENGTH];
   pocl_cache_final_binary_path(FinalBinaryPath, Kernel->program, DeviceI,
                                Kernel, Command, Specialize);
 
@@ -483,95 +814,52 @@ int pocl_llvm_generate_workgroup_function(unsigned DeviceI, cl_device_id Device,
     return Error;
   }
 
-  pocl_destroy_llvm_module(Module);
+  pocl_destroy_llvm_module(Module, ctx);
   return Error;
 }
 
-int pocl_update_program_llvm_irs_unlocked(cl_program program,
-                                          unsigned device_i) {
+/* Reads LLVM IR module from program->binaries[i], if prog_data->llvm_ir is
+ * NULL */
+int pocl_llvm_read_program_llvm_irs(cl_program program, unsigned device_i,
+                                    const char *program_bc_path) {
+  cl_context ctx = program->context;
+  PoclLLVMContextData *llvm_ctx = (PoclLLVMContextData *)ctx->llvm_context_data;
+  PoclCompilerMutexGuard lockHolder(&llvm_ctx->Lock);
+  cl_device_id dev = program->devices[device_i];
 
-  char program_bc_path[POCL_FILENAME_LENGTH];
-  pocl_cache_program_bc_path(program_bc_path, program, device_i);
+  if (program->llvm_irs[device_i] != nullptr)
+    return CL_SUCCESS;
 
-  if (!pocl_exists(program_bc_path))
-    {
-      POCL_MSG_ERR ("%s does not exist!\n",
-                     program_bc_path);
-      return -1;
-    }
-
-  assert(program->llvm_irs[device_i] == nullptr);
-  program->llvm_irs[device_i] = parseModuleIR(program_bc_path);
-  ++numberOfIRs;
-  return 0;
+  llvm::Module *M;
+  if (program->binaries[device_i])
+    M = parseModuleIRMem((char *)program->binaries[device_i],
+                         program->binary_sizes[device_i], llvm_ctx->Context);
+  else {
+    // TODO
+    assert(program_bc_path);
+    M = parseModuleIR(program_bc_path, llvm_ctx->Context);
+  }
+  assert(M);
+  program->llvm_irs[device_i] = M;
+  if (dev->program_scope_variables_pass)
+    parseModuleGVarSize(program, device_i, M);
+  ++llvm_ctx->number_of_IRs;
+  return CL_SUCCESS;
 }
 
-int pocl_update_program_llvm_irs(cl_program program,
-                                 unsigned device_i) {
-  PoclCompilerMutexGuard lockHolder(NULL);
-  InitializeLLVM();
+void pocl_llvm_free_llvm_irs(cl_program program, unsigned device_i) {
+  cl_context ctx = program->context;
+  PoclLLVMContextData *llvm_ctx = (PoclLLVMContextData *)ctx->llvm_context_data;
+  PoclCompilerMutexGuard lockHolder(&llvm_ctx->Lock);
 
-  return pocl_update_program_llvm_irs_unlocked(program, device_i);
-}
-
-void pocl_free_llvm_irs(cl_program program, unsigned device_i) {
   if (program->llvm_irs[device_i]) {
-    PoclCompilerMutexGuard lockHolder(NULL);
-    InitializeLLVM();
     llvm::Module *mod = (llvm::Module *)program->llvm_irs[device_i];
     delete mod;
-    --numberOfIRs;
-    program->llvm_irs[device_i] = NULL;
+    --llvm_ctx->number_of_IRs;
+    program->llvm_irs[device_i] = nullptr;
   }
 }
 
-void pocl_llvm_update_binaries(cl_program program) {
-
-  PoclCompilerMutexGuard lockHolder(NULL);
-  InitializeLLVM();
-
-  char program_bc_path[POCL_FILENAME_LENGTH];
-  int error;
-
-  // Dump the LLVM IR Modules to memory buffers.
-  assert(program->llvm_irs != NULL);
-#ifdef DEBUG_POCL_LLVM_API
-  printf("### refreshing the binaries of the program %p\n", program);
-#endif
-
-  for (size_t i = 0; i < program->num_devices; ++i) {
-    assert(program->llvm_irs[i] != NULL);
-    if (program->binaries[i])
-      continue;
-
-    pocl_cache_program_bc_path(program_bc_path, program, i);
-    error = pocl_write_module((llvm::Module *)program->llvm_irs[i],
-                              program_bc_path, 1);
-    assert(error == 0);
-    if (error)
-      {
-        POCL_MSG_ERR ("pocl_write_module(%s) failed!\n",
-                     program_bc_path);
-        continue;
-      }
-
-    std::string content;
-    writeModuleIR((llvm::Module *)program->llvm_irs[i], content);
-
-    size_t n = content.size();
-    if (n < program->binary_sizes[i])
-      POCL_ABORT("binary size doesn't match the expected value\n");
-    if (program->binaries[i])
-      POCL_MEM_FREE(program->binaries[i]);
-    program->binaries[i] = (unsigned char *)malloc(n);
-    std::memcpy(program->binaries[i], content.c_str(), n);
-
-#ifdef DEBUG_POCL_LLVM_API
-    printf("### binary for device %zi was of size %zu\n", i,
-           program->binary_sizes[i]);
-#endif
-  }
-}
 
 static void initPassManagerForCodeGen(PassManager& PM, cl_device_id Device) {
 
@@ -585,11 +873,12 @@ static void initPassManagerForCodeGen(PassManager& PM, cl_device_id Device) {
 /* Run LLVM codegen on input file (parallel-optimized).
  * modp = llvm::Module* of parallel.bc
  * Output native object file (<kernel>.so.o). */
-int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
-                      uint64_t *OutputSize) {
+int pocl_llvm_codegen(cl_device_id Device, cl_program program, void *Modp,
+                      char **Output, uint64_t *OutputSize) {
 
-  PoclCompilerMutexGuard LockHolder(nullptr);
-  InitializeLLVM();
+  cl_context ctx = program->context;
+  PoclLLVMContextData *llvm_ctx = (PoclLLVMContextData *)ctx->llvm_context_data;
+  PoclCompilerMutexGuard lockHolder(&llvm_ctx->Lock);
 
   llvm::Module *Input = (llvm::Module *)Modp;
   assert(Input);
@@ -605,10 +894,7 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
   llvm::raw_svector_ostream SOS(Data);
   bool cannotEmitFile;
 
-  cannotEmitFile = Target->addPassesToEmitFile(PMObj, SOS,
-#ifndef LLVM_OLDER_THAN_7_0
-                                  nullptr,
-#endif
+  cannotEmitFile = Target->addPassesToEmitFile(PMObj, SOS, nullptr,
                                   CODEGEN_FILE_TYPE_NS::CGFT_ObjectFile);
 
   // First try direct object code generation from LLVM, 
@@ -629,8 +915,8 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
 #ifdef DUMP_LLVM_PASS_TIMINGS
     llvm::reportAndResetTimings();
 #endif
-    std::string O = SOS.str(); // flush
-    const char *Cstr = O.c_str();
+    auto O = SOS.str(); // flush
+    const char *Cstr = O.data();
     size_t S = O.size();
     *Output = (char *)malloc(S);
     *OutputSize = S;
@@ -647,10 +933,7 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
   // Have to emit the text first and then call the assembler from the command line
   // to produce the binary.
 
-  if (Target->addPassesToEmitFile(PMAsm, SOS,
-#ifndef LLVM_OLDER_THAN_7_0
-                                  nullptr,
-#endif
+  if (Target->addPassesToEmitFile(PMAsm, SOS, nullptr,
                                   CODEGEN_FILE_TYPE_NS::CGFT_AssemblyFile)) {
     POCL_ABORT("The target supports neither obj nor asm emission!");
   }
@@ -667,8 +950,8 @@ int pocl_llvm_codegen(cl_device_id Device, void *Modp, char **Output,
   // Next call the target's assembler via the Toolchain API indirectly through
   // the Driver API.
 
-  char AsmFileName[POCL_FILENAME_LENGTH];
-  char ObjFileName[POCL_FILENAME_LENGTH];
+  char AsmFileName[POCL_MAX_PATHNAME_LENGTH];
+  char ObjFileName[POCL_MAX_PATHNAME_LENGTH];
 
   std::string AsmStr = SOS.str().str();
   pocl_write_tempfile(AsmFileName, "/tmp/pocl-asm", ".s", AsmStr.c_str(),

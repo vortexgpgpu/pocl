@@ -1,17 +1,18 @@
 /* OpenCL runtime library: clGetDeviceInfo()
 
    Copyright (c) 2011-2012 Kalle Raiskila and Pekka Jääskeläinen
-   
+                 2022-2023 Pekka Jääskeläinen / Intel Finland Oy
+
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
    in the Software without restriction, including without limitation the rights
    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
    copies of the Software, and to permit persons to whom the Software is
    furnished to do so, subject to the following conditions:
-   
+
    The above copyright notice and this permission notice shall be included in
    all copies or substantial portions of the Software.
-   
+
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -42,15 +43,6 @@
     POCL_WARN_INCOMPLETE ();                                                  \
   POCL_RETURN_GETINFO (__TYPE__, __VALUE__);
 
-#define STRINGIFY_(x) #x
-#define STRINGIFY(x) STRINGIFY_ (x)
-#define HOST_DEVICE_CL_VERSION_MAJOR_STR                                      \
-  STRINGIFY (HOST_DEVICE_CL_VERSION_MAJOR)
-#define HOST_DEVICE_CL_VERSION_MINOR_STR                                      \
-  STRINGIFY (HOST_DEVICE_CL_VERSION_MINOR)
-#define HOST_CL_VERSION                                                       \
-  "OpenCL C " HOST_DEVICE_CL_VERSION_MAJOR_STR                                \
-  "." HOST_DEVICE_CL_VERSION_MINOR_STR " pocl"
 
 CL_API_ENTRY cl_int CL_API_CALL
 POname(clGetDeviceInfo)(cl_device_id   device,
@@ -59,7 +51,7 @@ POname(clGetDeviceInfo)(cl_device_id   device,
                 void *         param_value,
                 size_t *       param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-  POCL_RETURN_ERROR_COND ((device == NULL), CL_INVALID_DEVICE);
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (device)), CL_INVALID_DEVICE);
 
   switch (param_name)
   {
@@ -74,22 +66,6 @@ POname(clGetDeviceInfo)(cl_device_id   device,
   case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS          :
     POCL_RETURN_GETINFO(cl_uint, device->max_work_item_dimensions);
   case CL_DEVICE_MAX_WORK_GROUP_SIZE               : 
-    /* There is no "preferred WG size" device query, so we probably should
-       return something more sensible than the CL_INT_MAX that seems
-       to be the default in the pthread device. It should be computed from 
-       the machine's vector width or issue width.
-
-       Some OpenCL programs (e.g. the Dijkstra book sample) seem to scale 
-       the work groups using this. 
-
-       There's a kernel query CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE
-       that can yield better heuristics for the good WG size and forms
-       a basis for a higher level performance portability layer.
-       
-       Basically the size is now limited by the absence of work item
-       loops. A huge unrolling factor explodes the instruction memory size (and
-       compilation time) with usually no benefits.
-    */
     {
       size_t max_wg_size = device->max_work_group_size;
       POCL_RETURN_GETINFO(size_t, max_wg_size);
@@ -150,6 +126,13 @@ POname(clGetDeviceInfo)(cl_device_id   device,
   case CL_DEVICE_MAX_SAMPLERS:
     POCL_RETURN_DEVICE_INFO_WITH_IMG_CHECK (cl_uint, device->max_samplers);
 
+  case CL_DEVICE_IMAGE_PITCH_ALIGNMENT:
+    /* Creating a 2D image from a buffer is not supported */
+    POCL_RETURN_GETINFO(cl_uint, 0);
+  case CL_DEVICE_IMAGE_BASE_ADDRESS_ALIGNMENT:
+    /* Creating a 2D image from a buffer is not supported */
+    POCL_RETURN_GETINFO(cl_uint, 0);
+
   case CL_DEVICE_MAX_PARAMETER_SIZE:
     POCL_RETURN_DEVICE_INFO_WITH_IMPL_CHECK(size_t, device->max_parameter_size);
   case CL_DEVICE_MEM_BASE_ADDR_ALIGN               :
@@ -186,15 +169,10 @@ POname(clGetDeviceInfo)(cl_device_id   device,
   case CL_DEVICE_COMPILER_AVAILABLE                :
     POCL_RETURN_GETINFO(cl_bool, device->compiler_available);
   case CL_DEVICE_LINKER_AVAILABLE                  :
-    /* TODO currently we return the same availability as the compiler,
-     * since if the compiler is available the linker MUST be available
-     * too. The only case where the linker and compiler availability can
-     * be different is when the linker is available and the compiler is not,
-     * which is not the case in pocl currently */
-    POCL_RETURN_GETINFO(cl_bool, device->compiler_available);
+    POCL_RETURN_GETINFO (cl_bool, device->linker_available);
   case CL_DEVICE_EXECUTION_CAPABILITIES            :
     POCL_RETURN_GETINFO(cl_device_exec_capabilities, device->execution_capabilities);
-   
+
   case CL_DEVICE_NAME:
     POCL_RETURN_GETINFO_STR(device->long_name);
    
@@ -245,10 +223,21 @@ POname(clGetDeviceInfo)(cl_device_id   device,
     POCL_RETURN_DEVICE_INFO_WITH_EXT_CHECK(cl_uint, device->native_vector_width_double, cl_khr_fp64);
   case CL_DEVICE_NATIVE_VECTOR_WIDTH_HALF          : 
     POCL_RETURN_DEVICE_INFO_WITH_EXT_CHECK(cl_uint, device->native_vector_width_half, cl_khr_fp16);
+  /* Returns a fixed (1.2) version for all devices. The spec says:
+   * .. highest fully backwards compatible OpenCL C version supported by
+   * the compiler. An OpenCL 3.0 device may return an OpenCL C version newer
+   * than OpenCL C 1.2 if and only if all optional OpenCL C features are
+   * supported by the device for the newer version.
+   *
+   * none of the PoCL devices have fully compatible 2.x compilers,
+   * and also in 3.0 this query is deprecated (there is a better solution). */
   case CL_DEVICE_OPENCL_C_VERSION                  :
-    POCL_RETURN_GETINFO_STR (HOST_CL_VERSION);
+    POCL_RETURN_GETINFO_STR ("OpenCL C 1.2 PoCL");
   case CL_DEVICE_BUILT_IN_KERNELS                  :
-    POCL_RETURN_GETINFO_STR("");
+    if (device->builtin_kernel_list)
+      POCL_RETURN_GETINFO_STR (device->builtin_kernel_list);
+    else
+      POCL_RETURN_GETINFO_STR ("");
 
   case CL_DEVICE_PARENT_DEVICE                     :
     POCL_RETURN_GETINFO(cl_device_id, device->parent_device);
@@ -302,28 +291,105 @@ POname(clGetDeviceInfo)(cl_device_id   device,
   case CL_DEVICE_QUEUE_ON_DEVICE_MAX_SIZE:
     POCL_RETURN_GETINFO(cl_uint, device->dev_queue_max_size);
   case CL_DEVICE_PREFERRED_GLOBAL_ATOMIC_ALIGNMENT:
-    POCL_RETURN_GETINFO(cl_uint, 0);
+    POCL_RETURN_GETINFO(cl_uint, 64);
   case CL_DEVICE_PREFERRED_LOCAL_ATOMIC_ALIGNMENT:
-    POCL_RETURN_GETINFO(cl_uint, 0);
+    POCL_RETURN_GETINFO(cl_uint, 64);
   case CL_DEVICE_PREFERRED_PLATFORM_ATOMIC_ALIGNMENT:
-    POCL_RETURN_GETINFO(cl_uint, 0);
-  case CL_DEVICE_SPIR_VERSIONS:
-    if (strstr (device->extensions, "cl_khr_spir"))
-      POCL_RETURN_GETINFO_STR ("1.2");
-    else
-      POCL_RETURN_GETINFO_STR ("");
+    POCL_RETURN_GETINFO(cl_uint, 64);
+
   case CL_DEVICE_QUEUE_ON_DEVICE_PROPERTIES:
     POCL_RETURN_GETINFO(cl_command_queue_properties, device->on_dev_queue_props);
   case CL_DEVICE_QUEUE_ON_HOST_PROPERTIES:
     POCL_RETURN_GETINFO(cl_command_queue_properties, device->on_host_queue_props);
-
   case CL_DEVICE_GLOBAL_VARIABLE_PREFERRED_TOTAL_SIZE:
     POCL_RETURN_GETINFO(size_t, device->global_var_pref_size);
   case CL_DEVICE_MAX_GLOBAL_VARIABLE_SIZE:
     POCL_RETURN_GETINFO(size_t, device->global_var_max_size);
+  case CL_DEVICE_SPIR_VERSIONS:
+    if (device->supported_spir_versions)
+      POCL_RETURN_GETINFO_STR (device->supported_spir_versions);
+    else
+      POCL_RETURN_GETINFO_STR ("");
   case CL_DEVICE_IL_VERSION:
-    POCL_RETURN_GETINFO_STR (device->spirv_version);
+    if (device->supported_spir_v_versions)
+      POCL_RETURN_GETINFO_STR (device->supported_spir_v_versions);
+    else
+      POCL_RETURN_GETINFO_STR ("");
+  case CL_DEVICE_MAX_NUM_SUB_GROUPS:
+    POCL_RETURN_GETINFO (cl_uint, device->max_num_sub_groups);
+  case CL_DEVICE_SUB_GROUP_INDEPENDENT_FORWARD_PROGRESS:
+    POCL_RETURN_GETINFO (cl_bool,
+                         device->sub_group_independent_forward_progress);
+
+  /** OpenCL 3.0 queries **/
+
+  case CL_DEVICE_ATOMIC_MEMORY_CAPABILITIES:
+    POCL_RETURN_GETINFO (cl_device_atomic_capabilities,
+                         device->atomic_memory_capabilities);
+  case CL_DEVICE_ATOMIC_FENCE_CAPABILITIES:
+    POCL_RETURN_GETINFO (cl_device_atomic_capabilities,
+                         device->atomic_fence_capabilities);
+  case CL_DEVICE_NON_UNIFORM_WORK_GROUP_SUPPORT:
+    POCL_RETURN_GETINFO (cl_bool, device->non_uniform_work_group_support);
+  case CL_DEVICE_WORK_GROUP_COLLECTIVE_FUNCTIONS_SUPPORT:
+    POCL_RETURN_GETINFO (cl_bool, CL_FALSE);
+  case CL_DEVICE_GENERIC_ADDRESS_SPACE_SUPPORT:
+    POCL_RETURN_GETINFO (cl_bool, device->generic_as_support);
+  case CL_DEVICE_DEVICE_ENQUEUE_CAPABILITIES:
+    POCL_RETURN_GETINFO (cl_uint, 0);
+  case CL_DEVICE_PIPE_SUPPORT:
+    POCL_RETURN_GETINFO (cl_bool, device->pipe_support);
+  case CL_DEVICE_PREFERRED_WORK_GROUP_SIZE_MULTIPLE:
+    POCL_RETURN_GETINFO (size_t, device->preferred_wg_size_multiple);
+  case CL_DEVICE_NUMERIC_VERSION:
+    POCL_RETURN_GETINFO (cl_version, device->version_as_cl);
+
+  case CL_DEVICE_LATEST_CONFORMANCE_VERSION_PASSED:
+    if (device->version_of_latest_passed_cts)
+      POCL_RETURN_GETINFO_STR (device->version_of_latest_passed_cts);
+    else
+      POCL_RETURN_GETINFO_STR ("");
+
+  case CL_DEVICE_EXTENSIONS_WITH_VERSION:
+    POCL_RETURN_GETINFO_ARRAY (cl_name_version,
+                               device->num_extensions_with_version,
+                               device->extensions_with_version);
+
+  case CL_DEVICE_ILS_WITH_VERSION:
+    POCL_RETURN_GETINFO_ARRAY (cl_name_version, device->num_ils_with_version,
+                               device->ils_with_version);
+
+  case CL_DEVICE_BUILT_IN_KERNELS_WITH_VERSION:
+    POCL_RETURN_GETINFO_ARRAY (cl_name_version, device->num_builtin_kernels,
+                               device->builtin_kernels_with_version);
+
+  case CL_DEVICE_OPENCL_C_ALL_VERSIONS:
+    POCL_RETURN_GETINFO_ARRAY (cl_name_version,
+                               device->num_opencl_c_with_version,
+                               device->opencl_c_with_version);
+
+  case CL_DEVICE_OPENCL_C_FEATURES:
+    POCL_RETURN_GETINFO_ARRAY (cl_name_version,
+                               device->num_opencl_features_with_version,
+                               device->opencl_features_with_version);
+
+  /** cl_khr_command_buffer queries **/
+  case CL_DEVICE_COMMAND_BUFFER_CAPABILITIES_KHR:
+    POCL_RETURN_GETINFO (
+        cl_device_command_buffer_capabilities_khr,
+        CL_COMMAND_BUFFER_CAPABILITY_KERNEL_PRINTF_KHR
+            | CL_COMMAND_BUFFER_CAPABILITY_SIMULTANEOUS_USE_KHR
+            | CL_COMMAND_BUFFER_CAPABILITY_OUT_OF_ORDER_KHR);
+
+  case CL_DEVICE_COMMAND_BUFFER_REQUIRED_QUEUE_PROPERTIES_KHR:
+    POCL_RETURN_GETINFO (cl_command_queue_properties, 0);
   }
+
+  if(device->ops->get_device_info_ext != NULL) {
+    return device->ops->get_device_info_ext(device, param_name, param_value_size,
+                                            param_value, param_value_size_ret);
+  }
+
   return CL_INVALID_VALUE;
 }
 POsym(clGetDeviceInfo)

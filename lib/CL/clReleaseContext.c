@@ -23,48 +23,94 @@
 */
 
 #include "devices/devices.h"
-#include "pocl_cl.h"
-#include "pocl_util.h"
+#include "pocl_runtime_config.h"
+
+#ifdef ENABLE_LLVM
+#include "pocl_llvm.h"
+#endif
 
 #include <unistd.h>
+
+extern unsigned long context_c;
 
 extern unsigned cl_context_count;
 extern pocl_lock_t pocl_context_handling_lock;
 
 CL_API_ENTRY cl_int CL_API_CALL
 POname(clReleaseContext)(cl_context context) CL_API_SUFFIX__VERSION_1_0
-{  
-  int new_refcount;
-  if (!context->valid)
-    {
-      POCL_MEM_FREE (context);
-      return CL_SUCCESS;
-    }
 
+{
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (context)), CL_INVALID_CONTEXT);
+
+  int new_refcount;
   POCL_LOCK (pocl_context_handling_lock);
 
-  POCL_MSG_PRINT_REFCOUNTS ("Release Context \n");
   POCL_RELEASE_OBJECT(context, new_refcount);
+  POCL_MSG_PRINT_REFCOUNTS ("Release Context %" PRId64 " (%p), Refcount: %d\n",
+                            context->id, context, new_refcount);
+
   if (new_refcount == 0)
     {
-      POCL_MSG_PRINT_REFCOUNTS ("Free Context %p\n", context);
-      /* The context holds references to all its memory objects, command-queues etc. Release the
+
+      VG_REFC_ZERO (context);
+
+      POCL_ATOMIC_DEC (context_c);
+
+      POCL_MSG_PRINT_REFCOUNTS ("Free Context %" PRId64 " (%p)\n", context->id,
+                                context);
+
+      /* The context holds references to all its devices,
+         memory objects, command-queues etc. Release the
          references and let the objects to get freed. */
       unsigned i;
-      /*for (i = 0; i < context->num_devices; ++i) {
-          POname(clReleaseDevice) (context->devices[i]);
-        }*/
-      POCL_MEM_FREE(context->devices);
-      POCL_MEM_FREE(context->properties);
+      for (i = 0; i < context->num_devices; ++i)
+        {
+          cl_device_id dev = context->devices[i];
+          if (context->default_queues && context->default_queues[i])
+            POname (clReleaseCommandQueue) (context->default_queues[i]);
+          if (dev->ops->free_context)
+            dev->ops->free_context (dev, context);
+        }
+
+
+      for (i = 0; i < context->num_create_devices; ++i)
+      {
+        POname (clReleaseDevice) (context->create_devices[i]);
+      }
+
+      POCL_MEM_FREE (context->create_devices);
+      POCL_MEM_FREE (context->default_queues);
+      POCL_MEM_FREE (context->devices);
+      POCL_MEM_FREE (context->properties);
 
       for (i = 0; i < NUM_OPENCL_IMAGE_TYPES; ++i)
         POCL_MEM_FREE (context->image_formats[i]);
+
+#ifdef ENABLE_LLVM
+      pocl_llvm_release_context (context);
+#endif
+
+      /* Fire any registered destructor callbacks */
+      context_destructor_callback_t *next_callback,
+          *callback = context->destructor_callbacks;
+      while (callback)
+        {
+          callback->pfn_notify (context, callback->user_data);
+          next_callback = callback->next;
+          free (callback);
+          callback = next_callback;
+        }
 
       POCL_DESTROY_OBJECT (context);
       POCL_MEM_FREE(context);
 
       /* see below on why we don't call uninit_devices here anymore */
       POCL_ATOMIC_DEC (cl_context_count);
+      --cl_context_count;
+    }
+  else
+    {
+      VG_REFC_NONZERO (context);
     }
 
   POCL_UNLOCK (pocl_context_handling_lock);
@@ -97,15 +143,22 @@ pocl_check_uninit_devices ()
   usleep (100000);
 #endif
 
-  POCL_LOCK (pocl_context_handling_lock);
-  int do_cleanup = (cl_context_count == 0);
-  POCL_UNLOCK (pocl_context_handling_lock);
+  pocl_event_tracing_finish ();
 
-  if (do_cleanup) {
-    POCL_MSG_PRINT_REFCOUNTS (
-        "Zero contexts left, calling pocl_uninit_devices\n");
-    pocl_uninit_devices ();
-  }
+  POCL_LOCK (pocl_context_handling_lock);
+  if (cl_context_count == 0)
+    {
+      POCL_MSG_PRINT_REFCOUNTS (
+          "Zero contexts left, calling pocl_uninit_devices\n");
+      pocl_uninit_devices ();
+#ifdef ENABLE_LLVM
+      UnInitializeLLVM ();
+#endif
+    }
+  else
+    POCL_MSG_ERR ("Contexts remaining!! \n");
+
+  POCL_UNLOCK (pocl_context_handling_lock);
 }
 
 

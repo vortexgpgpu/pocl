@@ -40,45 +40,88 @@
 
 #include "config.h"
 
+#include "pocl_export.h"
+
 #include "pocl_context.h"
 
 /* detects restrict, variadic macros etc */
 #include "pocl_compiler_features.h"
 
-#define POCL_FILENAME_LENGTH 1024
+/* The maximum file, directory and path name lengths. TODO: These should be
+   detected from the filesystem properties of the execution platform. */
+#define POCL_MAX_DIRNAME_LENGTH 255
+#define POCL_MAX_FILENAME_LENGTH (POCL_MAX_DIRNAME_LENGTH)
+#define POCL_MAX_PATHNAME_LENGTH 4096
 
-#define WORKGROUP_STRING_LENGTH 1024
+/* official Khronos ID */
+#ifndef CL_KHRONOS_VENDOR_ID_POCL
+#define CL_KHRONOS_VENDOR_ID_POCL 0x10006
+#endif
 
-typedef struct _mem_mapping mem_mapping_t;
+//#define WORKGROUP_STRING_LENGTH 1024
+
 /* represents a single buffer to host memory mapping */
-struct _mem_mapping {
-  void *host_ptr; /* the location of the mapped buffer chunk in the host memory */
-  size_t offset; /* offset to the beginning of the buffer */
+typedef struct mem_mapping
+{
+  void *host_ptr; /* the location of the mapped buffer chunk in the host memory
+                   */
+  size_t offset;  /* offset to the beginning of the buffer */
   size_t size;
-  mem_mapping_t *prev, *next;
-  /* This is required, because two clEnqueueMap() with the same buffer+size+offset,
-     will create two identical mappings in the buffer->mappings LL.
-     Without this flag, both corresponding clEnqUnmap()s will find
-     the same mapping (the first one in mappings LL), which will lead
+  struct mem_mapping *prev, *next;
+
+  /* This is required, because two clEnqueueMap() with the same
+     buffer+size+offset, will create two identical mappings in the
+     buffer->mappings LL. Without this flag, both corresponding clEnqUnmap()s
+     will find the same mapping (the first one in mappings LL), which will lead
      to memory double-free corruption later. */
-  long unmap_requested;
+  int unmap_requested;
+
   cl_map_flags map_flags;
   /* image mapping data */
   size_t origin[3];
   size_t region[3];
   size_t row_pitch;
   size_t slice_pitch;
-};
+} mem_mapping_t;
 
-/* memory identifier: id to point the global memory where memory resides
-                      + pointer to actual data */
-typedef struct _pocl_mem_identifier
+/* memory identifier:  */
+typedef struct pocl_mem_identifier
 {
-  int available; /* ... in this mem objs context */
-  int global_mem_id;
+  /* global-memory-specific pointer
+     to hardware resource that represents memory. This may be anything, but
+     must be non-NULL while the memory is actually allocated, and NULL when
+     it's not */
   void *mem_ptr;
-  void *image_data;
+
+  /* Content version tracking. Every write use (clEnqWriteBuffer,
+   * clMapBuffer(CL_MAP_WRITE), write_only image, read/write buffers as kernel
+   * args etc) increases the version; read uses do not. At command enqueue
+   * time, the last version across all global mems AND mem_host_ptr
+   * is found and migrated to the destination device's global mem.
+   *
+   * In theory, a simple bool of "valid/invalid could be used;
+   * the only difference is that version saves history
+   * (so we could in future do semi-intelligent memory GC, as in "i see the
+   * buffer on this device hasn't been used for 100 versions, i can free it").
+   */
+  uint64_t version;
+
+  /* Extra pointer for drivers to use for anything
+   *
+   * Currently CUDA uses it to track ALLOC_HOST_PTR allocations.
+   * Vulkan uses it to store host-mapped staging memory
+   */
+  void *extra_ptr;
+
+  /* Extra integer for drivers to use for anything
+   *
+   * Currently Vulkan uses it to track vulkan memory requirements
+   */
+  uint64_t extra;
+
 } pocl_mem_identifier;
+
+typedef char pixel_t[16];
 
 typedef struct _mem_destructor_callback mem_destructor_callback_t;
 /* represents a memory object destructor callback */
@@ -96,9 +139,8 @@ struct _build_program_callback
     void *user_data; /* user supplied data passed to callback function */
 };
 
-// Command Queue datatypes
-
-#define POCL_KERNEL_DIGEST_SIZE 16
+// same as SHA1_DIGEST_SIZE
+#define POCL_KERNEL_DIGEST_SIZE 20
 typedef uint8_t pocl_kernel_hash_t[POCL_KERNEL_DIGEST_SIZE];
 
 // clEnqueueNDRangeKernel
@@ -116,15 +158,21 @@ typedef struct
   int force_generic_wg_func;
   /* If set to 1, disallow "small grid" WG function specialization. */
   int force_large_grid_wg_func;
-  unsigned device_i;
 } _cl_command_run;
+
+// clEnqueueCommandBufferKHR
+typedef struct
+{
+  cl_command_buffer_khr buffer;
+} _cl_command_replay;
 
 // clEnqueueNativeKernel
 typedef struct
 {
   void *args;
   size_t cb_args;
-  void (*user_func)(void *);
+  void **arg_locs;
+  void(CL_CALLBACK *user_func) (void *);
 } _cl_command_native;
 
 // clEnqueueReadBuffer
@@ -150,6 +198,10 @@ typedef struct
 {
   pocl_mem_identifier *src_mem_id;
   pocl_mem_identifier *dst_mem_id;
+  pocl_mem_identifier *src_content_size_mem_id;
+  cl_mem src;
+  cl_mem src_content_size;
+  cl_mem dst;
   size_t src_offset;
   size_t dst_offset;
   size_t size;
@@ -188,6 +240,8 @@ typedef struct
 {
   pocl_mem_identifier *src_mem_id;
   pocl_mem_identifier *dst_mem_id;
+  cl_mem src;
+  cl_mem dst;
   size_t dst_origin[3];
   size_t src_origin[3];
   size_t region[3];
@@ -225,8 +279,10 @@ typedef struct
 typedef struct
 {
   pocl_mem_identifier *src_mem_id;
-  void *__restrict__ dst_host_ptr;
   pocl_mem_identifier *dst_mem_id;
+  void *__restrict__ dst_host_ptr;
+  cl_mem src;
+  cl_mem dst;
   size_t dst_offset;
   size_t origin[3];
   size_t region[3];
@@ -237,8 +293,10 @@ typedef struct
 typedef struct
 {
   pocl_mem_identifier *dst_mem_id;
-  const void *__restrict__ src_host_ptr;
   pocl_mem_identifier *src_mem_id;
+  const void *__restrict__ src_host_ptr;
+  cl_mem src;
+  cl_mem dst;
   size_t src_offset;
   size_t origin[3];
   size_t region[3];
@@ -250,6 +308,8 @@ typedef struct
 {
   pocl_mem_identifier *src_mem_id;
   pocl_mem_identifier *dst_mem_id;
+  cl_mem src;
+  cl_mem dst;
   size_t dst_origin[3];
   size_t src_origin[3];
   size_t region[3];
@@ -258,11 +318,12 @@ typedef struct
 /* clEnqueueFillImage */
 typedef struct
 {
+  pixel_t fill_pixel;
+  cl_uint4 orig_pixel;
+  size_t pixel_size;
   pocl_mem_identifier *mem_id;
   size_t origin[3];
   size_t region[3];
-  void *__restrict__ fill_pixel;
-  size_t pixel_size;
 } _cl_command_fill_image;
 
 /* clEnqueueMarkerWithWaitlist */
@@ -275,19 +336,27 @@ typedef struct
 /* clEnqueueBarrierWithWaitlist */
 typedef _cl_command_marker _cl_command_barrier;
 
+typedef enum pocl_migration_type_e {
+  ENQUEUE_MIGRATE_TYPE_NOP,
+  ENQUEUE_MIGRATE_TYPE_D2H,
+  ENQUEUE_MIGRATE_TYPE_H2D,
+  ENQUEUE_MIGRATE_TYPE_D2D
+} pocl_migration_type_t;
+
 /* clEnqueueMigrateMemObjects */
 typedef struct
 {
-  void *data;
-  size_t num_mem_objects;
-  cl_mem *mem_objects;
-  cl_device_id *source_devices;
+  pocl_migration_type_t type;
+  cl_device_id src_device;
+  pocl_mem_identifier *src_id;
+  pocl_mem_identifier *dst_id;
+  pocl_mem_identifier *mem_id;
 } _cl_command_migrate;
 
 typedef struct
 {
   void* data;
-  void* queue;
+  cl_command_queue queue;
   unsigned  num_svm_pointers;
   void  **svm_pointers;
   void (CL_CALLBACK  *pfn_free_func) ( cl_command_queue queue,
@@ -295,6 +364,13 @@ typedef struct
                                        void *svm_pointers[],
                                        void  *user_data);
 } _cl_command_svm_free;
+
+typedef struct
+{
+  unsigned num_svm_pointers;
+  size_t *sizes;
+  void **svm_pointers;
+} _cl_command_svm_migrate;
 
 typedef struct
 {
@@ -323,10 +399,18 @@ typedef struct
   size_t pattern_size;
 } _cl_command_svm_fill;
 
+typedef struct
+{
+  const void *ptr;
+  size_t size;
+  cl_mem_advice_intel advice;
+} _cl_command_svm_memadvise;
+
 typedef union
 {
   _cl_command_run run;
   _cl_command_native native;
+  _cl_command_replay replay;
 
   _cl_command_read read;
   _cl_command_write write;
@@ -353,9 +437,12 @@ typedef union
   _cl_command_svm_unmap svm_unmap;
   _cl_command_svm_cpy svm_memcpy;
   _cl_command_svm_fill svm_fill;
+  _cl_command_svm_migrate svm_migrate;
+
+  _cl_command_svm_memadvise mem_advise;
 } _cl_command_t;
 
-// one item in the command queue
+// one item in the command queue or command buffer
 typedef struct _cl_command_node _cl_command_node;
 struct _cl_command_node
 {
@@ -363,33 +450,45 @@ struct _cl_command_node
   cl_command_type type;
   _cl_command_node *next; // for linked-list storage
   _cl_command_node *prev;
-  cl_event event;
-  const cl_event *event_wait_list;
+  cl_int buffered;
+
+  /***
+   * Command buffers use sync points as a template for synchronizing commands
+   * within the buffer. Commands outside the buffer can't depend on sync points
+   * and individual commands in the buffer can't depend on events. Because this
+   * struct is used both for recorded and immediately enqueued commands, the
+   * two synchronization mechanisms are made mutually exclusive here.
+   * */
+  union
+  {
+    struct
+    {
+      cl_event event;
+    } event;
+    struct
+    {
+      cl_sync_point_khr sync_point;
+      cl_uint num_sync_points_in_wait_list;
+      cl_sync_point_khr *sync_point_wait_list;
+    } syncpoint;
+  } sync;
   cl_device_id device;
-  /* The index of the targeted device in the platform's device list. */
-  unsigned device_i;
+  /* The index of the targeted device in the **program** device list. */
+  unsigned program_device_i;
   cl_int ready;
+
+  /* fields needed by buffered commands only */
+
+  /* Which of the command queues in the command buffer's queue list
+   * this command was recorded for. */
+  cl_uint queue_idx;
+  /* List of buffers this command accesses, used for inserting migrations */
+  cl_uint memobj_count;
+  cl_mem *memobj_list;
+  char *readonly_flag_list;
 };
 
-#ifndef LLVM_10_0
-#define LLVM_OLDER_THAN_10_0 1
-
-#ifndef LLVM_9_0
-#define LLVM_OLDER_THAN_9_0 1
-
-#ifndef LLVM_8_0
-#define LLVM_OLDER_THAN_8_0 1
-
-#ifndef LLVM_7_0
-#define LLVM_OLDER_THAN_7_0 1
-
-#ifndef LLVM_6_0
-#define LLVM_OLDER_THAN_6_0 1
-
-#endif
-#endif
-#endif
-#endif
-#endif
+#define CLANG_MAJOR LLVM_MAJOR
+#include "_libclang_versions_checks.h"
 
 #endif /* POCL_H */

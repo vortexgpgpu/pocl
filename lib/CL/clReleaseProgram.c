@@ -24,7 +24,7 @@
 
 #include <string.h>
 
-#ifndef _MSC_VER
+#ifndef _WIN32
 #  include <unistd.h>
 #else
 #  include "vccompat.hpp"
@@ -36,89 +36,99 @@
 #include "pocl_llvm.h"
 #include "devices.h"
 
+extern unsigned long program_c;
+
 CL_API_ENTRY cl_int CL_API_CALL
 POname(clReleaseProgram)(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
   int new_refcount;
   unsigned i, j;
 
-  POCL_RETURN_ERROR_COND((program == NULL), CL_INVALID_PROGRAM);
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (program)), CL_INVALID_PROGRAM);
 
   POCL_RELEASE_OBJECT (program, new_refcount);
-  POCL_MSG_PRINT_REFCOUNTS ("Release program %p, new refcount: %d, kernel #: %zu \n", program, new_refcount, program->num_kernels);
+  POCL_MSG_PRINT_REFCOUNTS (
+      "Release Program %" PRId64 " (%p), Refcount: %d, Kernel #: %zu \n",
+      program->id, program, new_refcount, program->num_kernels);
 
   if (new_refcount == 0)
     {
+      VG_REFC_ZERO (program);
+
+      POCL_ATOMIC_DEC (program_c);
+
       cl_context context = program->context;
-      POCL_MSG_PRINT_REFCOUNTS ("Free program %p\n", program);
+      POCL_MSG_PRINT_REFCOUNTS ("Free Program %" PRId64 " (%p)\n", program->id,
+                                program);
+      TP_FREE_PROGRAM (context->id, program->id);
 
       /* there should be no kernels left when we're releasing the program */
       assert (program->kernels == NULL);
 
-      if (program->devices != program->context->devices)
+      for (i = 0; i < program->num_devices; ++i)
+        {
+          cl_device_id device = program->devices[i];
+          if (device->ops->free_program)
+            device->ops->free_program (device, program, i);
+        }
+
+      if (program->devices != program->context->devices
+          && program->devices != program->associated_devices)
         POCL_MEM_FREE(program->devices);
+      if (program->associated_devices != program->context->devices)
+        POCL_MEM_FREE (program->associated_devices);
 
       POCL_MEM_FREE(program->source);
 
       POCL_MEM_FREE (program->program_il);
+      POCL_MEM_FREE (program->spec_const_ids);
+      POCL_MEM_FREE (program->spec_const_is_set);
+      POCL_MEM_FREE (program->spec_const_sizes);
+      POCL_MEM_FREE (program->spec_const_values);
 
       POCL_MEM_FREE(program->binary_sizes);
       if (program->binaries)
-        for (i = 0; i < program->num_devices; ++i)
+        for (i = 0; i < program->associated_num_devices; ++i)
           POCL_MEM_FREE(program->binaries[i]);
       POCL_MEM_FREE(program->binaries);
 
       POCL_MEM_FREE(program->pocl_binary_sizes);
       if (program->pocl_binaries)
-        for (i = 0; i < program->num_devices; ++i)
+        for (i = 0; i < program->associated_num_devices; ++i)
           POCL_MEM_FREE(program->pocl_binaries[i]);
       POCL_MEM_FREE(program->pocl_binaries);
 
       pocl_cache_cleanup_cachedir(program);
 
       if (program->build_log)
-        for (i = 0; i < program->num_devices; ++i)
+        for (i = 0; i < program->associated_num_devices; ++i)
           POCL_MEM_FREE(program->build_log[i]);
       POCL_MEM_FREE(program->build_log);
 
-      if (program->num_kernels)
-        {
-          for (i = 0; i < program->num_kernels; i++)
-            {
-              pocl_kernel_metadata_t *meta = &program->kernel_meta[i];
-              POCL_MEM_FREE (meta->attributes);
-              POCL_MEM_FREE (meta->name);
-              for (j = 0; j < meta->num_args; ++j)
-                {
-                  POCL_MEM_FREE (meta->arg_info[j].name);
-                  POCL_MEM_FREE (meta->arg_info[j].type_name);
-                }
-              POCL_MEM_FREE (meta->arg_info);
-              if (meta->data != NULL)
-                for (j = 0; j < program->num_devices; ++j)
-                  if (meta->data[j] != NULL)
-                    meta->data[j] = NULL; // TODO free data in driver callback
-              POCL_MEM_FREE (meta->data);
-              POCL_MEM_FREE (meta->local_sizes);
-              POCL_MEM_FREE (meta->build_hash);
-            }
-          POCL_MEM_FREE (program->kernel_meta);
-        }
+      for (i = 0; i < program->num_kernels; i++)
+        pocl_free_kernel_metadata (program, i);
+      POCL_MEM_FREE (program->kernel_meta);
 
-      POCL_MEM_FREE(program->build_hash);
-      POCL_MEM_FREE(program->compiler_options);
+      POCL_MEM_FREE (program->build_hash);
+      POCL_MEM_FREE (program->compiler_options);
+      POCL_MEM_FREE (program->data);
+      POCL_MEM_FREE (program->global_var_total_size);
+      POCL_MEM_FREE (program->llvm_irs);
+      POCL_MEM_FREE (program->gvar_storage);
 
-#ifdef OCS_AVAILABLE
-      if (program->llvm_irs)
-        for (i = 0; i < program->num_devices; ++i)
-          pocl_free_llvm_irs (program, i);
-#endif
+      for (i = 0; i < program->num_builtin_kernels; ++i)
+        POCL_MEM_FREE (program->builtin_kernel_names[i]);
+      POCL_MEM_FREE (program->builtin_kernel_names);
+      POCL_MEM_FREE (program->concated_builtin_names);
 
-      POCL_MEM_FREE(program->llvm_irs);
       POCL_DESTROY_OBJECT (program);
-      POCL_MEM_FREE(program);
+      POCL_MEM_FREE (program);
 
       POname(clReleaseContext)(context);
+    }
+  else
+    {
+      VG_REFC_NONZERO (program);
     }
 
   return CL_SUCCESS;

@@ -21,11 +21,13 @@
    THE SOFTWARE.
 */
 
+#include "pocl_opencl.h"
+
 // Enable OpenCL C++ exceptions
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -180,15 +182,13 @@ main(void)
             cBuffer,
             (void *) output);
 
-        // There is no need to perform a finish on the final unmap
-        // or release any objects as this all happens implicitly with
-        // the C++ Wrapper API.
-	//
+        queue.finish();
+        platformList[0].unloadCompiler();
 
-        if (ok)
+        if (ok) {
+            std::cout << "OK" << std::endl;
             return EXIT_SUCCESS;
-        else
-            return EXIT_FAILURE;
+        }
     }
     catch (cl::Error &err) {
          std::cerr
@@ -198,9 +198,7 @@ main(void)
              << err.err()
              << ")"
              << std::endl;
-
-         return EXIT_FAILURE;
     }
 
-    return EXIT_SUCCESS;
+    return EXIT_FAILURE;
 }

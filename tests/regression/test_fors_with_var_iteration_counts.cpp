@@ -21,11 +21,13 @@
    THE SOFTWARE.
 */
 
+#include "pocl_opencl.h"
+
 // Enable OpenCL C++ exceptions
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -135,7 +137,11 @@ main(void)
             0,
             WORK_ITEMS * sizeof(int));
 
+        queue.finish();
+        platformList[0].unloadCompiler();
+
         // If the kernel compiler succeeds, we are happy for now.
+        std::cout << "OK" << std::endl;
         return EXIT_SUCCESS;
     } 
     catch (cl::Error &err) {
@@ -146,9 +152,7 @@ main(void)
              << err.err()
              << ")"
              << std::endl;
-
-         return EXIT_FAILURE;
     }
 
-    return EXIT_SUCCESS;
+    return EXIT_FAILURE;
 }

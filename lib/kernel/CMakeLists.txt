@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2014-2018 pocl developers
+#   Copyright (c) 2014-2022 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -50,6 +50,7 @@ ceil.cl
 clamp.cl
 clamp_int.cl
 clz.cl
+ctz.cl
 convert_type.cl
 copysign.cl
 cos.cl
@@ -74,13 +75,17 @@ fdim.cl
 floor.cl
 fma.cl
 fmax.cl
+fmax_common.cl
 fmin.cl
+fmin_common.cl
 fmod.cl
 fract.cl
+frexp.cl
 get_global_id.c
 get_global_offset.c
 get_global_size.c
 get_group_id.c
+get_linear_id.c
 get_local_id.c
 get_local_size.c
 get_num_groups.c
@@ -116,6 +121,7 @@ mad_sat.cl
 max.cl
 max_i.cl
 maxmag.cl
+modf.cl
 min.cl
 min_i.cl
 minmag.cl
@@ -151,6 +157,7 @@ printf_base.c
 radians.cl
 recip.cl
 remainder.cl
+remquo.cl
 rhadd.cl
 rint.cl
 rootn.cl
@@ -235,6 +242,7 @@ add_custom_command( OUTPUT "${CMAKE_BINARY_DIR}/kernellib_hash.h"
   DEPENDS ${KERNEL_BC_LIST}
       "${CMAKE_SOURCE_DIR}/include/_kernel.h"
       "${CMAKE_SOURCE_DIR}/include/_kernel_c.h"
+      "${CMAKE_SOURCE_DIR}/include/_libclang_versions_checks.h"
       "${CMAKE_SOURCE_DIR}/include/pocl_types.h"
   COMMENT "Generating SHA1 of all kernel libs..."
   VERBATIM)

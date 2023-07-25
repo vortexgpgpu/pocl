@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2015 pocl developers
+#   Copyright (c) 2020 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -66,9 +66,10 @@ endif()
 ExternalProject_Add(
   ${TS_NAME}
   PREFIX "${TS_BASEDIR}"
-  GIT_REPOSITORY "git://anongit.freedesktop.org/piglit"
+  GIT_REPOSITORY "https://gitlab.freedesktop.org/mesa/piglit.git"
+  GIT_TAG "main"
   CMAKE_ARGS
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
     "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -g -DCL_USE_DEPRECATED_OPENCL_1_2_APIS ${EXTRA_CFLAGS}"
     -DPIGLIT_BUILD_CL_TESTS=ON
     -DPIGLIT_BUILD_DMA_BUF_TESTS:BOOL=OFF
@@ -78,6 +79,7 @@ ExternalProject_Add(
     -DPIGLIT_BUILD_GLES3_TESTS=OFF
     -DPIGLIT_USE_WAFFLE=OFF
     -DPIGLIT_BUILD_GLX_TESTS=OFF
+    -DPIGLIT_BUILD_VK_TESTS=OFF
     "-DOPENCL_INCLUDE_PATH=${CMAKE_SOURCE_DIR}/include/"
     "-DOPENCL_opencl_LIBRARY:STRING=${OCL_LIBRARY}"
     ${EXTRA_ARGS}
@@ -258,9 +260,14 @@ set_tests_properties(
     LABELS "piglit")
 
 set_tests_properties(
-  piglit_cl_api_create_program_with_binary
-
+  # these fail with OpenCL 3.0,
+  # but work with 1.2
+  piglit_cl_api_create_command_queue
+  piglit_cl_api_get_command_queue_info
+  piglit_cl_api_get_device_info
+  piglit_cl_api_get_kernel_info
   PROPERTIES
-    WILL_FAIL 1)
+    DISABLED 1)
+
 
 endif()

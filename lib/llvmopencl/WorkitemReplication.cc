@@ -22,8 +22,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#define DEBUG_TYPE "workitem"
-
 #include <iostream>
 #include <map>
 #include <sstream>
@@ -43,6 +41,8 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ValueSymbolTable.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+
+#define DEBUG_TYPE "workitem"
 
 #include "WorkitemReplication.h"
 #include "Workgroup.h"
@@ -123,8 +123,6 @@ WorkitemReplication::ProcessFunction(Function &F)
   // Allocate space for workitem reference maps. Workitem 0 does
   // not need it.
   unsigned workitem_count = WGLocalSizeZ * WGLocalSizeY * WGLocalSizeX;
-
-  assert (workitem_count > 0);
 
   BasicBlockVector original_bbs;
   for (Function::iterator i = F.begin(), e = F.end(); i != e; ++i) {

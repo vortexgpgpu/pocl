@@ -1,7 +1,7 @@
 /* pocl_llvm_utils.cc: various helpers for pocl LLVM API.
 
    Copyright (c) 2013 Kalle Raiskila
-                 2013-2017 Pekka Jääskeläinen
+                 2013-2020 Pekka Jääskeläinen
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -23,9 +23,12 @@
 */
 
 #include "config.h"
-#include "pocl_runtime_config.h"
-#include "pocl_llvm_api.h"
 #include "pocl_debug.h"
+#include "pocl_file_util.h"
+#include "pocl_llvm.h"
+#include "pocl_llvm_api.h"
+#include "pocl_runtime_config.h"
+#include <unistd.h>
 
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
@@ -38,10 +41,11 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/Signals.h>
 
-#include <llvm/IR/Module.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/DiagnosticPrinter.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/DiagnosticInfo.h>
+#include <llvm/IR/DiagnosticPrinter.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
 
 #include <llvm/Target/TargetMachine.h>
 
@@ -56,49 +60,73 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include <llvm/IR/LegacyPassManager.h>
 #define PassManager legacy::PassManager
 
-#ifndef LLVM_OLDER_THAN_10_0
-  #include <llvm/InitializePasses.h>
-  #include <llvm/Support/CommandLine.h>
-#endif
+#include <llvm/InitializePasses.h>
+#include <llvm/Support/CommandLine.h>
+#include <llvm-c/Core.h>
 
 using namespace llvm;
 
 #include <string>
 #include <map>
 
-llvm::Module *parseModuleIR(const char *path) {
+llvm::Module *parseModuleIR(const char *path, llvm::LLVMContext *c) {
   SMDiagnostic Err;
-  return parseIRFile(path, Err, GlobalContext()).release();
+  return parseIRFile(path, Err, *c).release();
 }
 
+void parseModuleGVarSize(cl_program program, unsigned device_i,
+                         llvm::Module *ProgramBC) {
 
-void writeModuleIR(const Module *mod, std::string &str) {
-  llvm::raw_string_ostream sos(str);
-#ifdef LLVM_OLDER_THAN_7_0
-  WriteBitcodeToFile(mod, sos);
-#else
+  unsigned long TotalGVarBytes = 0;
+  if (!getModuleIntMetadata(*ProgramBC, PoclGVarMDName, TotalGVarBytes))
+    return;
+
+  if (TotalGVarBytes) {
+    if (program->global_var_total_size[device_i])
+      assert(program->global_var_total_size[device_i] == TotalGVarBytes);
+    else
+      program->global_var_total_size[device_i] = TotalGVarBytes;
+    POCL_MSG_PRINT_LLVM("Total Global Variable Bytes: %zu\n", TotalGVarBytes);
+  }
+}
+
+void writeModuleIRtoString(const llvm::Module *mod, std::string& dest) {
+  llvm::raw_string_ostream sos(dest);
   WriteBitcodeToFile(*mod, sos);
-#endif
   sos.str(); // flush
 }
 
-llvm::Module *parseModuleIRMem(const char *input_stream, size_t size) {
+int pocl_write_module(void *module, const char *path, int dont_rewrite) {
+  assert(module);
+  assert(path);
+
+  std::string binary;
+  writeModuleIRtoString((const Module *)module, binary);
+
+  return pocl_write_file(path, binary.data(), (uint64_t)binary.size(), 0,
+                         dont_rewrite);
+}
+
+llvm::Module *parseModuleIRMem(const char *input_stream, size_t size,
+                               llvm::LLVMContext *c) {
   StringRef input_stream_ref(input_stream, size);
   std::unique_ptr<MemoryBuffer> buffer =
       MemoryBuffer::getMemBufferCopy(input_stream_ref);
 
-  auto parsed_module =
-      parseBitcodeFile(buffer->getMemBufferRef(), GlobalContext());
+  auto parsed_module = parseBitcodeFile(buffer->getMemBufferRef(), *c);
   if (!parsed_module)
     return nullptr;
   return parsed_module.get().release();
 }
 
-int getModuleTriple(const char *input_stream, size_t size,
-                    std::string &triple) {
+static int getModuleTriple(const char *input_stream, size_t size,
+                           std::string &triple) {
   StringRef input_stream_ref(input_stream, size);
   std::unique_ptr<MemoryBuffer> buffer =
       MemoryBuffer::getMemBufferCopy(input_stream_ref);
+  if (!isBitcode((const unsigned char*)input_stream,
+                 (const unsigned char*)input_stream+size))
+    return -1;
 
   auto triple_e = getBitcodeTargetTriple(buffer->getMemBufferRef());
   if (!triple_e)
@@ -107,13 +135,16 @@ int getModuleTriple(const char *input_stream, size_t size,
   return 0;
 }
 
-char *
-get_llvm_cpu_name ()
-{
+
+char *pocl_get_llvm_cpu_name() {
   StringRef r = llvm::sys::getHostCPUName();
 
+  // LLVM may return an empty string -- treat as generic
+  if (r.empty())
+    r = "generic";
+
 #ifndef KERNELLIB_HOST_DISTRO_VARIANTS
-  if (r.str() == "generic") {
+  if (r.str() == "generic" && strlen(OCL_KERNEL_TARGET_CPU)) {
     POCL_MSG_WARN("LLVM does not recognize your cpu, trying to use "
                    OCL_KERNEL_TARGET_CPU " for -target-cpu\n");
     r = llvm::StringRef(OCL_KERNEL_TARGET_CPU);
@@ -127,39 +158,12 @@ get_llvm_cpu_name ()
   return cpu_name;
 }
 
-int bitcode_is_spir(const char *bitcode, size_t size) {
-  std::string triple;
-  int err = getModuleTriple(bitcode, size, triple);
-  if (!err)
-    return triple.find("spir") == 0;
+int bitcode_is_triple(const char *bitcode, size_t size, const char *triple) {
+  std::string Triple;
+  if (getModuleTriple(bitcode, size, Triple) == 0)
+    return Triple.find(triple) != std::string::npos;
   else
     return 0;
-}
-
-#define SPIRV_MAGIC 0x07230203U
-#define OpCapab 0x00020011
-#define KernelExecModel 0x6
-
-int bitcode_is_spirv(const char *bitcode, size_t size, int *is_opencl) {
-  const uint32_t *bc32 = (const uint32_t *)bitcode;
-  unsigned loc = 0;
-  uint32_t magic = htole32(bc32[loc++]);
-
-  if ((size < 20) || (magic != SPIRV_MAGIC))
-    return 0;
-
-  // skip version, generator, bound, schema
-  loc += 4;
-  *is_opencl = 0;
-  uint32_t ins, val;
-  do {
-    ins = htole32(bc32[loc++]);
-    val = htole32(bc32[loc++]);
-    if (val == KernelExecModel)
-      *is_opencl = 1;
-  } while (ins == OpCapab);
-
-  return 1;
 }
 
 // TODO this should be fixed to not require LLVM eventually,
@@ -167,8 +171,7 @@ int bitcode_is_spirv(const char *bitcode, size_t size, int *is_opencl) {
 int cpu_has_fma() {
   StringMap<bool> features;
   bool res = llvm::sys::getHostCPUFeatures(features);
-  assert(res);
-  return ((features["fma"] || features["fma4"]) ? 1 : 0);
+  return ((res && (features["fma"] || features["fma4"])) ? 1 : 0);
 }
 
 #define VECWIDTH(x)                                                            \
@@ -177,14 +180,15 @@ int cpu_has_fma() {
 void cpu_setup_vector_widths(cl_device_id dev) {
   StringMap<bool> features;
   bool res = llvm::sys::getHostCPUFeatures(features);
-  assert(res);
   unsigned lane_width = 1;
-  if ((features["sse"]) || (features["neon"]))
-    lane_width = 16;
-  if (features["avx"])
-    lane_width = 32;
-  if (features["avx512f"])
-    lane_width = 64;
+  if (res) {
+    if ((features["sse"]) || (features["neon"]))
+      lane_width = 16;
+    if (features["avx"])
+      lane_width = 32;
+    if (features["avx512f"])
+      lane_width = 64;
+  }
 
   dev->native_vector_width_char = dev->preferred_vector_width_char =
       VECWIDTH(cl_char);
@@ -196,19 +200,19 @@ void cpu_setup_vector_widths(cl_device_id dev) {
       VECWIDTH(cl_long);
   dev->native_vector_width_float = dev->preferred_vector_width_float =
       VECWIDTH(float);
-#ifdef _CL_DISABLE_DOUBLE
-  dev->native_vector_width_double = dev->preferred_vector_width_double = 0;
-#else
-  dev->native_vector_width_double = dev->preferred_vector_width_double =
-      VECWIDTH(double);
-#endif
+  if (strstr(HOST_DEVICE_EXTENSIONS, "cl_khr_fp64") == NULL) {
+    dev->native_vector_width_double = dev->preferred_vector_width_double = 0;
+  } else {
+    dev->native_vector_width_double = dev->preferred_vector_width_double =
+        VECWIDTH(double);
+  }
 
-#ifdef _CL_DISABLE_HALF
-  dev->native_vector_width_half = dev->preferred_vector_width_half = 0;
-#else
-  dev->native_vector_width_half = dev->preferred_vector_width_half =
-      VECWIDTH(cl_short);
-#endif
+  if (strstr(HOST_DEVICE_EXTENSIONS, "cl_khr_fp16") == NULL) {
+    dev->native_vector_width_half = dev->preferred_vector_width_half = 0;
+  } else {
+    dev->native_vector_width_half = dev->preferred_vector_width_half =
+        VECWIDTH(cl_short);
+  }
 }
 
 int pocl_llvm_remove_file_on_signal(const char *file) {
@@ -225,155 +229,350 @@ int pocl_llvm_remove_file_on_signal(const char *file) {
  * Freeing/deleting the context crashes LLVM 3.2 (at program exit), as a
  * work-around, allocate this from heap.
  */
-static LLVMContext *globalContext = NULL;
-static bool LLVMInitialized = false;
 
-static std::string poclDiagString;
-static llvm::raw_string_ostream poclDiagStream(poclDiagString);
-static DiagnosticPrinterRawOStream poclDiagPrinter(poclDiagStream);
-
-static void diagHandler(const DiagnosticInfo &DI, void *Context) {
-  DI.print(poclDiagPrinter);
+static void diagHandler(LLVMDiagnosticInfoRef DI, void *diagprinter) {
+  assert(diagprinter);
+  DiagnosticPrinterRawOStream *poclDiagPrinter =
+      (DiagnosticPrinterRawOStream *)diagprinter;
+  unwrap(DI)->print(*poclDiagPrinter);
 }
 
-std::string getDiagString() {
-  poclDiagStream.flush();
-  std::string ret(std::move(poclDiagString));
-  poclDiagString.clear();
+std::string getDiagString(cl_context ctx) {
+  PoclLLVMContextData *llvm_ctx = (PoclLLVMContextData *)ctx->llvm_context_data;
+
+  llvm_ctx->poclDiagStream->flush();
+  std::string ret(*llvm_ctx->poclDiagString);
+  llvm_ctx->poclDiagString->clear();
   return ret;
 }
 
-llvm::LLVMContext &GlobalContext() {
-  if (globalContext == NULL) {
-    globalContext = new LLVMContext();
-#ifdef LLVM_OLDER_THAN_6_0
-    globalContext->setDiagnosticHandler(diagHandler, globalContext);
-#else
-    globalContext->setDiagnosticHandlerCallBack(diagHandler, globalContext);
-#endif
-  }
-  return *globalContext;
-}
 
 /* The LLVM API interface functions are not at the moment not thread safe,
  * Pocl needs to ensure only one thread is using this layer at the time.
  */
-static pocl_lock_t kernelCompilerLock = POCL_LOCK_INITIALIZER;
-
-PoclCompilerMutexGuard::PoclCompilerMutexGuard(void *unused) {
-  POCL_LOCK(kernelCompilerLock);
+PoclCompilerMutexGuard::PoclCompilerMutexGuard(pocl_lock_t *ptr) {
+  lock = ptr;
+  POCL_LOCK(*lock);
 }
 
-PoclCompilerMutexGuard::~PoclCompilerMutexGuard() {
-  POCL_UNLOCK(kernelCompilerLock);
-}
+PoclCompilerMutexGuard::~PoclCompilerMutexGuard() { POCL_UNLOCK(*lock); }
 
-std::string currentWgMethod;
+std::string CurrentWgMethod;
+
+static bool LLVMInitialized = false;
+static bool LLVMOptionsInitialized = false;
 
 /* must be called with kernelCompilerLock locked */
 void InitializeLLVM() {
 
-  if (LLVMInitialized)
-    return;
-  // We have not initialized any pass managers for any device yet.
-  // Run the global LLVM pass initialization functions.
-  InitializeAllTargets();
-  InitializeAllTargetMCs();
-  InitializeAllAsmPrinters();
-  InitializeAllAsmParsers();
+  if (!LLVMInitialized) {
 
-  PassRegistry &Registry = *PassRegistry::getPassRegistry();
+    LLVMInitialized = true;
+    // We have not initialized any pass managers for any device yet.
+    // Run the global LLVM pass initialization functions.
+    InitializeAllTargets();
+    InitializeAllTargetMCs();
+    InitializeAllAsmPrinters();
+    InitializeAllAsmParsers();
 
-  initializeCore(Registry);
-  initializeScalarOpts(Registry);
-  initializeVectorization(Registry);
-  initializeIPO(Registry);
-  initializeAnalysis(Registry);
-  initializeTransformUtils(Registry);
-  initializeInstCombine(Registry);
-  initializeInstrumentation(Registry);
-  initializeTarget(Registry);
+    PassRegistry &Registry = *PassRegistry::getPassRegistry();
 
-// Set the options only once. TODO: fix it so that each
-// device can reset their own options. Now one cannot compile
-// with different options to different devices at one run.
+    initializeCore(Registry);
+    initializeScalarOpts(Registry);
+    initializeVectorization(Registry);
+    initializeIPO(Registry);
+    initializeAnalysis(Registry);
+    initializeTransformUtils(Registry);
+    initializeInstCombine(Registry);
+#ifdef LLVM_OLDER_THAN_16_0
+    initializeInstrumentation(Registry);
+#endif
+    initializeTarget(Registry);
+  }
 
-  StringMap<llvm::cl::Option *> &opts = llvm::cl::getRegisteredOptions();
+  // Set the options only once. TODO: fix it so that each
+  // device can reset their own options. Now one cannot compile
+  // with different options to different devices at one run.
 
-  llvm::cl::Option *O = nullptr;
+  if (!LLVMOptionsInitialized) {
 
-  currentWgMethod = pocl_get_string_option("POCL_WORK_GROUP_METHOD", "loopvec");
+    LLVMOptionsInitialized = true;
 
-  if (currentWgMethod == "loopvec") {
+    StringMap<llvm::cl::Option *> &opts = llvm::cl::getRegisteredOptions();
 
-    O = opts["scalarize-load-store"];
-    assert(O && "could not find LLVM option 'scalarize-load-store'");
-    O->addOccurrence(1, StringRef("scalarize-load-store"), StringRef("1"),
-                     false);
+    llvm::cl::Option *O = nullptr;
 
-    // LLVM inner loop vectorizer does not check whether the loop inside
-    // another loop, in which case even a small trip count loops might be
-    // worthwhile to vectorize.
-    O = opts["vectorizer-min-trip-count"];
-    assert(O && "could not find LLVM option 'vectorizer-min-trip-count'");
-    O->addOccurrence(1, StringRef("vectorizer-min-trip-count"), StringRef("2"),
-                     false);
+    CurrentWgMethod =
+        pocl_get_string_option("POCL_WORK_GROUP_METHOD", "loopvec");
+    if (CurrentWgMethod == "auto")
+      CurrentWgMethod = "loopvec";
 
-    if (pocl_get_bool_option("POCL_VECTORIZER_REMARKS", 0) == 1) {
-      // Enable diagnostics from the loop vectorizer.
-      O = opts["pass-remarks-missed"];
-      assert(O && "could not find LLVM option 'pass-remarks-missed'");
-      O->addOccurrence(1, StringRef("pass-remarks-missed"),
-                       StringRef("loop-vectorize"), false);
+    if (CurrentWgMethod == "loopvec" || CurrentWgMethod == "loops" ||
+        CurrentWgMethod == "cbs") {
 
-      O = opts["pass-remarks-analysis"];
-      assert(O && "could not find LLVM option 'pass-remarks-analysis'");
-      O->addOccurrence(1, StringRef("pass-remarks-analysis"),
-                       StringRef("loop-vectorize"), false);
+      O = opts["scalarize-load-store"];
+      assert(O && "could not find LLVM option 'scalarize-load-store'");
+      O->addOccurrence(1, StringRef("scalarize-load-store"), StringRef("1"),
+                       false);
 
-      O = opts["pass-remarks"];
-      assert(O && "could not find LLVM option 'pass-remarks'");
-      O->addOccurrence(1, StringRef("pass-remarks"),
-                       StringRef("loop-vectorize"), false);
+      // LLVM inner loop vectorizer does not check whether the loop inside
+      // another loop, in which case even a small trip count loops might be
+      // worthwhile to vectorize.
+      O = opts["vectorizer-min-trip-count"];
+      assert(O && "could not find LLVM option 'vectorizer-min-trip-count'");
+      O->addOccurrence(1, StringRef("vectorizer-min-trip-count"),
+                       StringRef("2"), false);
+
+      // Disable jump threading optimization with following two options from
+      // duplicating blocks. Using jump threading will mess up parallel region
+      // construction especially when kernel contains barriers.
+      // TODO: If enabled then parallel region construction code needs
+      // improvements and make sure it doesn't disallow other optimizations like
+      // vectorization.
+      O = opts["jump-threading-threshold"];
+      assert(O && "could not find LLVM option 'jump-threading-threshold'");
+      O->addOccurrence(1, StringRef("jump-threading-threshold"), StringRef("0"),
+                       false);
+      O = opts["jump-threading-implication-search-threshold"];
+      assert(O && "could not find LLVM option "
+                  "'jump-threading-implication-search-threshold'");
+      O->addOccurrence(1,
+                       StringRef("jump-threading-implication-search-threshold"),
+                       StringRef("0"), false);
+
+      if (pocl_get_bool_option("POCL_VECTORIZER_REMARKS", 0) == 1) {
+        // Enable diagnostics from the loop vectorizer.
+        O = opts["pass-remarks-missed"];
+        assert(O && "could not find LLVM option 'pass-remarks-missed'");
+        O->addOccurrence(1, StringRef("pass-remarks-missed"),
+                         StringRef("loop-vectorize"), false);
+
+        O = opts["pass-remarks-analysis"];
+        assert(O && "could not find LLVM option 'pass-remarks-analysis'");
+        O->addOccurrence(1, StringRef("pass-remarks-analysis"),
+                         StringRef("loop-vectorize"), false);
+
+        O = opts["pass-remarks"];
+        assert(O && "could not find LLVM option 'pass-remarks'");
+        O->addOccurrence(1, StringRef("pass-remarks"),
+                         StringRef("loop-vectorize"), false);
+      }
     }
+    if (pocl_get_bool_option("POCL_DEBUG_LLVM_PASSES", 0) == 1) {
+      O = opts["debug"];
+      assert(O && "could not find LLVM option 'debug'");
+      O->addOccurrence(1, StringRef("debug"), StringRef("true"), false);
+    }
+#if LLVM_MAJOR == 9
+    O = opts["unroll-threshold"];
+    assert(O && "could not find LLVM option 'unroll-threshold'");
+    O->addOccurrence(1, StringRef("unroll-threshold"), StringRef("1"), false);
+#endif
   }
-  if (pocl_get_bool_option("POCL_DEBUG_LLVM_PASSES", 0) == 1) {
-    O = opts["debug"];
-    assert(O && "could not find LLVM option 'debug'");
-    O->addOccurrence(1, StringRef("debug"), StringRef("true"), false);
-  }
-
-  O = opts["unroll-threshold"];
-  assert(O && "could not find LLVM option 'unroll-threshold'");
-  O->addOccurrence(1, StringRef("unroll-threshold"), StringRef("1"), false);
-
-  LLVMInitialized = true;
 }
 
+/* re-initialization causes errors like this:
+clang: for the   --scalarize-load-store option: may only occur zero or one
+times! clang: for the   --vectorizer-min-trip-count option: may only occur zero
+or one times! clang: for the   --unroll-threshold option: may only occur zero or
+one times!
+*/
 
-// TODO FIXME currently pocl_llvm_release() only works when
-// there are zero programs with IRs, because
-// programs hold references to LLVM IRs
-long numberOfIRs = 0;
-
-void pocl_llvm_release() {
-
-  PoclCompilerMutexGuard lockHolder(NULL);
-
-  assert(numberOfIRs >= 0);
-
-  if (numberOfIRs > 0) {
-    POCL_MSG_PRINT_LLVM("still have references to IRs - not releasing LLVM\n");
-    return;
-  } else {
-    POCL_MSG_PRINT_LLVM("releasing LLVM\n");
-  }
-
+void UnInitializeLLVM() {
   clearKernelPasses();
   clearTargetMachines();
-  cleanKernelLibrary();
-
-  delete globalContext;
-  globalContext = nullptr;
   LLVMInitialized = false;
+}
+
+#define GLOBAL_LLVM_CONTEXT
+
+#ifdef GLOBAL_LLVM_CONTEXT
+static PoclLLVMContextData *GlobalLLVMContext = nullptr;
+static unsigned GlobalLLVMContextRefcount = 0;
+#endif
+
+void pocl_llvm_create_context(cl_context ctx) {
+
+#ifdef GLOBAL_LLVM_CONTEXT
+  if (GlobalLLVMContext != nullptr) {
+    ctx->llvm_context_data = GlobalLLVMContext;
+    ++GlobalLLVMContextRefcount;
+    return;
+  }
+#endif
+
+  PoclLLVMContextData *data = new PoclLLVMContextData;
+  assert(data);
+
+  data->Context = new llvm::LLVMContext();
+  assert(data->Context);
+#if (CLANG_MAJOR == 15) || (CLANG_MAJOR == 16)
+#ifdef LLVM_OPAQUE_POINTERS
+  data->Context->setOpaquePointers(true);
+#else
+  data->Context->setOpaquePointers(false);
+#endif
+#endif
+  data->number_of_IRs = 0;
+  data->poclDiagString = new std::string;
+  data->poclDiagStream = new llvm::raw_string_ostream(*data->poclDiagString);
+  data->poclDiagPrinter =
+      new DiagnosticPrinterRawOStream(*data->poclDiagStream);
+
+  data->kernelLibraryMap = new kernelLibraryMapTy;
+  assert(data->kernelLibraryMap);
+  POCL_INIT_LOCK(data->Lock);
+
+  LLVMContextSetDiagnosticHandler(wrap(data->Context),
+                                  (LLVMDiagnosticHandler)diagHandler,
+                                  (void *)data->poclDiagPrinter);
+  assert(ctx->llvm_context_data == nullptr);
+  ctx->llvm_context_data = data;
+#ifdef GLOBAL_LLVM_CONTEXT
+  GlobalLLVMContext = data;
+  ++GlobalLLVMContextRefcount;
+#endif
+
+  POCL_MSG_PRINT_LLVM("Created context %" PRId64 " (%p)\n", ctx->id, ctx);
+}
+
+void pocl_llvm_release_context(cl_context ctx) {
+
+  POCL_MSG_PRINT_LLVM("releasing LLVM context\n");
+
+#ifdef GLOBAL_LLVM_CONTEXT
+  --GlobalLLVMContextRefcount;
+  if (GlobalLLVMContextRefcount > 0)
+    return;
+#endif
+
+  PoclLLVMContextData *data = (PoclLLVMContextData *)ctx->llvm_context_data;
+  assert(data);
+
+  if (data->number_of_IRs > 0) {
+    POCL_ABORT("still have references to IRs - can't release LLVM context !\n");
+  }
+
+  delete data->poclDiagPrinter;
+  delete data->poclDiagStream;
+  delete data->poclDiagString;
+
+  assert(data->kernelLibraryMap);
+  // void cleanKernelLibrary(cl_context ctx) {
+  for (auto i = data->kernelLibraryMap->begin(),
+            e = data->kernelLibraryMap->end();
+       i != e; ++i) {
+    delete (llvm::Module *)i->second;
+  }
+  data->kernelLibraryMap->clear();
+  delete data->kernelLibraryMap;
+  POCL_DESTROY_LOCK(data->Lock);
+
+  delete data->Context;
+  delete data;
+  ctx->llvm_context_data = nullptr;
+#ifdef GLOBAL_LLVM_CONTEXT
+  GlobalLLVMContext = nullptr;
+#endif
+}
+
+#define POCL_METADATA_ROOT "pocl_meta"
+
+void setModuleIntMetadata(llvm::Module *mod, const char *key, unsigned long data) {
+
+  llvm::Metadata *meta[] = {MDString::get(mod->getContext(), key),
+                            llvm::ConstantAsMetadata::get(ConstantInt::get(
+                                Type::getInt64Ty(mod->getContext()), data))};
+
+  MDNode *MD = MDNode::get(mod->getContext(), meta);
+
+  NamedMDNode *Root = mod->getOrInsertNamedMetadata(POCL_METADATA_ROOT);
+  Root->addOperand(MD);
+}
+
+void setModuleStringMetadata(llvm::Module *mod, const char *key,
+                             const char *data) {
+  llvm::Metadata *meta[] = {MDString::get(mod->getContext(), key),
+                            MDString::get(mod->getContext(), data)};
+
+  MDNode *MD = MDNode::get(mod->getContext(), meta);
+
+  NamedMDNode *Root = mod->getOrInsertNamedMetadata(POCL_METADATA_ROOT);
+  Root->addOperand(MD);
+}
+
+void setModuleBoolMetadata(llvm::Module *mod, const char *key, bool data) {
+  llvm::Metadata *meta[] = {
+      MDString::get(mod->getContext(), key),
+      llvm::ConstantAsMetadata::get(
+          ConstantInt::get(Type::getInt8Ty(mod->getContext()), data ? 1 : 0))};
+
+  MDNode *MD = MDNode::get(mod->getContext(), meta);
+
+  NamedMDNode *Root = mod->getOrInsertNamedMetadata(POCL_METADATA_ROOT);
+  Root->addOperand(MD);
+}
+
+bool getModuleIntMetadata(const llvm::Module &mod, const char *key,
+                          unsigned long &data) {
+  NamedMDNode *Root = mod.getNamedMetadata(POCL_METADATA_ROOT);
+  if (!Root)
+    return false;
+
+  bool found = false;
+
+  for (size_t i = 0; i < Root->getNumOperands(); ++i) {
+    MDNode *MD = Root->getOperand(i);
+
+    Metadata *KeyMD = MD->getOperand(0);
+    assert(KeyMD);
+    MDString *Key = dyn_cast<MDString>(KeyMD);
+    assert(Key);
+    if (Key->getString().compare(key) != 0)
+      continue;
+
+    Metadata *ValueMD = MD->getOperand(1);
+    assert(ValueMD);
+    ConstantInt *CI = mdconst::extract<ConstantInt>(ValueMD);
+    data = CI->getZExtValue();
+    found = true;
+  }
+  return found;
+}
+
+bool getModuleStringMetadata(const llvm::Module &mod, const char *key,
+                             std::string &data) {
+  NamedMDNode *Root = mod.getNamedMetadata(POCL_METADATA_ROOT);
+  if (!Root)
+    return false;
+
+  bool found = false;
+
+  for (size_t i = 0; i < Root->getNumOperands(); ++i) {
+    MDNode *MD = Root->getOperand(i);
+
+    Metadata *KeyMD = MD->getOperand(0);
+    assert(KeyMD);
+    MDString *Key = dyn_cast<MDString>(KeyMD);
+    assert(Key);
+    if (Key->getString().compare(key) != 0)
+      continue;
+
+    Metadata *ValueMD = MD->getOperand(1);
+    assert(ValueMD);
+    MDString *StringValue = dyn_cast<MDString>(ValueMD);
+    data = StringValue->getString().str();
+    found = true;
+  }
+  return found;
+}
+
+bool getModuleBoolMetadata(const llvm::Module &mod, const char *key,
+                           bool &data) {
+  unsigned long temporary;
+  bool found = getModuleIntMetadata(mod, key, temporary);
+  if (found) {
+    data = temporary > 0;
+  }
+  return found;
 }

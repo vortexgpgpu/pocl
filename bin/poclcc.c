@@ -1,6 +1,7 @@
-/* Pocl tool: poclcc
+/* poclcc: A tool for building OpenCL clBuildProgram() compatible binaries of
+   kernels from the command line.
 
-   Copyright (c) 2016 pocl developers
+   Copyright (c) 2016-2021 pocl developers
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -21,18 +22,23 @@
    THE SOFTWARE.
 */
 
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <CL/opencl.h>
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
 
+#include "config.h"
+#ifdef BUILD_PROXY
+#include "rename_opencl.h"
+#endif
 #include "poclu.h"
+#include <CL/opencl.h>
 
 #define DEVICE_INFO_MAX_LENGTH 2048
 #define NUM_OF_DEVICE_ID 32
-#define NUM_OPTIONS 9
+#define NUM_OPTIONS 11
 
 #define ERRNO_EXIT(filename) do { \
     printf("IO error on file %s: %s\n", filename, strerror(errno)); \
@@ -41,11 +47,15 @@
 
 char *kernel_source = NULL;
 size_t kernel_size = 0;
+size_t kernel_source_len = 0;
+
 char *output_file = NULL;
 cl_uint opencl_device = CL_DEVICE_TYPE_DEFAULT;
 unsigned opencl_device_id = 0;
 int list_devices = 0;
 int list_devices_only = 0;
+int input_is_bitcode = 0;
+int input_is_spirv = 0;
 char *build_options = NULL;
 char *build_cflags = "";
 char *build_ldflags = "";
@@ -69,7 +79,7 @@ poclcc_option *options_help;
 static int
 print_help()
 {
-  printf("USAGE: poclcc [OPTION]... [FILE]\n");
+  printf("USAGE: poclcc [OPTION]... [kernel program file]\n");
   printf("\n");
   printf("OPTIONS:\n");
   int i;
@@ -97,12 +107,15 @@ process_kernel_file(int arg, char **argv, int argc)
 
   char *filename = argv[arg];
   char *ext = ".pocl";
-  kernel_source = poclu_read_binfile(filename, &kernel_size);
+  size_t len = 0;
+  kernel_source = poclu_read_binfile (filename, &len);
   if (!kernel_source)
     ERRNO_EXIT(filename);
+  kernel_source[len] = 0;
+  kernel_source_len = len;
   if (output_file == NULL)
     {
-      output_file = malloc(strlen(filename)+strlen(ext));
+      output_file = malloc (strlen (filename) + strlen (ext) + 2);
       strcpy(output_file, filename);
       strcat(output_file, ext);
     }
@@ -116,6 +129,20 @@ static int
 process_help(int arg, char **argv, int argc)
 {
   print_help();
+  return 0;
+}
+
+static int
+process_bitcode (int arg, char **argv, int argc)
+{
+  input_is_bitcode = 1;
+  return 0;
+}
+
+static int
+process_spirv (int arg, char **argv, int argc)
+{
+  input_is_spirv = 1;
   return 0;
 }
 
@@ -138,6 +165,8 @@ process_opencl_device(int arg, char **argv, int argc)
   char *opencl_string = argv[arg];
   if (!strcmp(opencl_string, "CL_DEVICE_TYPE_CPU"))
     opencl_device = CL_DEVICE_TYPE_CPU;
+  else if (!strcmp(opencl_string, "CL_DEVICE_TYPE_CUSTOM"))
+    opencl_device = CL_DEVICE_TYPE_CUSTOM;
   else if (!strcmp(opencl_string, "CL_DEVICE_TYPE_GPU"))
     opencl_device = CL_DEVICE_TYPE_GPU;
   else if (!strcmp(opencl_string, "CL_DEVICE_TYPE_ACCELERATOR"))
@@ -231,7 +260,7 @@ static poclcc_option options[NUM_OPTIONS] =
    2},
   {process_list_devices, "-l",
    "\t-l\n"
-   "\t\tList the opencl device found (that match the <device_type>\n",
+   "\t\tList the OpenCL device found (that match the <device_type>)\n",
    1},
   {process_device_id, "-i",
    "\t-i <device_id>\n"
@@ -253,7 +282,15 @@ static poclcc_option options[NUM_OPTIONS] =
   {process_source_type, "-TYPE",
    "\t-TYPE <CL|SPIRV>\n"
    "\t\tsource kernel type\n",
-   2}
+   2},
+  {process_bitcode, "-c",
+   "\t-c\n"
+   "\t\tInput is LLVM IR\n",
+   1},
+  {process_spirv, "-s",
+   "\t-s\n"
+   "\t\tInput is SPIR-V\n",
+   1}
 };
 
 /**********************************************************/
@@ -321,6 +358,7 @@ main(int argc, char **argv)
 //OPENCL STUFF
   cl_platform_id cpPlatform;
   cl_device_id device_ids[NUM_OF_DEVICE_ID];
+  cl_device_id selected_dev;
   cl_context context;
   cl_program program;
   cl_int err;
@@ -363,9 +401,11 @@ main(int argc, char **argv)
   if (list_devices_only)
     return 0;
 
-  context = clCreateContext(0, 1, &device_ids[opencl_device_id], NULL, NULL, &err);
+  selected_dev = device_ids[opencl_device_id];
+  context = clCreateContext (0, 1, &selected_dev, NULL, NULL, &err);
   CHECK_OPENCL_ERROR_IN("clCreateContext");
 
+/*<<<<<<< HEAD
 
   if (0 == strcmp(source_type, "CL")) {
     program = clCreateProgramWithSource(context, 1, (const char **)&kernel_source, NULL, &err);
@@ -376,8 +416,35 @@ main(int argc, char **argv)
     printf("invalid kernel type: %s\n", source_type);
     exit(1);
   } 
+=======*/
+  if (input_is_spirv)
+    {
+      program = clCreateProgramWithIL (context, (const void *)kernel_source,
+                                       kernel_source_len, &err);
+      CHECK_OPENCL_ERROR_IN ("clCreateProgramWithIL");
+    }
+  else if (input_is_bitcode)
+    {
+      program = clCreateProgramWithBinary (
+          context, 1, &selected_dev, &kernel_source_len,
+          (const unsigned char **)&kernel_source, NULL, &err);
+      CHECK_OPENCL_ERROR_IN ("clCreateProgramWithBinary");
+    }
+  else
+    {
+      program = clCreateProgramWithSource (
+          context, 1, (const char **)&kernel_source, NULL, &err);
+      CHECK_OPENCL_ERROR_IN ("clCreateProgramWithSource");
+    }
+//>>>>>>> upstream/release_4_0
 
-  CHECK_CL_ERROR(clBuildProgram(program, 0, NULL, build_options, NULL, NULL));
+  err = clBuildProgram (program, 0, NULL, build_options, NULL, NULL);
+  if (err != CL_SUCCESS)
+    {
+      printf ("Compilation failed\n");
+      poclu_show_program_build_log (program);
+      CHECK_OPENCL_ERROR_IN ("clBuildProgram");
+    }
 
   size_t binary_sizes;
   char *binary;

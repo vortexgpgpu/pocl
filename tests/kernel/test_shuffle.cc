@@ -25,6 +25,8 @@ cl_context ctx;
 cl_device_id did;
 cl_platform_id pid;
 cl_command_queue queue;
+int supports_half = 0;
+int supports_double = 0;
 
 #define ERRCHECK()  if (check_cl_error(errcode, __LINE__, __FUNCTION__)) abort();
 
@@ -235,7 +237,7 @@ private:
         std::cout << ");" << std::endl;
         rv=false;
       }
-    clReleaseKernel(krn2);
+    CHECK_CL_ERROR (clReleaseKernel(krn2));
     return rv;
   }
 
@@ -311,12 +313,12 @@ public:
       }
     }
 
-    clReleaseMemObject(mem_in1);
-    clReleaseMemObject(mem_in2);
-    clReleaseMemObject(mem_mask1);
-    clReleaseMemObject(mem_mask2);
-    clReleaseMemObject(mem_out);
-    clReleaseProgram(prog);
+    CHECK_CL_ERROR (clReleaseMemObject(mem_in1));
+    CHECK_CL_ERROR (clReleaseMemObject(mem_in2));
+    CHECK_CL_ERROR (clReleaseMemObject(mem_mask1));
+    CHECK_CL_ERROR (clReleaseMemObject(mem_mask2));
+    CHECK_CL_ERROR (clReleaseMemObject(mem_out));
+    CHECK_CL_ERROR (clReleaseProgram(prog));
 
     return errors;
   }
@@ -337,6 +339,8 @@ int main( int argc, char *argv[])
 	}
 
 	poclu_get_any_device( &ctx, &did, &queue);
+        supports_half = poclu_supports_extension(did, "cl_khr_fp16");
+        supports_double = poclu_supports_extension(did, "cl_khr_fp64");
 
 #if (__GNUC__ > 5)
 #pragma GCC diagnostic push
@@ -385,7 +389,12 @@ int main( int argc, char *argv[])
 
 	 } else if( strcmp("half", argv[1]) == 0 ) {
 
-	   TestShuffle<cl_half, cl_ushort> t("half"); num_errors = t.run();
+     if (supports_half != 0) {
+       TestShuffle<cl_half, cl_ushort> t("half"); num_errors = t.run();
+     } else {
+       std::cout << "device doesn't support cl_khr_fp16 extension, test SKIPPED\n";
+       return 77;
+     }
 
 	 } else if( strcmp("float", argv[1]) == 0 ) {
 
@@ -393,7 +402,13 @@ int main( int argc, char *argv[])
 
 	 } else if( strcmp("double", argv[1]) == 0 ) {
 
-	   TestShuffle<cl_double, cl_ulong> t("double"); num_errors = t.run();
+     if (supports_double != 0) {
+       TestShuffle<cl_double, cl_ulong> t("double"); num_errors = t.run();
+     } else {
+       std::cout << "device doesn't support cl_khr_fp64 extension, test SKIPPED\n";
+       return 77;
+     }
+
 
 	 } else {
 
@@ -405,9 +420,9 @@ int main( int argc, char *argv[])
 #if (__GNUC__ > 5)
 #pragma GCC diagnostic pop
 #endif
-	clReleaseCommandQueue(queue);
-	clUnloadCompiler();
-	clReleaseContext(ctx);
+	CHECK_CL_ERROR (clReleaseCommandQueue (queue));
+	CHECK_CL_ERROR (clReleaseContext (ctx));
+	CHECK_CL_ERROR (clUnloadCompiler());
 
 	if( num_errors == 0)
 		std::cout << "OK" << std::endl;

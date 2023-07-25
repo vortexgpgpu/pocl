@@ -26,10 +26,7 @@
 #define POCL_DEVICES_H
 
 #include "../pocl_cl.h"
-
-#ifdef __GNUC__
-#pragma GCC visibility push(hidden)
-#endif
+#include "config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +34,9 @@ extern "C" {
 
 /* The number of available devices. */
 extern unsigned int pocl_num_devices;
+extern struct _cl_device_id *pocl_devices;
+
+const char *pocl_get_device_name (unsigned index);
 
 /**
  * Populates the pocl_devices with the wanted device types.
@@ -59,9 +59,9 @@ unsigned int pocl_get_device_type_count(cl_device_type device_type);
 /**
  * \brief Get a certain amount of devices for a specific type
  * \param type Type of devices wanted
- * \param devcies Array of pointer to devices
+ * \param devices Array of pointer to devices
  * \param num_devices Number of devices queried
- * \return The real number of devices added to devcies array which match the specified type
+ * \return The real number of devices added to devices array which match the specified type
  */
 unsigned int pocl_get_devices(cl_device_type device_type, struct _cl_device_id **devices, unsigned int num_devices);
 
@@ -69,20 +69,11 @@ unsigned int pocl_get_devices(cl_device_type device_type, struct _cl_device_id *
  * \brief Return the count of a specific device in the env var POCL_DEVICES
  * \param dev_type a string describing the device ("basic" for instance)
  * \return If the env var was not set, return -1, if the env var is specified, return 0
- * or the number of occurence of dev_type in the env var
+ * or the number of occurrence of dev_type in the env var
  */
+POCL_EXPORT
 int pocl_device_get_env_count(const char *dev_type);
 
-
-/**
- * \brief Unique global memory id for devices with distinct memory from the system memory
- * \return Unique global mem id, id > 0. Zero is reserved for shared system memory
- */
-int pocl_get_unique_global_mem_id();
-
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
 
 /* the environment variable that lists the enabled devices */
 #define POCL_DEVICES_ENV "POCL_DEVICES"

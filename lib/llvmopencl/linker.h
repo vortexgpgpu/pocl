@@ -17,10 +17,16 @@
  *
  * log is used to report errors if we run into undefined symbols
  */
-int link(llvm::Module *krn, const llvm::Module *lib, std::string &log);
+int link(llvm::Module *krn, const llvm::Module *lib, std::string &log, const char **DevAuxFuncs);
 
 int copyKernelFromBitcode(const char *name, llvm::Module *parallel_bc,
-                          const llvm::Module *program);
+                          const llvm::Module *program,
+                          const char **DevAuxFuncs);
+
+bool moveProgramScopeVarsOutOfProgramBc(llvm::LLVMContext *Context,
+                                        llvm::Module *ProgramBC,
+                                        llvm::Module *OutputBC,
+                                        unsigned DeviceLocalAS);
 
 #ifdef __GNUC__
 #pragma GCC visibility pop

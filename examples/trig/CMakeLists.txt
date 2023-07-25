@@ -34,7 +34,7 @@ add_executable("trig" trig.c trig.cl trig_exec.c)
 
 target_link_libraries("trig" ${POCLU_LINK_OPTIONS})
 
-add_test("examples/trig" "trig")
+add_test(NAME "examples/trig" COMMAND "trig")
 
 set(PROPS)
 if(NOT ENABLE_ANYSAN)
@@ -48,5 +48,5 @@ set_tests_properties(
     COST 3.0
     ${PROPS}
     PROCESSORS 1
-    LABELS "internal;cuda;hsa-native"
+    LABELS "internal;cuda;hsa-native;vulkan;level0"
     DEPENDS "pocl_version_check")

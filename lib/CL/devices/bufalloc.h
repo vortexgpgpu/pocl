@@ -146,17 +146,20 @@ struct memory_region
   ba_lock_t lock;
 };
 
-#ifdef __GNUC__
-#pragma GCC visibility push(hidden)
-#endif
+POCL_EXPORT
+chunk_info_t *pocl_alloc_buffer_from_region (memory_region_t *region,
+                                             size_t size);
+POCL_EXPORT
+chunk_info_t *pocl_alloc_buffer(memory_region_t *regions, size_t size);
 
-chunk_info_t *alloc_buffer_from_region(memory_region_t *region, size_t size);
-chunk_info_t *alloc_buffer(memory_region_t *regions, size_t size);
+POCL_EXPORT
+memory_region_t *pocl_free_buffer (memory_region_t *regions, memory_address_t addr);
 
-memory_region_t *free_buffer (memory_region_t *regions, memory_address_t addr);
-void free_chunk(chunk_info_t* chunk);
+POCL_EXPORT
+void pocl_free_chunk (chunk_info_t *chunk);
 
-void init_mem_region (
+POCL_EXPORT
+void pocl_init_mem_region (
     memory_region_t *region, memory_address_t start, size_t size);
 
 chunk_info_t *create_sub_chunk (chunk_info_t *parent, size_t offset, size_t size);
@@ -166,10 +169,6 @@ print_chunk (chunk_info_t *chunk);
 
 void
 print_chunks (chunk_info_t *first);
-
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
 
 #ifdef __cplusplus
 }

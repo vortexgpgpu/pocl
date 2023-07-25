@@ -1,12 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <CL/opencl.h>
+
 #include "poclu.h"
 
 #ifdef _MSC_VER
 #  include "vccompat.hpp"
 #endif
+
+#define W 2
+#define H 4
+#define D 8
+#define PIXELS (W * H * D)
 
 int main(int argc, char **argv)
 {
@@ -16,7 +21,6 @@ int main(int argc, char **argv)
   size_t srcdir_length, name_length, filename_size;
   char *filename = NULL;
   char *source = NULL;
-  cl_device_id devices[1];
   cl_context context = NULL;
   cl_command_queue queue = NULL;
   cl_program program = NULL;
@@ -32,21 +36,21 @@ int main(int argc, char **argv)
 
   memset(&image2_desc, 0, sizeof(cl_image_desc));
   image2_desc.image_type = CL_MEM_OBJECT_IMAGE2D;
-  image2_desc.image_width = 2;
-  image2_desc.image_height = 4;
+  image2_desc.image_width = W;
+  image2_desc.image_height = H;
 
   memset(&image3_desc, 0, sizeof(cl_image_desc));
   image3_desc.image_type = CL_MEM_OBJECT_IMAGE3D;
-  image3_desc.image_width = 2;
-  image3_desc.image_height = 4;
-  image3_desc.image_depth = 8;
+  image3_desc.image_width = W;
+  image3_desc.image_height = H;
+  image3_desc.image_depth = D;
 
   image_format.image_channel_order = CL_RGBA;
   image_format.image_channel_data_type = CL_UNSIGNED_INT8;
-  imageData = (cl_uchar4*)malloc (4 * 4 * sizeof(cl_uchar4));
+  imageData = (cl_uchar4 *)malloc (PIXELS * sizeof (cl_uchar4));
 
   TEST_ASSERT (imageData != NULL && "out of host memory\n");
-  memset (imageData, 1, 4*4*sizeof(cl_uchar4));
+  memset (imageData, 1, PIXELS * sizeof (cl_uchar4));
 
   /* determine file name of kernel source to load */
   srcdir_length = strlen(SRCDIR);
@@ -69,20 +73,27 @@ int main(int argc, char **argv)
       context, CL_FALSE, CL_ADDRESS_NONE, CL_FILTER_NEAREST, &err);
   CHECK_OPENCL_ERROR_IN ("clCreateSampler");
 
-  CHECK_CL_ERROR (clGetContextInfo (context, CL_CONTEXT_DEVICES,
-                                    sizeof (cl_device_id), devices, NULL));
+  size_t device_id_size = 0;
+  err = clGetContextInfo (context, CL_CONTEXT_DEVICES, 0, NULL,
+                          &device_id_size);
+  CHECK_OPENCL_ERROR_IN ("clGetContextInfo");
+  cl_device_id *devices = malloc (device_id_size);
+  TEST_ASSERT (devices != NULL && "out of host memory\n");
+  err = clGetContextInfo (context, CL_CONTEXT_DEVICES, device_id_size, devices,
+                          NULL);
+  CHECK_OPENCL_ERROR_IN ("clGetContextInfo");
 
   queue = clCreateCommandQueue (context, devices[0], 0, &err);
   CHECK_OPENCL_ERROR_IN ("clCreateCommandQueue");
 
   /* Create image */
   cl_mem image2
-      = clCreateImage (context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
+      = clCreateImage (context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                        &image_format, &image2_desc, imageData, &err);
   CHECK_OPENCL_ERROR_IN ("clCreateImage image2");
 
   cl_mem image3
-      = clCreateImage (context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
+      = clCreateImage (context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                        &image_format, &image3_desc, imageData, &err);
   CHECK_OPENCL_ERROR_IN ("clCreateImage image3");
 
@@ -120,18 +131,20 @@ int main(int argc, char **argv)
   err = clFinish (queue);
   CHECK_OPENCL_ERROR_IN ("clFinish");
 
-  clReleaseMemObject (image2);
-  clReleaseMemObject (image3);
-  clReleaseKernel (kernel);
-  clReleaseProgram (program);
-  clReleaseCommandQueue (queue);
-  clReleaseSampler (external_sampler);
-  clUnloadCompiler ();
-  clReleaseContext (context);
+  CHECK_CL_ERROR (clReleaseMemObject (image2));
+  CHECK_CL_ERROR (clReleaseMemObject (image3));
+  CHECK_CL_ERROR (clReleaseKernel (kernel));
+  CHECK_CL_ERROR (clReleaseProgram (program));
+  CHECK_CL_ERROR (clReleaseCommandQueue (queue));
+  CHECK_CL_ERROR (clReleaseSampler (external_sampler));
+  CHECK_CL_ERROR (clReleaseContext (context));
+  CHECK_CL_ERROR (clUnloadCompiler ());
+
   free (source);
   free (filename);
   free (imageData);
+  free (devices);
 
   printf("OK\n");
-  return 0;
+  return EXIT_SUCCESS;
 }

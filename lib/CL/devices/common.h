@@ -32,10 +32,12 @@
 #include "pocl_image_types.h"
 #undef __CBUILD__
 
-#define XSETUP_DEVICE_CL_VERSION(A, B)             \
-  dev->cl_version_int = (A * 100) + (B * 10);     \
-  dev->cl_version_std = "CL" # A "." # B;         \
-  dev->version = "OpenCL " # A "." # B " pocl";
+#define XSETUP_DEVICE_CL_VERSION(A, B)                                        \
+  dev->version_as_int = (A * 100) + (B * 10);                                 \
+  dev->version_as_cl = CL_MAKE_VERSION (A, B, 0);                             \
+  dev->version = "OpenCL " #A "." #B " PoCL";                                 \
+  dev->opencl_c_version_as_opt = "CL" #A "." #B;                              \
+  dev->opencl_c_version_as_cl = CL_MAKE_VERSION (A, B, 0);
 
 #define SETUP_DEVICE_CL_VERSION(a, b) XSETUP_DEVICE_CL_VERSION(a, b)
 
@@ -62,68 +64,70 @@
 extern "C" {
 #endif
 
-#ifdef __GNUC__
-#pragma GCC visibility push(hidden)
-#endif
+POCL_EXPORT
+void pocl_fill_dev_image_t (dev_image_t *di, struct pocl_argument *parg,
+                            cl_device_id device);
 
-void pocl_init_cpu_device_infos (cl_device_id dev);
+POCL_EXPORT
+void pocl_fill_dev_sampler_t (dev_sampler_t *ds, struct pocl_argument *parg);
 
-int llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
-                  cl_device_id device, _cl_command_node *command,
-                  int specialize);
+POCL_EXPORT
+void pocl_exec_command (_cl_command_node *node);
 
-void fill_dev_image_t (dev_image_t *di, struct pocl_argument *parg,
-                       cl_device_id device);
-
-void fill_dev_sampler_t (dev_sampler_t *ds, struct pocl_argument *parg);
-
-void pocl_copy_mem_object (cl_device_id dest_dev, cl_mem dest,
-                           size_t dest_offset,
-                           cl_device_id source_dev, cl_mem source,
-                           size_t source_offset, size_t cb);
-
-void pocl_migrate_mem_objects (_cl_command_node *node);
-
-void pocl_scheduler (_cl_command_node * volatile * ready_list,
-                     pthread_mutex_t *lock_ptr);
-
-void pocl_exec_command (_cl_command_node * volatile node);
-
-void pocl_ndrange_node_cleanup(_cl_command_node *node);
-void pocl_mem_objs_cleanup (cl_event event);
-
+POCL_EXPORT
 void pocl_broadcast (cl_event event);
 
+POCL_EXPORT
 void pocl_init_dlhandle_cache ();
 
+POCL_EXPORT
 char *pocl_check_kernel_disk_cache (_cl_command_node *cmd, int specialized);
 
+POCL_EXPORT
 size_t pocl_cmd_max_grid_dim_width (_cl_command_run *cmd);
 
+POCL_EXPORT
 void pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
-                                       unsigned initial_refcount,
+                                       int retain,
                                        int specialize);
 
+POCL_EXPORT
 void pocl_release_dlhandle_cache (_cl_command_node *cmd);
 
+POCL_EXPORT
 void pocl_setup_device_for_system_memory(cl_device_id device);
 
+POCL_EXPORT
 void pocl_reinit_system_memory();
 
+POCL_EXPORT
 void pocl_set_buffer_image_limits(cl_device_id device);
 
+POCL_EXPORT
 void* pocl_aligned_malloc_global_mem(cl_device_id device, size_t align, size_t size);
 
+POCL_EXPORT
 void pocl_free_global_mem(cl_device_id device, void *ptr, size_t size);
 
 void pocl_print_system_memory_stats();
 
-void pocl_calculate_kernel_hash (cl_program program, unsigned kernel_i,
-                                 unsigned device_i);
+POCL_EXPORT
+void pocl_init_default_device_infos (cl_device_id dev);
 
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
+POCL_EXPORT
+void pocl_setup_opencl_c_with_version (cl_device_id dev, int supports_30);
+
+POCL_EXPORT
+void pocl_setup_extensions_with_version (cl_device_id dev);
+
+POCL_EXPORT
+void pocl_setup_ils_with_version (cl_device_id dev);
+
+POCL_EXPORT
+void pocl_setup_features_with_version (cl_device_id dev);
+
+POCL_EXPORT
+void pocl_setup_builtin_kernels_with_version (cl_device_id dev);
 
 #ifdef __cplusplus
 }

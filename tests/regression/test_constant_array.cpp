@@ -22,11 +22,13 @@
    THE SOFTWARE.
 */
 
+#include "pocl_opencl.h"
+
 // Enable OpenCL C++ exceptions
 #define CL_HPP_ENABLE_EXCEPTIONS
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -122,6 +124,8 @@ main(void)
 
         /* The call should return cleanly, the compiler should not crash. */
 
+        std::cout << "OK" << std::endl;
+
         /* Force exit of the process regardless of the running kernel thread
            by replacing the process with a dummy process. */
         execlp("true", "true", NULL);
@@ -134,9 +138,7 @@ main(void)
              << err.err()
              << ")"
              << std::endl;
-
-         return EXIT_FAILURE;
     }
 
-    return EXIT_SUCCESS;
+    return EXIT_FAILURE;
 }

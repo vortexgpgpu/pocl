@@ -31,34 +31,37 @@ POname(clEnqueueSVMUnmap) (cl_command_queue command_queue,
                    const cl_event *event_wait_list,
                    cl_event *event) CL_API_SUFFIX__VERSION_2_0
 {
-  unsigned i;
   cl_int errcode;
 
-  POCL_RETURN_ERROR_COND((command_queue == NULL), CL_INVALID_COMMAND_QUEUE);
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (command_queue)),
+                          CL_INVALID_COMMAND_QUEUE);
 
-  POCL_RETURN_ERROR_ON((command_queue->context->svm_allocdev == NULL),
-      CL_INVALID_CONTEXT, "None of the devices in this context is SVM-capable\n");
+  cl_context context = command_queue->context;
 
-  if (DEVICE_MMAP_IS_NOP(command_queue->device)
-      && (num_events_in_wait_list == 0)
-      && (event == NULL))
-    return CL_SUCCESS;
+  POCL_RETURN_ERROR_ON (
+      (context->svm_allocdev == NULL), CL_INVALID_OPERATION,
+      "None of the devices in this context is SVM-capable\n");
 
-  POCL_RETURN_ERROR_COND((svm_ptr == NULL), CL_INVALID_VALUE);
+  POCL_RETURN_ERROR_COND ((svm_ptr == NULL), CL_INVALID_VALUE);
 
   errcode = pocl_check_event_wait_list (command_queue, num_events_in_wait_list,
                                         event_wait_list);
   if (errcode != CL_SUCCESS)
     return errcode;
 
-  for(i=0; i<num_events_in_wait_list; i++)
-    POCL_RETURN_ERROR_COND((event_wait_list[i] == NULL), CL_INVALID_EVENT_WAIT_LIST);
+  errcode = pocl_svm_check_pointer (context, svm_ptr, 1, NULL);
+  if (errcode != CL_SUCCESS)
+    return errcode;
+
+  if (DEVICE_MMAP_IS_NOP (command_queue->device)
+      && (num_events_in_wait_list == 0) && (event == NULL))
+    return CL_SUCCESS;
 
   _cl_command_node *cmd = NULL;
 
   errcode = pocl_create_command (&cmd, command_queue, CL_COMMAND_SVM_UNMAP,
-                                     event, num_events_in_wait_list,
-                                     event_wait_list, 0, NULL);
+                                 event, num_events_in_wait_list,
+                                 event_wait_list, 0, NULL, NULL);
 
   if (errcode != CL_SUCCESS)
     {
@@ -67,7 +70,6 @@ POname(clEnqueueSVMUnmap) (cl_command_queue command_queue,
     }
 
   cmd->command.svm_unmap.svm_ptr = svm_ptr;
-
   pocl_command_enqueue(command_queue, cmd);
 
   return CL_SUCCESS;

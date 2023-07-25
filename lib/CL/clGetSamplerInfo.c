@@ -31,7 +31,7 @@ POname(clGetSamplerInfo)(cl_sampler          sampler ,
                  void *              param_value ,
                  size_t *            param_value_size_ret ) CL_API_SUFFIX__VERSION_1_0
 {
-  POCL_RETURN_ERROR_COND ((sampler == NULL), CL_INVALID_SAMPLER);
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (sampler)), CL_INVALID_SAMPLER);
 
   switch (param_name)
     {
@@ -45,6 +45,9 @@ POname(clGetSamplerInfo)(cl_sampler          sampler ,
       POCL_RETURN_GETINFO (cl_addressing_mode, sampler->addressing_mode);
     case CL_SAMPLER_FILTER_MODE:
       POCL_RETURN_GETINFO (cl_filter_mode, sampler->filter_mode);
+    case CL_SAMPLER_PROPERTIES:
+      POCL_RETURN_GETINFO_ARRAY (cl_sampler_properties,
+                                 sampler->num_properties, sampler->properties);
     }
 
   return CL_INVALID_VALUE;

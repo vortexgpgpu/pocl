@@ -32,7 +32,8 @@ POname(clGetMemObjectInfo)(cl_mem      memobj ,
                    void *      param_value ,
                    size_t *    param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-  POCL_RETURN_ERROR_COND((memobj == NULL), CL_INVALID_MEM_OBJECT);
+  POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (memobj)),
+                          CL_INVALID_MEM_OBJECT);
 
   switch (param_name) {
   case CL_MEM_TYPE:
@@ -43,10 +44,11 @@ POname(clGetMemObjectInfo)(cl_mem      memobj ,
     POCL_RETURN_GETINFO (size_t, memobj->size);
   case CL_MEM_HOST_PTR:
     if (memobj->flags & CL_MEM_USE_HOST_PTR)
-      POCL_RETURN_GETINFO (
-          void *,
-          (memobj->parent ? (memobj->parent->mem_host_ptr + memobj->origin)
-                          : memobj->mem_host_ptr));
+      POCL_RETURN_GETINFO (void *,
+                           (void *)(memobj->parent
+                                        ? ((char *)memobj->parent->mem_host_ptr
+                                           + memobj->origin)
+                                        : memobj->mem_host_ptr));
     else
       POCL_RETURN_GETINFO (void *, NULL);
   case CL_MEM_MAP_COUNT:
@@ -57,11 +59,20 @@ POname(clGetMemObjectInfo)(cl_mem      memobj ,
     POCL_RETURN_GETINFO (cl_context, memobj->context);
   case CL_MEM_ASSOCIATED_MEMOBJECT:
     POCL_RETURN_GETINFO (cl_mem, memobj->parent);
+  case CL_MEM_USES_SVM_POINTER:
+    {
+      pocl_svm_ptr *item = pocl_find_svm_ptr_in_context (memobj->context,
+                                                         memobj->mem_host_ptr);
+      POCL_RETURN_GETINFO (cl_bool, (item != NULL));
+    }
   case CL_MEM_OFFSET:
     if (memobj->parent == NULL)
       POCL_RETURN_GETINFO (size_t, 0);
     else
       POCL_RETURN_GETINFO (size_t, memobj->origin);
+  case CL_MEM_PROPERTIES:
+    POCL_RETURN_GETINFO_ARRAY (cl_mem_properties, memobj->num_properties,
+                               memobj->properties);
   }
   return CL_INVALID_VALUE;
 }

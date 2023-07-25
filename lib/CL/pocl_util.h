@@ -29,29 +29,14 @@
 #include <string.h>
 #include "pocl_cl.h"
 
-#if defined(BUILD_NEWLIB)
-  // do nothing
-#elif defined(HAVE_POSIX_MEMALIGN) \
- || defined(__ANDROID__)         \
- || (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
-  #define HAVE_ALIGNED_ALLOC
-#elif
-  #error aligned malloc unavailable
-#endif
-
-
-#ifdef __GNUC__
-#pragma GCC visibility push(hidden)
-#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/*<<<<<<< HEAD
 #if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
 #if defined(__GNUC__) || defined(__clang__)
-/* These return the new value. */
-/* See: https://gcc.gnu.org/onlinedocs/gcc-4.1.2/gcc/Atomic-Builtins.html */
 #define POCL_ATOMIC_INC(x) __sync_add_and_fetch (&x, 1)
 #define POCL_ATOMIC_DEC(x) __sync_sub_and_fetch (&x, 1)
 #define POCL_ATOMIC_CAS(ptr, oldval, newval)                                  \
@@ -64,27 +49,50 @@ extern "C" {
 #define POCL_ATOMIC_DEC(x) (x-1)
 #define POCL_ATOMIC_CAS(ptr, oldval, newval)
 #endif
+*/
 
-uint32_t byteswap_uint32_t (uint32_t word, char should_swap);
+POCL_EXPORT
+uint32_t pocl_byteswap_uint32_t (uint32_t word, char should_swap);
 float byteswap_float (float word, char should_swap);
 
 /* set rounding mode */
+POCL_EXPORT
 void pocl_restore_rm (unsigned rm);
 /* get current rounding mode */
+POCL_EXPORT
 unsigned pocl_save_rm ();
 /* set OpenCL's default (round to nearest) rounding mode */
+POCL_EXPORT
 void pocl_set_default_rm ();
 
-/* sets the flush-denorms-to-zero flag on the CPU, if supported */
-void pocl_set_ftz (unsigned ftz);
 
+/* sets the flush-denorms-to-zero flag on the CPU, if supported */
+POCL_EXPORT
+void pocl_set_ftz (unsigned ftz);
 /* saves / restores cpu flags*/
-unsigned pocl_save_ftz ();
+POCL_EXPORT
+unsigned pocl_save_ftz (void);
+POCL_EXPORT
 void pocl_restore_ftz (unsigned ftz);
 
+void pocl_install_sigfpe_handler ();
+void pocl_install_sigusr2_handler ();
+#if defined(__linux__) && defined(__x86_64__)
+POCL_EXPORT
+void pocl_ignore_sigfpe_for_thread (pthread_t thr);
+#endif
+
+void bzero_s (void *v, size_t n);
+
 /* Finds the next highest power of two of the given value. */
+POCL_EXPORT
 size_t pocl_size_ceil2 (size_t x);
+
+POCL_EXPORT
 uint64_t pocl_size_ceil2_64 (uint64_t x);
+
+POCL_EXPORT
+size_t pocl_align_value (size_t value, size_t alignment);
 
 /* Allocates aligned blocks of memory.
  *
@@ -95,6 +103,7 @@ uint64_t pocl_size_ceil2_64 (uint64_t x);
  * must be a non-zero power of 2.
  */
 
+POCL_EXPORT
 void *pocl_aligned_malloc(size_t alignment, size_t size);
 void pocl_aligned_free (void *ptr);
 
@@ -112,13 +121,45 @@ cl_int pocl_create_event (cl_event *event, cl_command_queue command_queue,
 cl_int pocl_create_command (_cl_command_node **cmd,
                             cl_command_queue command_queue,
                             cl_command_type command_type, cl_event *event,
-                            cl_int num_events, const cl_event *wait_list,
-                            size_t num_buffers, const cl_mem *buffers);
+                            cl_uint num_events, const cl_event *wait_list,
+                            size_t num_buffers, cl_mem *buffers,
+                            char *readonly_flags);
 
+cl_int pocl_create_command_migrate (_cl_command_node **cmd,
+                                    cl_command_queue command_queue,
+                                    cl_mem_migration_flags flags,
+                                    cl_event *event_p,
+                                    cl_uint num_events,
+                                    const cl_event *wait_list,
+                                    size_t num_buffers,
+                                    cl_mem *buffers,
+                                    char *readonly_flags);
+
+cl_int pocl_command_record (cl_command_buffer_khr command_buffer,
+                            _cl_command_node *cmd,
+                            cl_sync_point_khr *sync_point);
+
+cl_int pocl_create_recorded_command (
+    _cl_command_node **cmd, cl_command_buffer_khr command_buffer,
+    cl_command_queue command_queue, cl_command_type command_type,
+    cl_uint num_sync_points_in_wait_list,
+    const cl_sync_point_khr *sync_point_wait_list, size_t num_buffers,
+    cl_mem *buffers, char *readonly_flags);
 
 void pocl_command_enqueue (cl_command_queue command_queue,
                           _cl_command_node *node);
 
+cl_int
+pocl_cmdbuf_choose_recording_queue (cl_command_buffer_khr command_buffer,
+                                    cl_command_queue *command_queue);
+
+POCL_EXPORT
+int pocl_alloc_or_retain_mem_host_ptr (cl_mem mem);
+
+POCL_EXPORT
+int pocl_release_mem_host_ptr (cl_mem mem);
+
+void pocl_ndrange_node_cleanup (_cl_command_node *node);
 
 /* does several sanity checks on buffer & given memory region */
 int pocl_buffer_boundcheck(cl_mem buffer, size_t offset, size_t size);
@@ -133,6 +174,9 @@ int pocl_buffer_boundcheck_3d(const size_t buffer_size, const size_t *origin,
                               const size_t *region, size_t *row_pitch,
                               size_t *slice_pitch, const char* prefix);
 
+pocl_svm_ptr *pocl_find_svm_ptr_in_context (cl_context context,
+                                            const void *host_ptr);
+
 int
 check_copy_overlap(const size_t src_offset[3],
                    const size_t dst_offset[3],
@@ -143,10 +187,11 @@ check_copy_overlap(const size_t src_offset[3],
  * Push a command into ready list if all previous events are completed or
  * in pending_list if the command still has pending dependencies
  */
+POCL_EXPORT
 void
-pocl_command_push (_cl_command_node *node, 
-                   _cl_command_node * volatile * ready_list, 
-                   _cl_command_node * volatile * pending_list);
+pocl_command_push (_cl_command_node *node,
+                   _cl_command_node **ready_list,
+                   _cl_command_node **pending_list);
 
 /**
  * Return true if a command is ready to execute (no more event in wait list
@@ -163,12 +208,14 @@ typedef void (*empty_queue_callback) (cl_command_queue cq);
 void pocl_cl_mem_inherit_flags (cl_mem mem, cl_mem from_buffer,
                                 cl_mem_flags flags);
 
-void pocl_setup_context(cl_context context);
+int pocl_setup_context (cl_context context);
 
 /* Helpers for dealing with devices / subdevices */
 
 cl_device_id pocl_real_dev (const cl_device_id);
 cl_device_id * pocl_unique_device_list(const cl_device_id * in, cl_uint num, cl_uint *real);
+int pocl_device_supports_builtin_kernel (cl_device_id dev,
+                                         const char *kernel_name);
 
 #define POCL_CHECK_DEV_IN_CMDQ                                                \
   do                                                                          \
@@ -187,49 +234,99 @@ int pocl_check_event_wait_list(cl_command_queue     command_queue,
                                cl_uint              num_events_in_wait_list,
                                const cl_event *     event_wait_list);
 
-void pocl_abort_on_pthread_error (int status, unsigned line, const char *func);
-
-#define PTHREAD_CHECK(code)                                                   \
-  pocl_abort_on_pthread_error ((code), __LINE__, __FUNCTION__);
+int
+pocl_check_syncpoint_wait_list (cl_command_buffer_khr command_buffer,
+                                cl_uint num_sync_points_in_wait_list,
+                                const cl_sync_point_khr *sync_point_wait_list);
 
 void pocl_update_event_queued (cl_event event);
 
+POCL_EXPORT
 void pocl_update_event_submitted (cl_event event);
 
+POCL_EXPORT
 void pocl_update_event_running_unlocked (cl_event event);
 
+POCL_EXPORT
 void pocl_update_event_running (cl_event event);
 
-void pocl_update_event_complete_msg (const char *func, unsigned line,
-                                     cl_event event, const char *msg);
+POCL_EXPORT
+void pocl_update_event_complete (const char *func, unsigned line,
+                                 cl_event event, const char *msg);
 
 #define POCL_UPDATE_EVENT_COMPLETE_MSG(__event, msg)                          \
-  pocl_update_event_complete_msg (__func__, __LINE__, (__event), msg);
+  pocl_update_event_complete (__func__, __LINE__, (__event), msg);
 
 #define POCL_UPDATE_EVENT_COMPLETE(__event)                                   \
-  pocl_update_event_complete_msg (__func__, __LINE__, (__event), NULL);
+  pocl_update_event_complete (__func__, __LINE__, (__event), NULL);
 
+POCL_EXPORT
 void pocl_update_event_failed (cl_event event);
 
 const char*
 pocl_status_to_str (int status);
 
+POCL_EXPORT
 const char *
 pocl_command_to_str (cl_command_type cmd);
 
+POCL_EXPORT
 int
 pocl_run_command(char * const *args);
+
+POCL_EXPORT
+int pocl_run_command_capture_output (char *capture_string,
+                                     size_t *captured_bytes,
+                                     char *const *args);
 
 uint16_t float_to_half (float value);
 
 float half_to_float (uint16_t value);
 
+void pocl_free_kernel_metadata (cl_program program, unsigned kernel_i);
+
+POCL_EXPORT
+int pocl_svm_check_pointer (cl_context context, const void *svm_ptr,
+                            size_t size, size_t *buffer_size);
+
+/* returns !0 if binary is SPIR-V bitcode with OpCapability Kernel
+ * OpenCL-style bitcode produced by e.g. llvm-spirv */
+POCL_EXPORT
+int pocl_bitcode_is_spirv_execmodel_kernel (const char *bitcode, size_t size);
+
+/* returns !0 if binary is SPIR-V bitcode with OpCapability Shader
+ * these are produced by e.g. GLSL and clspv compilation */
+POCL_EXPORT
+int pocl_bitcode_is_spirv_execmodel_shader (const char *bitcode, size_t size);
+
+int pocl_device_is_associated_with_kernel (cl_device_id device,
+                                           cl_kernel kernel);
+POCL_EXPORT
+int pocl_escape_quoted_whitespace (char *temp_options, char *replace_me);
+
+POCL_EXPORT
+int pocl_fill_aligned_buf_with_pattern (void *__restrict__ ptr, size_t offset,
+                                        size_t size,
+                                        const void *__restrict__ pattern,
+                                        size_t pattern_size);
+
+POCL_EXPORT
+int pocl_get_private_datadir (char* private_datadir);
+
+POCL_EXPORT
+int pocl_get_srcdir_or_datadir (char* path,
+                                const char* srcdir_suffix,
+                                const char *datadir_suffix,
+                                const char* filename);
+
+POCL_EXPORT
+void pocl_str_toupper (char *out, const char *in);
+
+POCL_EXPORT
+void pocl_str_tolower (char *out, const char *in);
+
 #ifdef __cplusplus
 }
-#endif
-
-#ifdef __GNUC__
-#pragma GCC visibility pop
 #endif
 
 /* Common macro for cleaning up "*GetInfo" API call implementations.
@@ -318,5 +415,20 @@ float half_to_float (uint16_t value);
   size_t px = (mem->image_elem_size * mem->image_channels);                   \
   size_t i1d_origin[3] = { o[0] * px, o[1], o[2] };                           \
   size_t i1d_region[3] = { r[0] * px, r[1], r[2] };
+
+#define CMDBUF_VALIDATE_COMMON_HANDLES                                        \
+  do                                                                          \
+    {                                                                         \
+      POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (command_buffer)),         \
+                              CL_INVALID_COMMAND_BUFFER_KHR);                 \
+      POCL_RETURN_ERROR_COND ((command_queue != NULL),                        \
+                              CL_INVALID_COMMAND_QUEUE);                      \
+      POCL_RETURN_ERROR_COND ((mutable_handle != NULL), CL_INVALID_VALUE);    \
+      errcode = pocl_cmdbuf_choose_recording_queue (command_buffer,           \
+                                                    &command_queue);          \
+      if (errcode != CL_SUCCESS)                                              \
+        return errcode;                                                       \
+    }                                                                         \
+  while (0)
 
 #endif

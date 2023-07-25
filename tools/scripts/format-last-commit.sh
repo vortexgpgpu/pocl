@@ -5,37 +5,24 @@ if [ ! -e .git ]; then
   exit 1
 fi
 
-PATCHY=/tmp/p.patch
+case "$(git describe --always --dirty=-DIRTY)" in
+  *-DIRTY)
+    echo "There are uncommitted changes - aborting."
+    exit 1
+esac
 
-rm -f $PATCHY
+PATCHY=$(mktemp /tmp/pocl.XXXXXXXX.patch)
+trap "rm -f $PATCHY" EXIT
+
 git show -U0 --no-color >$PATCHY
 
 SCRIPTPATH=$( realpath "$0"  )
 RELPATH=$(dirname "$SCRIPTPATH")
 
 $RELPATH/clang-format-diff.py -regex '.*(\.h$|\.c$|\.cl$)' -i -p1 -style GNU <$PATCHY
-$RELPATH/clang-format-diff.py -regex '(.*(\.hh$|\.cc$))|(lib/llvmopencl/.*\.h)' -i -p1 -style LLVM <$PATCHY
+$RELPATH/clang-format-diff.py -regex '(.*(\.hpp$|\.hh$|\.cc$|\.cpp$))|(lib/llvmopencl/.*)|(lib/CL/devices/tce/.*)' -i -p1 -style LLVM <$PATCHY
 
-git diff
-
-echo "ACCEPT CHANGES ?"
-
-read REPLY
-
-if [ "$REPLY" == "y" ]; then
-
-  git add -u
-
-  git commit --amend
-
-  if [ -e .git/ORIG_HEAD ]; then
-
-    git rebase --continue
-
-  fi
-
-else
-
-  git add -p
-
+if [ -z "$(git diff)" ]; then
+  echo "No changes."
+  exit 0
 fi

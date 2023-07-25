@@ -47,11 +47,7 @@ int const niters = 10;
 #include <stdlib.h>
 #include <sys/time.h>
 
-#ifdef __APPLE__
-#  include <OpenCL/opencl.h>
-#else
-#  include <CL/opencl.h>
-#endif
+#include "pocl_opencl.h"
 
 // Stringify
 #define XSTR(x) #x
@@ -476,7 +472,7 @@ void setup(const char* program_source1, const char* program_source2)
   }
   assert(num_platforms > 0);
   
-  cl_device_type const want_device_types = CL_DEVICE_TYPE_CPU;
+  cl_device_type const want_device_types = CL_DEVICE_TYPE_CPU | CL_DEVICE_TYPE_GPU;
   // CL_DEVICE_TYPE_GPU
   // CL_DEVICE_TYPE_ACCELERATOR
   // CL_DEVICE_TYPE_CPU | CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_ACCELERATOR
@@ -528,6 +524,18 @@ void setup(const char* program_source1, const char* program_source2)
 
   if (use_subdev)
     {
+      {
+        cl_uint max_cus;
+        int err = clGetDeviceInfo (main_device_id, CL_DEVICE_MAX_COMPUTE_UNITS,
+                                   sizeof (max_cus), &max_cus, NULL);
+        assert (err == CL_SUCCESS);
+        if (max_cus < 2)
+          {
+            fprintf (stderr,
+                     "Insufficient compute units for subdevice creation\n");
+            exit (77);
+          }
+      }
       const cl_device_partition_property props[]
           = { CL_DEVICE_PARTITION_EQUALLY, 2, 0 };
       cl_device_id subdevs[128];
@@ -633,8 +641,8 @@ void cleanup() {
   clReleaseProgram(program2);
 
   clReleaseCommandQueue(cmd_queue);
-  clUnloadPlatformCompiler(platform_id);
   clReleaseContext(context);
+  clUnloadPlatformCompiler (platform_id);
 }
 
 void init(cGH              * const cctkGH,

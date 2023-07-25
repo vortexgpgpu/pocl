@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <CL/opencl.h>
+
 #include "poclu.h"
 
 #ifdef _MSC_VER
@@ -16,11 +16,11 @@ int main(int argc, char **argv)
   size_t srcdir_length, name_length, filename_size;
   char *filename = NULL;
   char *source = NULL;
-  cl_device_id devices[1];
   cl_context context = NULL;
   cl_command_queue queue = NULL;
   cl_program program = NULL;
   cl_kernel kernel = NULL;
+  cl_mem image = NULL;
   cl_int result;
   int retval = -1;
 
@@ -70,11 +70,21 @@ int main(int argc, char **argv)
       goto error;
     }
 
-  result = clGetContextInfo(context, CL_CONTEXT_DEVICES,
-                            sizeof(cl_device_id), devices, NULL);
-  if (result != CL_SUCCESS) 
+  size_t device_id_size = 0;
+  result = clGetContextInfo (context, CL_CONTEXT_DEVICES, 0, NULL,
+                             &device_id_size);
+  if (result != CL_SUCCESS)
     {
-      puts("clGetContextInfo call failed\n");
+      puts ("clGetContextInfo call failed while fetching size\n");
+      goto error;
+    }
+  cl_device_id *devices = malloc (device_id_size);
+  TEST_ASSERT (devices != NULL && "out of host memory\n");
+  result = clGetContextInfo (context, CL_CONTEXT_DEVICES, device_id_size,
+                             devices, NULL);
+  if (result != CL_SUCCESS)
+    {
+      puts ("clGetContextInfo call failed\n");
       goto error;
     }
 
@@ -87,8 +97,8 @@ int main(int argc, char **argv)
 
   /* Create image */
 
-  cl_mem image = clCreateImage (context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
-                                &image_format, &image_desc, imageData, &result);
+  image = clCreateImage (context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
+                         &image_format, &image_desc, imageData, &result);
   if (result != CL_SUCCESS)
     {
       puts("image creation failed\n");
@@ -160,8 +170,8 @@ error:
     }
   if (context) 
     {
-      clUnloadCompiler ();
       clReleaseContext (context);
+      clUnloadCompiler ();
     }
   if (source) 
     {
@@ -175,14 +185,16 @@ error:
     {
       free(imageData);
     }
+  free (devices);
 
+  CHECK_CL_ERROR (clUnloadCompiler ());
 
   if (retval) 
     {
       printf("FAIL\n");
-      return 1;
+      return EXIT_FAILURE;
     }
  
   printf("OK\n");
-  return 0;
+  return EXIT_SUCCESS;
 }

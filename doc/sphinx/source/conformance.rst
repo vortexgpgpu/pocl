@@ -8,98 +8,127 @@ Conformance related CMake options
 ---------------------------------
 
 - ``-DENABLE_CONFORMANCE=ON/OFF``
-  This is mostly related to the kernel library (the runtime is always built to
-  be conformant on x86). Defaults to ON. This option by itself does not
-  guarantee OpenCL-conformant build; it merely ensures that a build fails
-  if some options which would result in non-conformant kernel library
-  are given.
+  Defaults to OFF. This option by itself does not guarantee OpenCL-conformant build;
+  it merely ensures that a build fails if some CMake options which are known to result
+  in non-conformant PoCL build are given. Only applies to CPU driver.
 
-  Non-conformant kernel library might be somewhat faster, at the expense of
-  precision and/or range. Note that conformance was tested **only** on certain
-  hardware and software (Linux, x86-64, CPU with AVX & FMA instructions).
+  Changes when ENABLE_CONFORMANCE is ON, the CPU drivers are built
+  with the following changes:
 
-How to run the conformance test suite on your hardware
+    * read-write images are disabled (some 1D/2D image array tests fail)
+    * the list of supported image formats is much smaller
+    * SLEEF is always enforced for the builtin library
+    * cl_khr_fp16 is disabled
+    * cl_khr_subgroup_{ballot,shuffle} are disabled
+    * cl_intel_subgroups,cl_intel_required_subgroup_size are disabled
+
+  If ENABLE_CONFORMANCE is OFF, and ENABLE_HOST_CPU_DEVICES is ON,
+  the conformance testsuite is disabled in CMake. This is because
+  some CTS tests will fail on such build.
+
+Supported & Unsupported optional OpenCL 3.0 features
 ------------------------------------------------------
 
-First you need to enable the suite in the pocl's external test suite set.
-This is done by adding switch ``-DENABLE_TESTSUITES=conformance``
+This list is only related to CPU devices (cpu & cpu-minimal drivers).
+Other drivers (CUDA, TCE etc) only support OpenCL 1.2.
+Note that 3.0 support on CPU devices requires LLVM 14 or newer.
+
+Supported 3.0 features:
+
+  * Shared Virtual Memory
+  * C11 atomics
+  * 3D Image Writes
+  * SPIR-V
+  * Program Scope Global Variables
+  * Subgroups
+  * Generic Address Space
+
+Unsupported 3.0 features:
+
+  * Device-side enqueue
+  * Pipes
+  * Non-Uniform Work Groups
+  * Read-Write Images
+  * Creating 2D Images from Buffers
+  * sRGB & Depth Images
+  * Device and Host Timer Synchronization
+  * Intermediate Language Programs
+  * Program Initialization and Clean-Up Kernels
+  * Work Group Collective Functions
+
+.. _running-cts:
+
+How to run the OpenCL 3.0 conformance test suite
+------------------------------------------------
+
+You'll need to build PoCL with enabled ICD, and the ICD must be one that supports
+OpenCL version 3.0 (for ocl-icd, this is available since version 2.3.0).
+This is because while the CTS will run with 1.2 devices, it requires 3.0 headers
+and 3.0 ICD to build. You'll also need to enable the suite in the pocl's external test suite set.
+This is done by adding ``-DENABLE_TESTSUITES=conformance -DENABLE_CONFORMANCE=ON``
 to the cmake command line. After this ``make prepare_examples`` fetches and
-prepares the conformance suite for testing.
+prepares the conformance suite for testing. After building pocl with ``make``,
+the CTS can be run with ``ctest -L <LABEL>`` where ``<LABEL>`` is a CTest label.
 
-To run a shortened version of the conformance suite, run: ``ctest -L conformance_suite_mini``
-This might take a few hours on slow hardware. There is also a ``conformance_suite_micro``
-label, which takes about 20-30 minutes on slow hardware.
+There are three different CTest labels for using CTS, one label covers the full
+set tests in CTS, the other two contain a smaller subset of CTS tests. The fastest
+is ``conformance_suite_micro_main`` label, which takes approx 10-30 minutes on
+current (desktop) hardware. The medium sized ``conformance_suite_mini_main``
+can take 1-2 hours on current hardware. The full sized CTS is available
+with label ``conformance_suite_full_main``. This can take 10-30 hrs on current
+hardware.
 
-To run the full conformance testsuite, run: ``ctest -L conformance_suite_full``
-Note that this can take a week to finish on slow hardware, and about a day
-on relatively fast hardware (6C/12T Intel or equivalent).
+If PoCL is compiled with SPIR-V support, three more labels are available, where
+``_main`` suffix is replaced by ``_spirv`` (e.g. ``conformance_suite_mini_spirv``)
+These labels will run the same tests as the _main variant, but use offline
+compilation to produce SPIR-V and use that to create programs,
+instead of default creating from OpenCL C source.
 
-Known issues with the conformance testsuite
--------------------------------------------
+Note that running ``ctest -L conformance_suite_micro`` will run *both* variants
+(the online and offline compilation) since the -L option takes a regexp.
+
+Additionally, there is a new cmake label, ``conformance_30_only``
+to run tests which are only relevant to OpenCL 3.0.
+
+CPU device version 1.2 should also work with CTS 3.0 (tests will be skipped).
+
+.. _known-issues:
+
+Known issues related to CTS
+---------------------------
 
 - a few tests from ``basic/test_basic`` may fail / segfault because they
   request a huge amount of memory for buffers.
 
-- a few tests from ``conversions/test_conversions`` may report failures.
-  This is likely a bug in the test; the same test from branch
-  cl20_trunk of CTS passes.
-
-- math_brute_force tests may occasionally fail with an empty build log,
-  this is a bug in CTS. See pocl issue #614.
+- some tests from ``relationals/test_relationals`` can fail with specific
+  LLVM versions, this is an LLVM bug, fixed in LLVM 13.
 
 - a few tests may run much faster if you limit the reported Global memory size
   with POCL_MEMORY_LIMIT env var. In particular, "kernel_image_methods" test
   with "max_images" argument.
 
-- two tests in ``api/test_api`` fail with LLVM 5.0 because of
-  LLVM commit 1c1154229a41b688f9:
-
-    ``[OpenCL] Do not generate "kernel_arg_type_qual" metadata for non-pointer args``
-
-  This is a bug in CTS, which tests for non-pointer type qualifiers, not in pocl.
-  See:
-
-  https://www.khronos.org/registry/OpenCL/specs/opencl-1.2.pdf page 169:
-
-  ``CL_KERNEL_ARG_TYPE_VOLATILE`` is returned if the **argument is a pointer**
-  and the referenced type is declared with the volatile qualifier.
-  Similarly, ``CL_KERNEL_ARG_TYPE_RESTRICT`` or ``CL_KERNEL_ARG_TYPE_CONST`` is
-  returned if the **argument is a pointer** and the referenced type is declared with
-  the restrict or const qualifier
-
-- the compiler test may fail with pocl-1.1 when it's built with SPIR support,
-  because cl_khr_spir extension is not recognized with OpenCL 1.2 - officially
-  it's only recognized since OpenCL 2.0.
-
-.. _sigfpe-handler:
-
-Known issues in pocl / things to be aware of
---------------------------------------------
+- With LLVM 15 and 16, when running CTS with the offline compilation mode
+  (= via SPIR-V), Clang + SPIR-V translator produce invalid
+  SPIR-V for several tests. PoCL bugreport:
+  `<https://github.com/pocl/pocl/issues/1232>`_
+  Related Khronos issues:
+  `<https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/2008>`_
+  `<https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/2024>`_
+  `<https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/2025>`_
 
 - Integer division by zero. OpenCL 1.2 specification requires that division by
   zero on integers results in undefined values, instead of raising exceptions.
-  This requires pocl to install a handler of SIGFPE. Unfortunately signal
-  handlers are per-process not per-thread, and pocl drivers do not run in a
-  separate process, which means that integer division by zero will not raise
-  SIGFPE for the entire pocl library and also the user's program. The handler
-  may be disabled by setting the env variable POCL_SIGFPE_HANDLER to 0.
+  This requires pocl to install a handler of SIGFPE. The handler is per-process,
+  but it checks the thread ID, so that it only ignores the error for the CPU
+  driver threads, not the user program's threads. This might not work on every
+  system. The handler can be disabled completely by setting the env variable
+  POCL_SIGFPE_HANDLER to 0.
   Note that this is currently only relevant for x86(-64) + Linux, on all other
   systems this issue is not handled in any way (thus Pocl is likely
   non-conformant there).
 
-- Several options to clBuildProgram() are accepted but currently have no effect.
-  This is related mostly to optimization options like `-cl-fast-relaxed-math`.
-  The `-cl-denorms-are-zero` and `-cl-fp32-correctly-rounded-divide-sqrt`
-  options are honored.
-
 - Many of ``native_`` and ``half_`` variants of kernel library functions are mapped
   to the "full" variants.
-
-- the optional OpenGL / D3D extensions are not supported. There is experimental
-  support for SPIR
-
-- clUnloadCompiler() only actually unload LLVM after all programs & kernels
-  have been released.
 
 - clSetUserEventStatus() called with negative status. The Spec leaves the behaviour
   in this case as "implementation defined", and this part of pocl is
@@ -107,7 +136,7 @@ Known issues in pocl / things to be aware of
   called with CL_COMPLETE works as expected, and is heavily used by
   the conversions conformance test.
 
-Conformance tests results (kernel library precision) on tested hardware
+Conformance tests results (precision of builtin math library functions)
 -----------------------------------------------------------------------
 
 Note that it's impossible to test double precision on the entire range,

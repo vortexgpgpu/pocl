@@ -1,6 +1,7 @@
 // Header for LLVMUtils, useful common LLVM-related functionality.
 //
 // Copyright (c) 2013-2019 Pekka Jääskeläinen
+//               2023 Pekka Jääskeläinen / Intel Finland Oy
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to
@@ -27,10 +28,14 @@
 #include <string>
 
 #include "pocl.h"
+#include "pocl_spir.h"
+// #include "_libclang_versions_checks.h"
 
-#include <llvm/IR/Module.h>
-#include <llvm/IR/Metadata.h>
+#include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/Metadata.h>
+#include <llvm/IR/Module.h>
+#include <llvm/Transforms/Utils/Cloning.h> // for CloneFunctionIntoAbs
 
 namespace llvm {
     class Module;
@@ -42,51 +47,24 @@ namespace pocl {
 
 typedef std::map<llvm::Function*, llvm::Function*> FunctionMapping;
 
-void
-regenerate_kernel_metadata(llvm::Module &M, FunctionMapping &kernels);
+void regenerate_kernel_metadata(llvm::Module &M, FunctionMapping &kernels);
+
+void breakConstantExpressions(llvm::Value *Val, llvm::Function *Func);
 
 // Remove a function from a module, along with all callsites.
+POCL_EXPORT
 void eraseFunctionAndCallers(llvm::Function *Function);
 
-inline bool
-isAutomaticLocal(const std::string &FuncName, llvm::GlobalVariable &Var) {
-  // Without the fake address space IDs, there is no reliable way to figure out
-  // if the address space is local from the bitcode. We could check its AS
-  // against the device's local address space id, but for now lets rely on the
-  // naming convention only. Only relying on the naming convention has the problem
-  // that LLVM can move private const arrays to the global space which make
-  // them look like local arrays (see Github Issue 445). This should be properly
-  // fixed in Clang side with e.g. a naming convention for the local arrays to
-  // detect them robstly without having logical address space info in the IR.
-  return Var.getName().startswith(FuncName + ".") &&
-    llvm::isa<llvm::PointerType>(Var.getType()) && !Var.isConstant();
-}
+bool isAutomaticLocal(llvm::Function *F, llvm::GlobalVariable &Var);
 
-inline bool
-is_image_type(const llvm::Type& t) 
-{
-  if (t.isPointerTy() && t.getPointerElementType()->isStructTy()) {
-    llvm::StringRef name = t.getPointerElementType()->getStructName();
-    if (name.startswith("opencl.image2d_") || name.startswith("opencl.image3d_") ||
-        name.startswith("opencl.image1d_") || name.startswith("struct._pocl_image"))
-      return true;
-  }
-  return false;
-}
-
-inline bool
-is_sampler_type(const llvm::Type& t)
-{
-  if (t.isPointerTy() && t.getPointerElementType()->isStructTy())
-    {
-      llvm::StringRef name = t.getPointerElementType()->getStructName();
-      if (name.startswith("opencl.sampler_t")) return true;
-    }
-  return false;
-}
+bool isGVarUsedByFunction(llvm::GlobalVariable *GVar, llvm::Function *F);
 
 // Checks if the given argument of Func is a local buffer.
 bool isLocalMemFunctionArg(llvm::Function *Func, unsigned ArgIndex);
+
+// determines if GVar is OpenCL program-scope variable
+// if it has empty name, sets it to __anonymous_global_as.XYZ
+bool isProgramScopeVariable(llvm::GlobalVariable &GVar, unsigned DeviceLocalAS);
 
 // Sets the address space metadata of the given function argument.
 // Note: The address space ids must be SPIR ids. If it encounters
@@ -96,6 +74,56 @@ void setFuncArgAddressSpaceMD(llvm::Function *Func, unsigned ArgIndex,
                               unsigned AS);
 
 llvm::Metadata *createConstantIntMD(llvm::LLVMContext &C, int32_t Val);
+
+/**
+ * \brief Clones a DISubprogram with changed function name and scope.
+ *
+ * \param [in] Old The DISubprogram to clone.
+ * \param [in] NewFuncName A new function name.
+ * \param [in] Scope New scope.
+ * \returns a new DISubprogram.
+ *
+ */
+llvm::DISubprogram *mimicDISubprogram(llvm::DISubprogram *Old,
+                                      const llvm::StringRef &NewFuncName,
+                                      llvm::DIScope *Scope = nullptr);
 }
+
+template <typename VectorT>
+void CloneFunctionIntoAbs(llvm::Function *NewFunc,
+                          const llvm::Function *OldFunc,
+                          llvm::ValueToValueMapTy &VMap, VectorT &Returns,
+                          bool sameModule = true,
+                          const char *NameSuffix = "",
+                          llvm::ClonedCodeInfo *CodeInfo = nullptr,
+                          llvm::ValueMapTypeRemapper *TypeMapper = nullptr,
+                          llvm::ValueMaterializer *Materializer = nullptr) {
+
+
+#ifdef LLVM_OLDER_THAN_13_0
+  CloneFunctionInto(NewFunc, OldFunc, VMap, true,
+                    Returns, NameSuffix, CodeInfo, TypeMapper, Materializer);
+#else
+                    // ClonedModule DifferentModule LocalChangesOnly
+                    // GlobalChanges
+  CloneFunctionInto(NewFunc, OldFunc, VMap,
+                    (sameModule ? llvm::CloneFunctionChangeType::GlobalChanges
+                                : llvm::CloneFunctionChangeType::DifferentModule),
+                    Returns, NameSuffix, CodeInfo, TypeMapper, Materializer);
+#endif
+}
+
+#ifdef LLVM_OLDER_THAN_15_0
+// Globals
+#define getValueType getType()->getElementType
+#endif /* LLVM_OPAQUE_POINTERS */
+
+#ifdef LLVM_OLDER_THAN_14_0
+#define LLVMBuildGEP2(A, B, C, D, E, F) LLVMBuildGEP(A, C, D, E, F)
+#endif
+
+#ifdef LLVM_OLDER_THAN_11_0
+#define CBS_NO_PHIS_IN_SPLIT
+#endif
 
 #endif

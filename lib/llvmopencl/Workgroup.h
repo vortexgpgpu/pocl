@@ -2,12 +2,13 @@
 //
 // Copyright (c) 2011 Universidad Rey Juan Carlos
 //               2011-2018 Pekka Jääskeläinen
+//               2023 Pekka Jääskeläinen / Intel Finland Oy
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
 //
 // The above copyright notice and this permission notice shall be included in
@@ -17,9 +18,9 @@
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
 
 #ifndef _POCL_WORKGROUP_H
 #define _POCL_WORKGROUP_H
@@ -77,6 +78,22 @@ namespace pocl {
     void addGEPs(llvm::IRBuilder<> &Builder, int StructFieldIndex,
                  const char* FormatStr);
 
+    void addRangeMetadataForPCField(llvm::Instruction *Instr,
+                                    int StructFieldIndex, int FieldIndex = -1);
+
+    LLVMValueRef createAllocaMemcpyForStruct(LLVMModuleRef M,
+                                             LLVMBuilderRef Builder,
+                                             llvm::Argument &Arg,
+                                             LLVMValueRef ArgByteOffset);
+
+    LLVMValueRef createArgBufferLoad (LLVMBuilderRef Builder,
+                                      LLVMValueRef ArgBufferPtr,
+                                      uint64_t *ArgBufferOffsets,
+                                      LLVMContextRef Ctx, LLVMValueRef F,
+                                      unsigned ParamIndex);
+
+    llvm::Value *getRequiredSubgroupSize(llvm::Function &F);
+
     llvm::Module *M;
     llvm::LLVMContext *C;
 
@@ -95,6 +112,28 @@ namespace pocl {
     llvm::Type *PoclContextT = nullptr;
     llvm::FunctionType *LauncherFuncT = nullptr;
 
+    // Copies of compilation parameters
+    std::string KernelName;
+    unsigned long address_bits;
+    bool WGAssumeZeroGlobalOffset;
+    bool WGDynamicLocalSize;
+    bool DeviceUsingArgBufferLauncher;
+    bool DeviceUsingGridLauncher;
+    bool DeviceIsSPMD;
+    unsigned long WGLocalSizeX;
+    unsigned long WGLocalSizeY;
+    unsigned long WGLocalSizeZ;
+    unsigned long WGMaxGridDimWidth;
+
+    unsigned long DeviceGlobalASid;
+    unsigned long DeviceLocalASid;
+    unsigned long DeviceConstantASid;
+    unsigned long DeviceContextASid;
+    unsigned long DeviceArgsASid;
+    bool DeviceSidePrintf;
+    bool DeviceAllocaLocals;
+    unsigned long DeviceMaxWItemDim;
+    unsigned long DeviceMaxWItemSizes[3];
   };
 }
 

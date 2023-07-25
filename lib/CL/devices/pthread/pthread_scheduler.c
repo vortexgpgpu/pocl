@@ -32,14 +32,20 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "pocl-pthread_scheduler.h"
-#include "pocl_cl.h"
-#include "pocl-pthread.h"
-#include "pocl-pthread_utils.h"
-#include "utlist.h"
-#include "pocl_util.h"
+#include "builtin_kernels.hh"
 #include "common.h"
+#include "common_driver.h"
+#include "pocl-pthread.h"
+#include "pocl-pthread_scheduler.h"
+#include "pocl-pthread_utils.h"
+#include "pocl_cl.h"
 #include "pocl_mem_management.h"
+#include "pocl_util.h"
+#include "utlist.h"
+
+#ifdef __APPLE__
+#include "pthread_barrier.h"
+#endif
 
 static void* pocl_pthread_driver_thread (void *p);
 
@@ -77,18 +83,27 @@ typedef struct scheduler_data_
   POCL_FAST_LOCK_T wq_lock_fast __attribute__ ((aligned (HOST_CPU_CACHELINE_SIZE)));
 
   int thread_pool_shutdown_requested;
+
+  pthread_barrier_t init_barrier
+      __attribute__ ((aligned (HOST_CPU_CACHELINE_SIZE)));
+
+  int worker_out_of_memory;
 } scheduler_data __attribute__ ((aligned (HOST_CPU_CACHELINE_SIZE)));
 
 static scheduler_data scheduler;
 
-void
+cl_int
 pthread_scheduler_init (cl_device_id device)
 {
   unsigned i;
   size_t num_worker_threads = device->max_compute_units;
   POCL_FAST_INIT (scheduler.wq_lock_fast);
 
-  pthread_cond_init (&(scheduler.wake_pool), NULL);
+  PTHREAD_CHECK (pthread_cond_init (&(scheduler.wake_pool), NULL));
+
+  POCL_LOCK (scheduler.wq_lock_fast);
+  VG_ASSOC_COND_VAR (scheduler.wake_pool, scheduler.wq_lock_fast);
+  POCL_UNLOCK (scheduler.wq_lock_fast);
 
   scheduler.thread_pool = pocl_aligned_malloc (
       HOST_CPU_CACHELINE_SIZE,
@@ -104,16 +119,33 @@ pthread_scheduler_init (cl_device_id device)
   /* safety margin - aligning pointers later (in kernel arg setup)
    * may require more local memory than actual local mem size.
    * TODO fix this */
-  scheduler.local_mem_size = device->local_mem_size << 4;
+  scheduler.local_mem_size = device->local_mem_size + device->max_parameter_size * MAX_EXTENDED_ALIGNMENT;
+
+  PTHREAD_CHECK (pthread_barrier_init (&scheduler.init_barrier, NULL,
+                                       num_worker_threads + 1));
+  scheduler.worker_out_of_memory = 0;
 
   for (i = 0; i < num_worker_threads; ++i)
     {
       scheduler.thread_pool[i].index = i;
-      pthread_create (&scheduler.thread_pool[i].thread, NULL,
-                      pocl_pthread_driver_thread,
-                      (void*)&scheduler.thread_pool[i]);
+      PTHREAD_CHECK (pthread_create (&scheduler.thread_pool[i].thread, NULL,
+                                     pocl_pthread_driver_thread,
+                                     (void *)&scheduler.thread_pool[i]));
+#if defined(__linux__) && defined(__x86_64__)
+      pocl_ignore_sigfpe_for_thread (scheduler.thread_pool[i].thread);
+#endif
     }
 
+  PTHREAD_CHECK2 (PTHREAD_BARRIER_SERIAL_THREAD,
+                  pthread_barrier_wait (&scheduler.init_barrier));
+
+  if (scheduler.worker_out_of_memory)
+    {
+      pthread_scheduler_uninit ();
+      return CL_OUT_OF_HOST_MEMORY;
+    }
+
+  return CL_SUCCESS;
 }
 
 void
@@ -123,17 +155,18 @@ pthread_scheduler_uninit ()
 
   POCL_FAST_LOCK (scheduler.wq_lock_fast);
   scheduler.thread_pool_shutdown_requested = 1;
-  pthread_cond_broadcast (&scheduler.wake_pool);
+  PTHREAD_CHECK (pthread_cond_broadcast (&scheduler.wake_pool));
   POCL_FAST_UNLOCK (scheduler.wq_lock_fast);
 
   for (i = 0; i < scheduler.num_threads; ++i)
     {
-      pthread_join (scheduler.thread_pool[i].thread, NULL);
+      PTHREAD_CHECK (pthread_join (scheduler.thread_pool[i].thread, NULL));
     }
 
   pocl_aligned_free (scheduler.thread_pool);
   POCL_FAST_DESTROY (scheduler.wq_lock_fast);
-  pthread_cond_destroy (&scheduler.wake_pool);
+  PTHREAD_CHECK (pthread_cond_destroy (&scheduler.wake_pool));
+  PTHREAD_CHECK (pthread_barrier_destroy (&scheduler.init_barrier));
 
   scheduler.thread_pool_shutdown_requested = 0;
 }
@@ -144,7 +177,7 @@ void pthread_scheduler_push_command (_cl_command_node *cmd)
 {
   POCL_FAST_LOCK (scheduler.wq_lock_fast);
   DL_APPEND (scheduler.work_queue, cmd);
-  pthread_cond_broadcast (&scheduler.wake_pool);
+  PTHREAD_CHECK (pthread_cond_broadcast (&scheduler.wake_pool));
   POCL_FAST_UNLOCK (scheduler.wq_lock_fast);
 }
 
@@ -153,7 +186,7 @@ pthread_scheduler_push_kernel (kernel_run_command *run_cmd)
 {
   POCL_FAST_LOCK (scheduler.wq_lock_fast);
   DL_APPEND (scheduler.kernel_queue, run_cmd);
-  pthread_cond_broadcast (&scheduler.wake_pool);
+  PTHREAD_CHECK (pthread_cond_broadcast (&scheduler.wake_pool));
   POCL_FAST_UNLOCK (scheduler.wq_lock_fast);
 }
 
@@ -189,6 +222,7 @@ get_wg_index_range (kernel_run_command *k, unsigned *start_index,
   const unsigned scaled_max_wgs = POCL_PTHREAD_MAX_WGS * num_threads;
   const unsigned scaled_min_wgs = POCL_PTHREAD_MIN_WGS * num_threads;
 
+  unsigned limit;
   unsigned max_wgs;
   POCL_FAST_LOCK (k->lock);
   if (k->remaining_wgs == 0)
@@ -205,10 +239,13 @@ get_wg_index_range (kernel_run_command *k, unsigned *start_index,
    * num_threads, otherwise fallback to smaller workgroups.
    */
   if (k->remaining_wgs <= (scaled_max_wgs * num_threads))
-    max_wgs = min (scaled_min_wgs, (1 + k->remaining_wgs / num_threads));
+    limit = scaled_min_wgs;
   else
-    max_wgs = min (scaled_max_wgs, (1 + k->remaining_wgs / num_threads));
+    limit = scaled_max_wgs;
 
+  // divide two integers rounding up, i.e. ceil(k->remaining_wgs/num_threads)
+  const unsigned wgs_per_thread = (1 + (k->remaining_wgs - 1) / num_threads);
+  max_wgs = min (limit, wgs_per_thread);
   max_wgs = min (max_wgs, k->remaining_wgs);
   assert (max_wgs > 0);
 
@@ -291,7 +328,7 @@ work_group_scheduler (kernel_run_command *k,
 
       for (i = start_index; i <= end_index; ++i)
         {
-	  size_t gids[3];
+          size_t gids[3];
           translate_wg_index_to_3d_index (k, i, gids,
                                           slice_size, row_size);
 
@@ -330,11 +367,9 @@ finalize_kernel_command (struct pool_thread_data *thread_data,
 
   pocl_release_dlhandle_cache (k->cmd);
 
-  pocl_ndrange_node_cleanup (k->cmd);
+  POCL_UPDATE_EVENT_COMPLETE_MSG (k->cmd->sync.event.event,
+                                  "NDRange Kernel        ");
 
-  POCL_UPDATE_EVENT_COMPLETE_MSG (k->cmd->event, "NDRange Kernel        ");
-
-  pocl_mem_manager_free_command (k->cmd);
   POCL_FAST_DESTROY (k->lock);
   free_kernel_run_command (k);
 }
@@ -345,10 +380,29 @@ pocl_pthread_prepare_kernel (void *data, _cl_command_node *cmd)
   kernel_run_command *run_cmd;
   cl_kernel kernel = cmd->command.run.kernel;
   struct pocl_context *pc = &cmd->command.run.pc;
+  cl_program program = kernel->program;
+  cl_uint dev_i = cmd->program_device_i;
 
-  pocl_check_kernel_dlhandle_cache (cmd, 1, 1);
+  /* initialize the program gvars if required */
+  pocl_driver_build_gvar_init_kernel (program, dev_i, cmd->device,
+                                      pocl_cpu_gvar_init_callback);
 
   size_t num_groups = pc->num_groups[0] * pc->num_groups[1] * pc->num_groups[2];
+
+  if (num_groups == 0)
+    {
+      pocl_update_event_running (cmd->sync.event.event);
+
+      POCL_UPDATE_EVENT_COMPLETE_MSG (cmd->sync.event.event,
+                                      "NDRange Kernel        ");
+
+      return;
+    }
+
+  char *saved_name = NULL;
+  pocl_sanitize_builtin_kernel_name (kernel, &saved_name);
+  pocl_check_kernel_dlhandle_cache (cmd, CL_TRUE, CL_TRUE);
+  pocl_restore_builtin_kernel_name (kernel, saved_name);
 
   run_cmd = new_kernel_run_command ();
   run_cmd->data = data;
@@ -359,6 +413,7 @@ pocl_pthread_prepare_kernel (void *data, _cl_command_node *cmd)
   run_cmd->pc.printf_buffer = NULL;
   run_cmd->pc.printf_buffer_capacity = scheduler.printf_buf_size;
   run_cmd->pc.printf_buffer_position = NULL;
+  run_cmd->pc.global_var_buffer = program->gvar_storage[dev_i];
   run_cmd->remaining_wgs = num_groups;
   run_cmd->wgs_dealt = 0;
   run_cmd->workgroup = cmd->command.run.wg;
@@ -369,7 +424,7 @@ pocl_pthread_prepare_kernel (void *data, _cl_command_node *cmd)
 
   setup_kernel_arg_array (run_cmd);
 
-  pocl_update_event_running (cmd->event);
+  pocl_update_event_running (cmd->sync.event.event);
 
   pthread_scheduler_push_kernel (run_cmd);
 }
@@ -405,7 +460,7 @@ check_cmd_queue_for_device (thread_data *td)
     cl_device_id subd = cmd->device;
     if (shall_we_run_this (td, subd))
       {
-        DL_DELETE (scheduler.work_queue, cmd)
+        DL_DELETE (scheduler.work_queue, cmd);
         return cmd;
       }
   }
@@ -464,7 +519,7 @@ RETRY:
     {
       POCL_FAST_UNLOCK (scheduler.wq_lock_fast);
 
-      assert (pocl_command_is_ready (cmd->event));
+      assert (pocl_command_is_ready (cmd->sync.event.event));
 
       if (cmd->type == CL_COMMAND_NDRANGE_KERNEL)
         {
@@ -482,7 +537,8 @@ RETRY:
   /* if neither a command nor a kernel was available, sleep */
   if ((cmd == NULL) && (run_cmd == NULL) && (do_exit == 0))
     {
-      pthread_cond_wait (&scheduler.wake_pool, &scheduler.wq_lock_fast);
+      PTHREAD_CHECK (
+          pthread_cond_wait (&scheduler.wake_pool, &scheduler.wq_lock_fast));
       goto RETRY;
     }
 
@@ -505,21 +561,28 @@ pocl_pthread_driver_thread (void *p)
   td->num_threads = scheduler.num_threads;
   td->printf_buffer = pocl_aligned_malloc (MAX_EXTENDED_ALIGNMENT,
                                            scheduler.printf_buf_size);
-  assert (td->printf_buffer != NULL);
 
   assert (scheduler.local_mem_size > 0);
   td->local_mem = pocl_aligned_malloc (MAX_EXTENDED_ALIGNMENT,
                                        scheduler.local_mem_size);
-  assert (td->local_mem);
 #ifdef __linux__
   if (pocl_get_bool_option ("POCL_AFFINITY", 0))
     {
       cpu_set_t set;
       CPU_ZERO (&set);
       CPU_SET (td->index, &set);
-      pthread_setaffinity_np (td->thread, sizeof (cpu_set_t), &set);
+      PTHREAD_CHECK (
+          pthread_setaffinity_np (td->thread, sizeof (cpu_set_t), &set));
     }
 #endif
+
+  if (td->printf_buffer == NULL || td->local_mem == NULL)
+    {
+      POCL_ATOMIC_INC (scheduler.worker_out_of_memory);
+    }
+
+  PTHREAD_CHECK2 (PTHREAD_BARRIER_SERIAL_THREAD,
+                  pthread_barrier_wait (&scheduler.init_barrier));
 
   while (1)
     {

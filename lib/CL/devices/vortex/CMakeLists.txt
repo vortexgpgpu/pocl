@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2014 pocl developers
+#   Copyright (c) 2014-2021 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -23,8 +23,28 @@
 #
 #=============================================================================
 
+
+#add_library("pocl-devices-vortex" OBJECT pocl-vortex.h pocl-vortex.cc)
+#if(ENABLE_LOADABLE_DRIVERS)
+#  target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_DRIVER_LIB})
+#endif()
+#harden("pocl-devices-vortex")
+#if(OCL_ICD_INCLUDE_DIRS)
+#  target_include_directories("pocl-devices-vortex" SYSTEM PUBLIC ${OCL_ICD_INCLUDE_DIRS})
+#endif()
+
+#if(MSVC)
+#  set_source_files_properties( pocl-vortex.h pocl-vortex.cc PROPERTIES LANGUAGE CXX )
+#endif(MSVC)
+
+
+
+add_pocl_device_library("pocl-devices-vortex" pocl-vortex.h pocl-vortex.cc)
+if(ENABLE_LOADABLE_DRIVERS)
+  target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_DRIVER_LIB})
+endif()
+
 if(MSVC)
-  set_source_files_properties(vortex.c PROPERTIES LANGUAGE CXX)
+  set_source_files_properties( pocl-vortex.h pocl-vortex.cc PROPERTIES LANGUAGE CXX )
 endif(MSVC)
-add_library("pocl-devices-vortex" OBJECT vortex.h vortex.cc)
-set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}" "$<TARGET_OBJECTS:pocl-devices-vortex>" PARENT_SCOPE)
+

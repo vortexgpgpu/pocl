@@ -701,7 +701,7 @@ __pocl_printf_putchw (param_t *p)
 
 void
 __pocl_printf_puts_ljust (param_t *p, const char *string, size_t width,
-                          ssize_t max_width)
+                          sssize_t max_width)
 {
   char c;
   size_t written = 0;
@@ -723,7 +723,7 @@ __pocl_printf_puts_ljust (param_t *p, const char *string, size_t width,
 
 void
 __pocl_printf_puts_rjust (param_t *p, const char *string, size_t width,
-                          ssize_t max_width)
+                          sssize_t max_width)
 {
   char c;
   size_t i, strleng = 0, written = 0;

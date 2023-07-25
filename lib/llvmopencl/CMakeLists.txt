@@ -27,6 +27,7 @@
 # usually contain their own setting of C++ standard, which may be in conflict
 # with pocl's default C++ standard.
 unset(CMAKE_CXX_STANDARD)
+set(CMAKE_CXX_STANDARD 17)
 
 set(LLVMPASSES_SOURCES "AllocasToEntry.cc"
                        "AllocasToEntry.h"
@@ -49,13 +50,13 @@ set(LLVMPASSES_SOURCES "AllocasToEntry.cc"
                        "ImplicitConditionalBarriers.h"
                        "ImplicitLoopBarriers.cc"
                        "ImplicitLoopBarriers.h"
+                       "InlineKernels.cc"
                        "IsolateRegions.cc"
                        "IsolateRegions.h"
                        "Kernel.cc"
                        "Kernel.h"
                        "linker.cpp"
                        "linker.h"
-                       "LLVMFileUtils.cc"
                        "LLVMUtils.cc"
                        "LLVMUtils.h"
                        "LoopBarriers.cc"
@@ -66,10 +67,16 @@ set(LLVMPASSES_SOURCES "AllocasToEntry.cc"
                        "PHIsToAllocas.h"
                        "ParallelRegion.cc"
                        "ParallelRegion.h"
+                       "ProgramScopeVariables.cc"
+                       "ProgramScopeVariables.h"
                        "RemoveBarrierCalls.cc"
                        "RemoveBarrierCalls.h"
                        "RemoveOptnoneFromWIFunc.cc"
                        "RemoveOptnoneFromWIFunc.h"
+                       "SubCFGFormation.cc"
+                       "SubCFGFormation.h"
+                       "UnifyPrintf.cc"
+                       "UnifyPrintf.h"
                        "VariableUniformityAnalysis.cc"
                        "VariableUniformityAnalysis.h"
                        "WorkItemAliasAnalysis.cc"
@@ -99,11 +106,19 @@ endif(MSVC)
 # to call the kernel compiler passes directly from the host library.
 #noinst_LTLIBRARIES = libllvmpasses.la
 add_library("llvmpasses" OBJECT ${LLVMPASSES_SOURCES})
+harden("llvmpasses")
 
+if(OCL_ICD_INCLUDE_DIRS)
+  target_include_directories("llvmpasses" SYSTEM PUBLIC ${OCL_ICD_INCLUDE_DIRS})
+endif()
+
+option(ENABLE_LIBLLVMOPENCL "Build separate libllvmopencl.so for use with 'opt'" OFF)
+if(ENABLE_LIBLLVMOPENCL)
 # This creates a separate llvmopencl.so that is loaded to 'opt'
 # for the pocl-workgroup version.
 #pkglib_LTLIBRARIES = llvmopencl.la
 add_library("llvmopencl" MODULE "$<TARGET_OBJECTS:llvmpasses>")
+harden("llvmopencl")
 
 # not sure where other platforms get their library linkage list, probably there is
 # way to make this more consistent on different platforms
@@ -112,6 +127,7 @@ if(MSVC)
 endif(MSVC)
 
 #target_link_libraries("llvmopencl" "${LLVM_SYSLIBS}")
+endif(ENABLE_LIBLLVMOPENCL)
  
 # TODO cmake should handle this, i might me missing something …
 if(APPLE)
@@ -120,11 +136,12 @@ else()
   set(ADD_LD_FLAGS "-Wl,-export-dynamic")
 endif()
 
-set_target_properties("llvmopencl" PROPERTIES COMPILE_FLAGS "-O0 -g")
+#set_target_properties("llvmopencl" PROPERTIES COMPILE_FLAGS "-O0 -g")
 
+if(ENABLE_LIBLLVMOPENCL)
 # TODO ENABLE_EXPORTS -> Wl,export_dynamic
-# http://www.cmake.org/cmake/help/v2.8.12/cmake.html#prop_tgt:ENABLE_EXPORTS
-# http://www.cmake.org/pipermail/cmake/2011-November/047708.html
+# https://www.cmake.org/cmake/help/v2.8.12/cmake.html#prop_tgt:ENABLE_EXPORTS
+# https://www.cmake.org/pipermail/cmake/2011-November/047708.html
 set_target_properties("llvmopencl" PROPERTIES LINK_FLAGS "${LLVM_LDFLAGS} ${ADD_LD_FLAGS}")
 if(NOT APPLE)
   set_target_properties("llvmopencl" PROPERTIES SOVERSION "${KERNEL_COMPILER_LIB_VERSION}" VERSION "${KERNEL_COMPILER_LIB_VERSION}")
@@ -136,3 +153,11 @@ install(TARGETS "llvmopencl"
         ARCHIVE DESTINATION ${POCL_INSTALL_PRIVATE_LIBDIR}/static
         COMPONENT "dev"
 )
+endif(ENABLE_LIBLLVMOPENCL)
+
+if(ENABLE_IPO)
+  set_property(TARGET "llvmpasses" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+if(ENABLE_LIBLLVMOPENCL)
+  set_property(TARGET "llvmopencl" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif(ENABLE_LIBLLVMOPENCL)
+endif()

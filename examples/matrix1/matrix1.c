@@ -21,20 +21,27 @@
    IN THE SOFTWARE.
 */
 
-/* For srandom. */
+// For srandom
 #define _DEFAULT_SOURCE
+#define _BSD_SOURCE
 
-#include <CL/opencl.h>
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
-#include <poclu.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
+#include "pocl_opencl.h"
+
+#ifdef _WIN32
+#  include "vccompat.hpp"
+#endif
+
+#ifndef min
 #define min(X, Y) X < Y ? X : Y
+#endif
 
 int
 exec_matrix_kernel (cl_context context, cl_device_id device,
@@ -81,11 +88,10 @@ exec_matrix_kernel (cl_context context, cl_device_id device,
       err = clSetKernelArg (kernel, 3, sizeof (cl_mem), (void *)&memobjs[1]);
       CHECK_CL_ERROR2 (err);
 
-      cl_event ev;
       size_t global[2] = { n, n };
       size_t local[2] = { 8, 8 };
       err = clEnqueueNDRangeKernel (cmd_queue, kernel, 2, NULL, global, local,
-                                    0, NULL, &ev);
+                                    0, NULL, NULL);
       CHECK_CL_ERROR2 (err);
     }
   else
@@ -289,7 +295,8 @@ main (int argc, char **argv)
       printf ("Binary local_wg: %u \n", local_wg);
       if (local_wg * local_wg > max_wg_size)
         {
-          printf ("local_wg exceeds this device's capabilities.\n");
+          printf ("Local WG size of the binary exceeds this "
+                  "device's capabilities.\nTest SKIPPED\n");
           return 0;
         }
     }
@@ -465,8 +472,9 @@ main (int argc, char **argv)
 FINISH:
   CHECK_CL_ERROR (clReleaseProgram (program));
   CHECK_CL_ERROR (clReleaseCommandQueue (queue));
-  CHECK_CL_ERROR (clUnloadPlatformCompiler (platform));
   CHECK_CL_ERROR (clReleaseContext (context));
+  CHECK_CL_ERROR (clUnloadPlatformCompiler (platform));
+
   free (dst);
   free (srcA);
   free (srcB);

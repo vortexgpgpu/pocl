@@ -25,11 +25,10 @@
 #define POCL_HSA_H
 
 #include "pocl_cl.h"
-#include "pocl_icd.h"
 #include "config.h"
 
 #include "prototypes.inc"
 GEN_PROTOTYPES (basic)
 GEN_PROTOTYPES (hsa)
 
-#endif /* POCL_BASIC_H */
+#endif /* POCL_HSA_H */

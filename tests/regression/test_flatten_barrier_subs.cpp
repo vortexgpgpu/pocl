@@ -21,12 +21,18 @@
    THE SOFTWARE.
 */
 
+#include "pocl_opencl.h"
+
 #define CL_HPP_TARGET_OPENCL_VERSION 120
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#include <CL/opencl.hpp>
 
 #include <iostream>
 #include <numeric>
-#include <CL/cl2.hpp>
+
+#ifdef _WIN32
+#  include "vccompat.hpp"
+#endif
 
 std::string read_text_file(const std::string& path)
 {
@@ -236,7 +242,9 @@ int main()
     {
         std::cout << "CL gave wrong results" << std::endl;
         print_vec(cl_indices);
+        return EXIT_FAILURE;
     }
 
-    return 0;
+    std::cout << "OK" << std::endl;
+    return EXIT_SUCCESS;
 }

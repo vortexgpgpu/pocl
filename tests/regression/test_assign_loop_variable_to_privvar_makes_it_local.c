@@ -23,8 +23,9 @@
    THE SOFTWARE.
 */
 
-#include <CL/cl.h>
-#include "poclu.h"
+#include "pocl_opencl.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 const char* kernel_src = 
@@ -83,5 +84,11 @@ int main() {
     
     clFinish(command_queue);
     ret |= clReleaseKernel(kernel);
-    return ret;
+
+    if (ret == 0)
+      {
+        printf ("OK\n");
+        return EXIT_SUCCESS;
+      }
+    return EXIT_FAILURE;
 }

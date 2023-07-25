@@ -32,7 +32,7 @@ add_executable("boxadd" boxadd.c boxadd_exec.c boxadd.cl)
 
 target_link_libraries("boxadd" ${POCLU_LINK_OPTIONS})
 
-add_test("examples/boxadd" "boxadd")
+add_test(NAME "examples/boxadd" COMMAND "boxadd")
 
 set(PROPS)
 if(NOT ENABLE_ANYSAN)
@@ -45,5 +45,5 @@ set_tests_properties( "examples/boxadd"
     COST 3.0
     ${PROPS}
     PROCESSORS 1
-    LABELS "internal;"
+    LABELS "internal;vulkan;level0"
     DEPENDS "pocl_version_check")

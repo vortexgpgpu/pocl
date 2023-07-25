@@ -22,14 +22,11 @@
 */
 
 #include "pocl_runtime_config.h"
-#include "utlist.h"
 #include "pocl_cl.h"
+#include "utlist.h"
 
 #include <stdlib.h>
 #include <string.h>
-
-/* TODO: cache the options and to avoid calling getenv more than once 
-   per option. */
 
 typedef struct env_data env_data;
 struct env_data
@@ -40,19 +37,19 @@ struct env_data
 };
 
 static env_data *volatile env_cache = 0;
-static pocl_lock_t lock = POCL_LOCK_INITIALIZER;
+pocl_lock_t pocl_runtime_config_lock;
 
 static env_data* find_env (env_data* cache, const char* key)
 {
   env_data* ed;
   char *value;
 
-  POCL_LOCK(lock);
+  POCL_LOCK (pocl_runtime_config_lock);
   LL_FOREACH(cache, ed)
     {
       if (strcmp(ed->env, key) == 0)
         {
-          POCL_UNLOCK(lock);
+          POCL_UNLOCK (pocl_runtime_config_lock);
           return ed;
         }
     }
@@ -63,11 +60,11 @@ static env_data* find_env (env_data* cache, const char* key)
       ed->value = strdup (value);
       ed->next = NULL;
       LL_APPEND(env_cache, ed);
-      POCL_UNLOCK(lock);
+      POCL_UNLOCK (pocl_runtime_config_lock);
       return ed;
     }
-  
-  POCL_UNLOCK(lock);
+
+  POCL_UNLOCK (pocl_runtime_config_lock);
   return NULL;
 }
 /* Can be used to query if the given option has been set by the user. */
@@ -88,7 +85,7 @@ int pocl_get_int_option(const char *key, int default_value)
 int pocl_get_bool_option(const char *key, int default_value) 
 {
   env_data *ed;
-  if ((ed = find_env(env_cache, key))) 
+  if ((ed = find_env(env_cache, key)))
     return (strncmp(ed->value, "1", 1) == 0);
   return default_value;
 }

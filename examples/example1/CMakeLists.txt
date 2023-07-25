@@ -32,15 +32,21 @@ add_executable("example1" example1.c example1_exec.c example1.cl)
 
 target_link_libraries("example1" ${POCLU_LINK_OPTIONS})
 
-add_test("examples/example1_dot_product" "example1")
+add_test(NAME "examples/example1_dot_product" COMMAND "example1")
 
 if (ENABLE_SPIR)
-  add_test("examples/example1_spir" "example1" "s")
+  add_test(NAME "examples/example1_spir"
+           COMMAND ${CMAKE_COMMAND}
+           "-DCMD1=${CLANG}####${SPIR_COMMON_FLAGS}####-target####spir-unknown-unknown####-o####${CMAKE_BINARY_DIR}/example1.spir32####-c####${CMAKE_CURRENT_SOURCE_DIR}/example1.cl"
+           "-DCMD2=${CLANG}####${SPIR_COMMON_FLAGS}####-target####spir64-unknown-unknown####-o####${CMAKE_BINARY_DIR}/example1.spir64####-c####${CMAKE_CURRENT_SOURCE_DIR}/example1.cl"
+           "-DCMD3=${CMAKE_BINARY_DIR}/examples/example1/example1####s"
+           "-DCMD4=${CMAKE_COMMAND}####-E####remove####-f####${CMAKE_BINARY_DIR}/example1.spir32####${CMAKE_BINARY_DIR}/example1.spir64"
+            -P ${CMAKE_SOURCE_DIR}/cmake/multi_exec_test.cmake)
   list(APPEND SPIREX "examples/example1_spir")
 endif()
 
 if (ENABLE_SPIRV)
-  add_test("examples/example1_spirv" "example1" "v")
+	add_test(NAME "examples/example1_spirv" COMMAND "example1" "v")
   list(APPEND SPIREX "examples/example1_spirv")
 endif()
 
@@ -59,10 +65,32 @@ set_tests_properties( "examples/example1_dot_product" ${SPIREX}
     COST 3.0
     ${PROPS}
     PROCESSORS 1
-    ENVIRONMENT "POCL_TTASIM0_PARAMETERS=${CMAKE_SOURCE_DIR}/tools/data/test_machine_LE.adf"
-    LABELS "internal;cuda"
+    # devices which support SPIR
+    LABELS "internal;cuda;level0"
     DEPENDS "pocl_version_check")
 
 # devices which don't support SPIR
 set_property(TEST "examples/example1_dot_product"
-  APPEND PROPERTY LABELS "tce;hsa;hsa-native")
+  APPEND PROPERTY LABELS "hsa;hsa-native;vulkan")
+
+if (ENABLE_TCE)
+  set_property(TEST "examples/example1_dot_product"
+    APPEND PROPERTY LABELS "tce;almaif")
+endif()
+
+add_test(NAME "examples/example1_poclbin"
+         COMMAND ${CMAKE_COMMAND}
+            "-DCMD1=${CMAKE_BINARY_DIR}/bin/poclcc####-o####${CMAKE_BINARY_DIR}/example1.bin####${CMAKE_CURRENT_SOURCE_DIR}/example1.cl"
+            "-DCMD2=${CMAKE_COMMAND}####-E####rm####-rf####${CMAKE_BINARY_DIR}/Testing/Cache"
+            "-DCMD3=${CMAKE_BINARY_DIR}/examples/example1/example1####b####${CMAKE_BINARY_DIR}/example1.bin"
+            "-DCMD4=${CMAKE_COMMAND}####-E####remove####-f####${CMAKE_BINARY_DIR}/example1.bin"
+            -P ${CMAKE_SOURCE_DIR}/cmake/multi_exec_test.cmake)
+
+set_tests_properties( "examples/example1_poclbin"
+  PROPERTIES
+    COST 3.0
+    ${PROPS}
+    PROCESSORS 1
+    ENVIRONMENT "POCL_KERNEL_CACHE=0"
+    LABELS "poclbin;internal;level0"
+    DEPENDS "pocl_version_check")

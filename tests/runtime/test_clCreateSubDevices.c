@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <CL/opencl.h>
+
 #include "poclu.h"
 #include "config.h"
 
@@ -138,9 +138,9 @@ int main(int argc, char **argv)
   CHECK_OPENCL_ERROR_IN("CL_DEVICE_MAX_COMPUTE_UNITS");
   if (max_cus < 2)
     {
-      printf("This test requires a cl device with at least 2 compute units"
-             " (a dual-core or better CPU)\n");
-      return 1;
+      printf (
+          "This test requires a cl device with at least 2 compute units\n");
+      return 77;
     }
 
   err = clGetDeviceInfo(rootdev, CL_DEVICE_PARTITION_MAX_SUB_DEVICES,
@@ -148,7 +148,11 @@ int main(int argc, char **argv)
   CHECK_OPENCL_ERROR_IN("CL_DEVICE_PARTITION_MAX_SUB_DEVICES");
 
   // test fails without possible sub-devices, e.g. with basic pocl device
-  TEST_ASSERT(max_subs > 1);
+  if (max_subs < 2)
+    {
+      printf ("This test requires a cl device with at least 2 subdevices\n");
+      return 77;
+    }
 
   cl_device_partition_property *dev_pt;
   size_t dev_pt_size;
@@ -405,7 +409,5 @@ int main(int argc, char **argv)
   free (dev_pt);
 
   printf ("OK\n");
-
-  return 0;
+  return EXIT_SUCCESS;
 }
-
