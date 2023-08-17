@@ -118,6 +118,92 @@ static const char cl_parameters_not_yet_supported_by_clang[] =
     }                                                                         \
   while (0)
 
+#if defined (OCS_AVAILABLE)
+cl_int
+program_compile_dynamic_wg_binaries (cl_program program)
+{
+  unsigned i, device_i;
+  _cl_command_node cmd;
+
+  assert(program->build_status == CL_BUILD_SUCCESS);
+  if (program->num_kernels == 0)
+    return CL_SUCCESS;
+
+  /* For binaries of other than Executable type (libraries, compiled but
+   * not linked programs, etc), do not attempt to compile the kernels. */
+  if (program->binary_type != CL_PROGRAM_BINARY_TYPE_EXECUTABLE)
+    return CL_SUCCESS;
+
+  memset(&cmd, 0, sizeof(_cl_command_node));
+  cmd.type = CL_COMMAND_NDRANGE_KERNEL;
+
+  POCL_LOCK_OBJ (program);
+
+  /* Build the dynamic WG sized parallel.bc and device specific code,
+     for each kernel & device combo.  */
+  for (device_i = 0; device_i < program->num_devices; ++device_i)
+    {
+      cl_device_id device = program->devices[device_i];
+
+      /* program may not be built for some of its devices */
+      if (program->pocl_binaries[device_i] || (!program->binaries[device_i]))
+        continue;
+
+      cmd.device = device;
+      cmd.program_device_i = device_i;
+
+      struct _cl_kernel fake_k;
+      memset (&fake_k, 0, sizeof (fake_k));
+      fake_k.context = program->context;
+      fake_k.program = program;
+      fake_k.next = NULL;
+      cl_kernel kernel = &fake_k;
+
+      for (i=0; i < program->num_kernels; i++)
+        {
+          fake_k.meta = &program->kernel_meta[i];
+          fake_k.name = fake_k.meta->name;
+          cmd.command.run.hash = fake_k.meta->build_hash[device_i];
+
+          size_t local_x = 0, local_y = 0, local_z = 0;
+
+          if (kernel->meta->reqd_wg_size[0] > 0
+              && kernel->meta->reqd_wg_size[1] > 0
+              && kernel->meta->reqd_wg_size[2] > 0)
+            {
+              local_x = kernel->meta->reqd_wg_size[0];
+              local_y = kernel->meta->reqd_wg_size[1];
+              local_z = kernel->meta->reqd_wg_size[2];
+            }
+
+          cmd.command.run.pc.local_size[0] = local_x;
+          cmd.command.run.pc.local_size[1] = local_y;
+          cmd.command.run.pc.local_size[2] = local_z;
+
+          cmd.command.run.kernel = kernel;
+
+          /* Force generate a generic WG function to ensure generality. */
+          device->ops->compile_kernel (&cmd, kernel, device, 0);
+
+          /* Then generate a specialized one with goffset 0 since it's a very
+             common case. */
+
+          cmd.command.run.pc.global_offset[0]
+              = cmd.command.run.pc.global_offset[1]
+              = cmd.command.run.pc.global_offset[2] = 0;
+          cmd.command.run.force_large_grid_wg_func = 1;
+          device->ops->compile_kernel (&cmd, kernel, device, 1);
+        }
+    }
+
+  POCL_UNLOCK_OBJ (program);
+
+  return CL_SUCCESS;
+}
+
+#endif
+
+
 static void
 append_to_build_log (cl_program program, unsigned device_i, const char *format,
                      ...)

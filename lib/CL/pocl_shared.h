@@ -183,6 +183,8 @@ pocl_set_kernel_arg_pointer(cl_kernel kernel,
                             cl_uint arg_index,
                             const void *arg_value);
 
+cl_int program_compile_dynamic_wg_binaries (cl_program program);
+
 #ifdef __GNUC__
 #pragma GCC visibility pop
 #endif

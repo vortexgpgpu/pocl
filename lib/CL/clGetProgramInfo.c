@@ -57,6 +57,13 @@ static void get_binary_sizes(cl_program program, size_t *sizes)
 
 static void get_binaries(cl_program program, unsigned char **binaries)
 {
+#ifdef OCS_AVAILABLE
+  if (program_compile_dynamic_wg_binaries (program) != CL_SUCCESS)
+    {
+      memset(binaries, 0, program->num_devices * sizeof(unsigned char*));
+      return;
+    }
+#endif
   unsigned i;
   size_t res;
   for (i=0; i < program->num_devices; i++)

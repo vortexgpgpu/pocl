@@ -205,6 +205,12 @@ char pocl_device_types[POCL_NUM_DEVICE_TYPES][30] = {
 #ifdef BUILD_LEVEL0
   "level0",
 #endif
+#ifdef BUILD_NEWLIB
+  "newlib",
+#endif
+#ifdef BUILD_VORTEX
+  "vortex",
+#endif
 };
 
 static struct pocl_device_ops pocl_device_ops[POCL_NUM_DEVICE_TYPES];
@@ -473,6 +479,13 @@ FINISH:
 cl_int
 pocl_init_devices ()
 {
+  #if !defined(OCS_AVAILABLE)
+    printf("AVAILABLE not defiened \n\n");
+  #else 
+
+    printf("AVAILABLE defiened \n\n");
+  #endif
+
   int errcode = CL_SUCCESS;
 
   /* This is a workaround to a nasty problem with libhwloc: When
@@ -545,16 +558,20 @@ pocl_init_devices ()
 
   pocl_offline_compile = pocl_get_bool_option ("POCL_OFFLINE_COMPILE", 0);
 
+
   /* Init operations */
   for (i = 0; i < POCL_NUM_DEVICE_TYPES; ++i)
     {
 #ifdef ENABLE_LOADABLE_DRIVERS
+
       if (pocl_devices_init_ops[i] == NULL)
         {
           char device_library[PATH_MAX] = "";
           char init_device_ops_name[MAX_DEV_NAME_LEN + 21] = "";
           get_pocl_device_lib_path (device_library, pocl_device_types[i], 1);
-          pocl_device_handles[i] = dlopen (device_library, RTLD_LAZY);
+          
+          pocl_device_handles[i] = dlopen (device_library, RTLD_NOW | RTLD_GLOBAL);
+ 
           if (pocl_device_handles[i] == NULL)
             {
               POCL_MSG_WARN ("Loading %s failed: %s\n", device_library,
@@ -564,7 +581,7 @@ pocl_init_devices ()
               device_library[0] = 0;
               get_pocl_device_lib_path (device_library,
                                         pocl_device_types[i], 0);
-              pocl_device_handles[i] = dlopen (device_library, RTLD_LAZY);
+              pocl_device_handles[i] = dlopen (device_library, RTLD_NOW);
               if (pocl_device_handles[i] == NULL)
                 {
                   POCL_MSG_WARN ("Loading %s failed: %s\n", device_library,
@@ -581,6 +598,7 @@ pocl_init_devices ()
           strcat (init_device_ops_name, "pocl_");
           strcat (init_device_ops_name, pocl_device_types[i]);
           strcat (init_device_ops_name, "_init_device_ops");
+
           pocl_devices_init_ops[i] = (init_device_ops)dlsym (
           pocl_device_handles[i], init_device_ops_name);
           if (pocl_devices_init_ops[i] == NULL)

@@ -69,10 +69,13 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
                                    const char *kernel_bc,
                                    const char *kernel_obj,
                                    char *kernel_out) {
-  char kernel_elf[POCL_MAX_FILENAME_LENGTH];
   cl_program program = kernel->program;
-  int err;
 
+  std::string kernel_bc_s(kernel_bc);
+  std::string kernel_obj_s(kernel_obj);
+  std::string kerenl_out_s(kernel_out);
+  std::string kernel_elf_s, wrapper_cc_s;
+ 
   std::string build_cflags = pocl_get_string_option ("POCL_VORTEX_CFLAGS", "");
   if(build_cflags == ""){
     POCL_MSG_ERR("LLVM_PREFIX : 'POCL_VORTEX_CFLAGS' need to be set\n");
@@ -95,15 +98,16 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   }  
 
   std::string clang_path(CLANG);
-  if (llvm_install_path) {
-    clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
-  }
+
+  //if (llvm_install_path) {
+  //  clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+  //}
 
   {
     std::stringstream ss_cmd, ss_out;
     ss_cmd << clang_path.c_str() << " " << build_cflags << " " << kernel_bc << " -c -o " << kernel_obj;
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
-    err = exec(ss_cmd.str().c_str(), ss_out);
+    int err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
       POCL_MSG_ERR("%s\n", ss_out.str().c_str());
       return err;
@@ -111,7 +115,6 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   }
   
   {  
-    char wrapper_cc[POCL_MAX_FILENAME_LENGTH];    
     char pfn_workgroup_string[WORKGROUP_STRING_LENGTH];
     std::stringstream ss;
 
@@ -126,41 +129,46 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
           "  vx_spawn_kernel(ctx, (void*)" << pfn_workgroup_string << ", args);\n"
           "  return 0;\n"
           "}";
-
-    auto content = ss.str();
-    err = pocl_write_tempfile(wrapper_cc, "/tmp/pocl_vortex_kernel", ".c",
+    {
+      char wrapper_cc[POCL_MAX_PATHNAME_LENGTH + 1];    
+      auto content = ss.str();
+      int err = pocl_write_tempfile(wrapper_cc, "/tmp/pocl_vortex_kernel", ".c",
                               content.c_str(), content.size(), nullptr);
-    if (err != 0)
-      return err;
- 
-    err = pocl_mk_tempname(kernel_elf, "/tmp/pocl_vortex_kernel", ".elf", nullptr);
-    if (err != 0)
-      return err;
+      if (err != 0)
+        return err;
 
+      wrapper_cc_s = std::string(wrapper_cc);
+    }
+    {
+      char kernel_elf[POCL_MAX_PATHNAME_LENGTH + 1];
+      int err = pocl_mk_tempname(kernel_elf, "/tmp/pocl_vortex_kernel", ".elf", nullptr);
+      if (err != 0)
+        return err;
+      kernel_elf_s = std::string(kernel_elf);
+    }
     StaticStrFormat ssfmt(9);
 
     {
       std::stringstream ss_cmd, ss_out;
-      ss_cmd << clang_path.c_str() << " " << build_cflags << " -I" POCL_INSTALL_PRIVATE_HEADER_DIR << " "<< wrapper_cc << " " << kernel_obj << " " << build_ldflags << " -o " << kernel_elf;
+      ss_cmd << clang_path.c_str() << " " << build_cflags << " -I" POCL_INSTALL_PRIVATE_HEADER_DIR << " "<< wrapper_cc_s << " " << kernel_obj_s << " " << build_ldflags << " -o " << kernel_elf_s;
       POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
-      err = exec(ss_cmd.str().c_str(), ss_out);
+      int err = exec(ss_cmd.str().c_str(), ss_out);
       if (err != 0) {
         POCL_MSG_ERR("%s\n", ss_out.str().c_str());
         return err;
       }
-    }
+    } 
   }
-
   {
     std::string objcopy_path(LLVM_OBJCOPY);
-    if (llvm_install_path) {
-      objcopy_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
-    }
+    //if (llvm_install_path) {
+    //  objcopy_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+    //}
 
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << objcopy_path.c_str() << " -O binary " << kernel_elf << " " << kernel_out;
+    ss_cmd << objcopy_path.c_str() << " -O binary " << kernel_elf_s << " " << kernel_out;
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
-    err = exec(ss_cmd.str().c_str(), ss_out);
+    int err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
       POCL_MSG_ERR("%s\n", ss_out.str().c_str());
       return err;
@@ -169,14 +177,14 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
 
   {
     std::string objdump_path(LLVM_OBJDUMP);
-    if (llvm_install_path) {
-      objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
-    }
+    //if (llvm_install_path) {
+    //  objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+    //}
 
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf << " > " << kernel->name << ".dump";
+    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf_s << " > " << kernel->name << ".dump";
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
-    err = exec(ss_cmd.str().c_str(), ss_out);
+    int err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
       POCL_MSG_ERR("%s\n", ss_out.str().c_str());
       return err;

@@ -38,13 +38,23 @@
 #endif(MSVC)
 
 
+#add_compile_options("-rdynamic")
 
-add_pocl_device_library("pocl-devices-vortex" pocl-vortex.h pocl-vortex.cc)
+add_pocl_device_library("pocl-devices-vortex" pocl-vortex.h pocl-vortex.c)
+target_compile_options(pocl-devices-vortex PRIVATE "-Wl,--export-dynamic")
 if(ENABLE_LOADABLE_DRIVERS)
-  target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_DRIVER_LIB})
+  if(NOT OCS_AVAILABLE)
+    target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_DRIVER_LIB})
+    message(STATUS "link lib ${VORTEX_DRIVER_LIB}")
+  endif()
+  target_link_libraries(pocl-devices-vortex PRIVATE pocl-devices-topology)
+endif()
+
+if(OCS_AVAILABLE)
+  target_compile_definitions(pocl-devices-vortex PRIVATE -D OCS_AVAILABLE)
 endif()
 
 if(MSVC)
-  set_source_files_properties( pocl-vortex.h pocl-vortex.cc PROPERTIES LANGUAGE CXX )
+  set_source_files_properties( pocl-vortex.h pocl-vortex.c PROPERTIES LANGUAGE CXX )
 endif(MSVC)
 

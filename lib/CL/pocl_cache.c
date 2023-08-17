@@ -172,10 +172,10 @@ pocl_cache_kernel_cachedir_path (char *kernel_cachedir_path,
                                  _cl_command_node *command, int specialized)
 {
   int bytes_written;
-  _cl_command_run *run_cmd = &command->command.run;
+  _cl_command_run *run_cmd = specialized ? &command->command.run : NULL;
   char tempstring[POCL_MAX_PATHNAME_LENGTH];
-  cl_device_id dev = command->device;
-  size_t max_grid_width = pocl_cmd_max_grid_dim_width (run_cmd);
+  cl_device_id dev = specialized ? command->device : NULL;
+  size_t max_grid_width = specialized ? pocl_cmd_max_grid_dim_width (run_cmd) : 0;
 
   char kernel_dir_name[POCL_MAX_DIRNAME_LENGTH + 1];
   pocl_hash_clipped_name (kernel->name, POCL_MAX_DIRNAME_LENGTH,

@@ -248,6 +248,10 @@ endif(MSVC)
 add_library("libpocl_unlinked_objs" OBJECT ${POCL_LIB_SOURCES})
 harden("libpocl_unlinked_objs")
 
+if(OCS_AVAILABLE)
+  target_compile_definitions(libpocl_unlinked_objs PRIVATE -D OCS_AVAILABLE)
+endif()
+
 #################################################################
 
 set(POCL_PRIVATE_LINK_LIST)

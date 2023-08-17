@@ -371,19 +371,29 @@ pocl_init_cpu_device_infos (cl_device_id dev)
 
 #ifdef OCS_AVAILABLE
 
-  dev->llvm_target_triplet = OCL_KERNEL_TARGET;
+#ifdef ENABLE_LLVM
 
+  dev->llvm_target_triplet = OCL_KERNEL_TARGET;
 #ifdef HOST_CPU_FORCED
   dev->llvm_cpu = OCL_KERNEL_TARGET_CPU;
 #else
-  dev->llvm_cpu = get_llvm_cpu_name();
+  dev->llvm_cpu = pocl_get_llvm_cpu_name ();
 #endif
-  
-  dev->spirv_version = "SPIR-V_1.2";
+
 #else /* No compiler, no CPU info */
   dev->llvm_cpu = NULL;
   dev->llvm_target_triplet = "";
 #endif
+
+#endif
+
+#ifdef ENABLE_SPIRV
+  dev->supported_spir_v_versions = "SPIR-V_1.2";
+#else
+  dev->supported_spir_v_versions = "";
+#endif
+
+
 }
 #define WORKGROUP_STRING_LENGTH 1024
 
@@ -454,8 +464,11 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
   assert (llvm_module != NULL);
 
 #ifndef BUILD_VORTEX
-  if (pocl_get_bool_option ("POCL_LEAVE_KERNEL_COMPILER_TEMP_FILES", 0))
+  // shin TODO : change if
+  if (true)
+  //if (pocl_get_bool_option ("POCL_LEAVE_KERNEL_COMPILER_TEMP_FILES", 0))
     {
+  POCL_MSG_PRINT_GENERAL("check !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
       POCL_MSG_PRINT_LLVM ("Writing parallel.bc to %s.\n", parallel_bc_path);
       error = pocl_cache_write_kernel_parallel_bc (
           llvm_module, program, device_i, kernel, command, specialize);
@@ -1503,6 +1516,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
 #endif
 
   run_cmd->wg = ci->wg;
+  DL_PREPEND (pocl_dlhandle_cache, ci);
 
   POCL_UNLOCK (pocl_dlhandle_lock);
   //POCL_MEM_FREE (module_fn);

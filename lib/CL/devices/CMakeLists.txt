@@ -52,6 +52,22 @@ if(BUILD_BASIC)
     "$<TARGET_OBJECTS:pocl-devices-basic>")
 endif()
 
+if(ENABLE_VORTEX)
+  if (NOT OCS_AVAILABLE)
+    include_directories(AFTER "${VORTEX_DRIVER_INC}")
+  endif()
+
+  add_subdirectory("vortex")
+  set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
+    "$<TARGET_OBJECTS:pocl-devices-vortex>")
+
+  if(NOT ENABLE_LOADABLE_DRIVERS)
+    if (NOT OCS_AVAILABLE)
+      list(APPEND POCL_DEVICES_LINK_LIST ${VORTEX_DRIVER_LIB})
+    endif()
+  endif()
+endif()
+
 if(BUILD_PTHREAD)
   add_subdirectory("pthread")
   set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
@@ -149,22 +165,6 @@ if(ENABLE_CUDA)
   endif()
 endif()
 
-if(ENABLE_VORTEX)
-  #if (NOT OCS_AVAILABLE)
-    include_directories(AFTER "${VORTEX_DRIVER_INC}")
-  #endif()
-
-  add_subdirectory("vortex")
-  set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
-    "$<TARGET_OBJECTS:pocl-devices-vortex>")
-
-  if(NOT ENABLE_LOADABLE_DRIVERS)
-    #if (NOT OCS_AVAILABLE)
-      list(APPEND POCL_DEVICES_LINK_LIST ${VORTEX_DRIVER_LIB})
-    #endif()
-  endif()
-endif()
-
 
 set(POCL_DEVICES_SOURCES
   devices.h  devices.c
@@ -184,6 +184,10 @@ if(MSVC)
   set_source_files_properties( ${POCL_DEVICES_SOURCES} PROPERTIES LANGUAGE CXX )
 endif(MSVC)
 add_library("pocl-devices" OBJECT ${POCL_DEVICES_SOURCES})
+
+if(OCS_AVAILABLE)
+  target_compile_definitions(pocl-devices PRIVATE -D OCS_AVAILABLE)
+endif()
 
 if(OCL_ICD_INCLUDE_DIRS)
   target_include_directories("pocl-devices" SYSTEM PUBLIC ${OCL_ICD_INCLUDE_DIRS})
