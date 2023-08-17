@@ -7,9 +7,7 @@
 #define _BSD_SOURCE
 #include <unistd.h>
 #include <fcntl.h>
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
 #include <dirent.h>
-#endif
 #else
 #include <stdio.h>
 #include "vccompat.hpp"
@@ -44,7 +42,6 @@ int
 pocl_rm_rf(const char* path) 
 {
   int error = -1;
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   DIR *d = opendir(path);
   size_t path_len = strlen(path);
     
@@ -87,7 +84,6 @@ pocl_rm_rf(const char* path)
       if (!error)
         error = remove (path);
     }
-#endif
   return error;
 }
 
@@ -95,7 +91,6 @@ pocl_rm_rf(const char* path)
 int
 pocl_mkdir_p (const char* path)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   size_t len = strlen (path);
   if (len >= POCL_MAX_PATHNAME_LENGTH - 1)
     {
@@ -130,9 +125,6 @@ pocl_mkdir_p (const char* path)
         return -1;
     }
   return 0;
-#else
-  return 0;
-#endif
 }
 
 int
@@ -144,11 +136,7 @@ pocl_remove(const char* path)
 int
 pocl_exists(const char* path) 
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   return !access(path, R_OK);
-#else 
-  return 0;
-#endif
 }
 
 int 
@@ -352,8 +340,6 @@ pocl_mk_tempname (char *output, const char *prefix, const char *suffix,
 
   return err ? errno : 0;
 
-#elif defined(BUILD_NEWLIB)
-  return 0;
 #else
 #error mkostemps() / mkstemps() both unavailable
 #endif
@@ -370,8 +356,6 @@ pocl_mk_tempdir (char *output, const char *prefix)
   size_t len = strlen (prefix);
   strncpy (output + len, "_XXXXXX", (POCL_MAX_PATHNAME_LENGTH - len));
   return (mkdtemp (output) == NULL);
-#elif defined(BUILD_NEWLIB)
-  return 0;
 #else
 #error mkdtemp() not available
 #endif

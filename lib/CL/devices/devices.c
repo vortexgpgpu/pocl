@@ -84,10 +84,6 @@
 #include "proxy/pocl_proxy.h"
 #endif
 
-#if defined(BUILD_NEWLIB)
-#include "newlib/newlib.h"
-#endif
-
 #if defined(BUILD_VORTEX)
 #include "vortex/pocl-vortex.h"
 #endif
@@ -167,9 +163,6 @@ static init_device_ops pocl_devices_init_ops[] = {
 #ifdef BUILD_LEVEL0
   INIT_DEV (level0),
 #endif
-#if defined(BUILD_NEWLIB)
-  INIT_DEV (newlib)
-#endif
 #if defined(BUILD_VORTEX)
   INIT_DEV(vortex)
 #endif
@@ -204,9 +197,6 @@ char pocl_device_types[POCL_NUM_DEVICE_TYPES][30] = {
 #endif
 #ifdef BUILD_LEVEL0
   "level0",
-#endif
-#ifdef BUILD_NEWLIB
-  "newlib",
 #endif
 #ifdef BUILD_VORTEX
   "vortex",

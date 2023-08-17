@@ -79,10 +79,6 @@ if(BUILD_ACCEL)
   add_subdirectory("accel")
 endif()
 
-if(ENABLE_NEWLIB)
-  add_subdirectory("newlib")
-endif()
-
 if(BUILD_ALMAIF)
   add_subdirectory("almaif")
   set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"

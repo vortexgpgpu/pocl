@@ -32,7 +32,6 @@
 #include <time.h>
 
 #ifndef _WIN32
-//#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
 #include <dirent.h>
 #include <string.h>
 #include <sys/resource.h>

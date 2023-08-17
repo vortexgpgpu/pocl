@@ -75,18 +75,7 @@ typedef pthread_t pocl_thread_t;
 # endif
 #endif
 
-<<<<<<< HEAD
-typedef struct pocl_kernel_metadata_s pocl_kernel_metadata_t;
-
-#ifdef BUILD_PTHREAD
-
-#include <pthread.h>
-
-typedef pthread_mutex_t pocl_lock_t;
-#define POCL_LOCK_INITIALIZER PTHREAD_MUTEX_INITIALIZER
-=======
 #if defined(__GNUC__) || defined(__clang__)
->>>>>>> upstream/release_4_0
 
 /* These return the new value. */
 /* See: https://gcc.gnu.org/onlinedocs/gcc-4.7.4/gcc/_005f_005fatomic-Builtins.html */
@@ -189,28 +178,7 @@ void pocl_abort_on_pthread_error (int status, unsigned line, const char *func);
 /* We recycle OpenCL objects by not actually freeing them until the
    very end. Thus, the lock should not be destroyed at the refcount 0. */
 #define POCL_DESTROY_LOCK(__LOCK__)                                           \
-<<<<<<< HEAD
-  do                                                                          \
-    {                                                                         \
-      int r = pthread_mutex_destroy (&(__LOCK__));                            \
-      assert (r == 0);                                                        \
-    }                                                                         \
-  while (0)
-
-#else
-
-typedef int pocl_lock_t;
-
-#define POCL_LOCK_INITIALIZER 0
-#define POCL_INIT_LOCK(__LOCK__) 
-#define POCL_LOCK(__LOCK__) 
-#define POCL_UNLOCK(__LOCK__)
-#define POCL_DESTROY_LOCK(__LOCK__)  
-
-#endif
-=======
   PTHREAD_CHECK (pthread_mutex_destroy (&(__LOCK__)))
->>>>>>> upstream/release_4_0
 
 /* If available, use an Adaptive mutex for locking in the pthread driver,
    otherwise fallback to simple mutexes */
@@ -229,15 +197,9 @@ typedef int pocl_lock_t;
       PTHREAD_CHECK (pthread_mutexattr_destroy (&attrs));                     \
     } while (0)
 #else
-<<<<<<< HEAD
-  #define POCL_FAST_INIT(l) POCL_INIT_LOCK(l)
-=======
 #define POCL_FAST_INIT(l) POCL_INIT_LOCK (l)
->>>>>>> upstream/release_4_0
 #endif
 
-<<<<<<< HEAD
-=======
 #define POCL_FAST_DESTROY(l) POCL_DESTROY_LOCK(l)
 
 #define POCL_INIT_COND(c) PTHREAD_CHECK (pthread_cond_init (&c, NULL))
@@ -278,7 +240,6 @@ typedef int pocl_lock_t;
 #define UNSET_VALIDITY_MARKERS(__OBJ__)
 #endif
 
->>>>>>> upstream/release_4_0
 #define POCL_LOCK_OBJ(__OBJ__)                                                \
   do                                                                          \
     {                                                                         \

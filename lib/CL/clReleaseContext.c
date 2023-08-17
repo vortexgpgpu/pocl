@@ -139,10 +139,6 @@ pocl_check_uninit_devices ()
   if (!do_uninit)
     return;
 
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
-  usleep (100000);
-#endif
-
   pocl_event_tracing_finish ();
 
   POCL_LOCK (pocl_context_handling_lock);

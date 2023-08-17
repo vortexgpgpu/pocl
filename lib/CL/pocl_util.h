@@ -34,23 +34,6 @@
 extern "C" {
 #endif
 
-/*<<<<<<< HEAD
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
-#if defined(__GNUC__) || defined(__clang__)
-#define POCL_ATOMIC_INC(x) __sync_add_and_fetch (&x, 1)
-#define POCL_ATOMIC_DEC(x) __sync_sub_and_fetch (&x, 1)
-#define POCL_ATOMIC_CAS(ptr, oldval, newval)                                  \
-  __sync_val_compare_and_swap (ptr, oldval, newval)
-#else
-#error Need basic atomics builtin support in the compiler.
-#endif
-#else
-#define POCL_ATOMIC_INC(x) (x+1)
-#define POCL_ATOMIC_DEC(x) (x-1)
-#define POCL_ATOMIC_CAS(ptr, oldval, newval)
-#endif
-*/
-
 POCL_EXPORT
 uint32_t pocl_byteswap_uint32_t (uint32_t word, char should_swap);
 float byteswap_float (float word, char should_swap);

@@ -261,12 +261,7 @@ pocl_cache_final_binary_path (char *final_binary_path, cl_program program,
       pocl_hash_clipped_name (kernel->name, POCL_MAX_FILENAME_LENGTH - 5,
                               &file_name[0]);
 
-
-  #if defined(BUILD_NEWLIB)
-    bytes_written = snprintf (final_binary_name, POCL_MAX_PATHNAME_LENGTH,
-                                "/%s.a", file_name);
-   
-  #elif defined(BUILD_VORTEX)
+  #if defined(BUILD_VORTEX)
      bytes_written = snprintf (final_binary_name, POCL_MAX_PATHNAME_LENGTH,
                                 "/%s.bin", file_name);
      

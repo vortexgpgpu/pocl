@@ -405,18 +405,6 @@ main(int argc, char **argv)
   context = clCreateContext (0, 1, &selected_dev, NULL, NULL, &err);
   CHECK_OPENCL_ERROR_IN("clCreateContext");
 
-/*<<<<<<< HEAD
-
-  if (0 == strcmp(source_type, "CL")) {
-    program = clCreateProgramWithSource(context, 1, (const char **)&kernel_source, NULL, &err);
-    CHECK_OPENCL_ERROR_IN("clCreateProgramWithSource");
-  } else if (0 == strcmp(source_type, "SPIRV")) {
-    program = clCreateProgramWithIL(context, kernel_source, kernel_size, &err);
-  } else {
-    printf("invalid kernel type: %s\n", source_type);
-    exit(1);
-  } 
-=======*/
   if (input_is_spirv)
     {
       program = clCreateProgramWithIL (context, (const void *)kernel_source,
@@ -436,7 +424,6 @@ main(int argc, char **argv)
           context, 1, (const char **)&kernel_source, NULL, &err);
       CHECK_OPENCL_ERROR_IN ("clCreateProgramWithSource");
     }
-//>>>>>>> upstream/release_4_0
 
   err = clBuildProgram (program, 0, NULL, build_options, NULL, NULL);
   if (err != CL_SUCCESS)

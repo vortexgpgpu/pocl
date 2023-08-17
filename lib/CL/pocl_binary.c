@@ -34,9 +34,7 @@
 #include "pocl_llvm.h"
 
 #include <sys/stat.h>
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
 #include <dirent.h>
-#endif
 #include <libgen.h>
 
 /* pocl binary identifier */
@@ -230,7 +228,6 @@ typedef struct pocl_binary_s
 static unsigned char*
 read_header(pocl_binary *b, const unsigned char *buffer)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   memset(b, 0, sizeof(pocl_binary));
   memcpy(b->pocl_id, buffer, POCLCC_STRING_ID_LENGTH);
   buffer += POCLCC_STRING_ID_LENGTH;
@@ -241,7 +238,6 @@ read_header(pocl_binary *b, const unsigned char *buffer)
   BUFFER_READ(b->root_entries, uint32_t);
   memcpy(b->program_build_hash, buffer, sizeof(SHA1_digest_t));
   buffer += sizeof(SHA1_digest_t);
-#endif
   if (b->flags & POCL_BINARY_HAS_PROG_SCOPE_VARS)
     {
       BUFFER_READ (b->program_scope_var_bytes, uint64_t);
@@ -331,7 +327,6 @@ pocl_binary_get_kernel_count (cl_program program, unsigned device_i)
 static unsigned char*
 serialize_file(char* path, size_t basedir_offset, unsigned char* buffer)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   char* content;
   uint64_t fsize;
   char* p = path + basedir_offset;
@@ -339,7 +334,6 @@ serialize_file(char* path, size_t basedir_offset, unsigned char* buffer)
   pocl_read_file(path, &content, &fsize);
   BUFFER_STORE_STR2(content, fsize);
   free(content);
-#endif
   return buffer;
 }
 
@@ -350,7 +344,6 @@ recursively_serialize_path (char* path,
                             size_t basedir_offset,
                             unsigned char* buffer)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   struct stat st;
   if (stat (path, &st) != 0)
     return buffer;
@@ -378,7 +371,6 @@ recursively_serialize_path (char* path,
         }
       closedir (d);
     }
-#endif
   return buffer;
 }
 
@@ -411,7 +403,6 @@ pocl_binary_serialize_kernel_to_buffer(cl_program program,
                                        unsigned device_i,
                                        unsigned char *buf)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned char *buffer = buf;
   unsigned i;
 
@@ -528,9 +519,6 @@ pocl_binary_serialize_kernel_to_buffer(cl_program program,
   BUFFER_STORE(arginfo_size, uint32_t);
 
   return end;
-#else 
-  return NULL;
-#endif
 }
 
 /**
@@ -543,7 +531,6 @@ deserialize_file (unsigned char* buffer,
                   char* basedir,
                   size_t offset)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned char* orig_buffer = buffer;
   size_t len;
 
@@ -576,9 +563,6 @@ deserialize_file (unsigned char* buffer,
 RET:
   free (content);
   return (buffer - orig_buffer);
-#else
-  return 0;
-#endif
 }
 
 /* Deserializes all files of a single pocl kernel cachedir.  */
@@ -619,7 +603,6 @@ pocl_binary_deserialize_kernel_from_buffer (pocl_binary *b,
                                             pocl_kernel_metadata_t *meta,
                                             char *basedir)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned i;
   unsigned char *buffer = *buf;
 
@@ -692,7 +675,6 @@ pocl_binary_deserialize_kernel_from_buffer (pocl_binary *b,
 
   /* always skip to the next kernel */
   *buf = *buf + kernel->struct_size;
-#endif
   return CL_SUCCESS;
 }
 
@@ -704,7 +686,6 @@ static const unsigned NUM_DEFAULT_ENTRIES = 2;
 cl_int
 pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned i;
 
   cl_device_id dev = program->devices[device_i];
@@ -738,7 +719,6 @@ pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
   BUFFER_STORE (program->global_var_total_size[device_i], uint64_t);
   assert(buffer < end_of_buffer);
 
-//<<<<<<< HEAD
 
 #if defined(CROSS_COMPILATION)    
   char program_bin_path[POCL_MAX_PATHNAME_LENGTH];
@@ -756,12 +736,6 @@ pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
     buffer = serialize_file (program_bin_path, basedir_len, buffer);
   }
 #else
-  //char program_bc_path[POCL_FILENAME_LENGTH];
-  //pocl_cache_program_bc_path(program_bc_path, program, device_i);
-  //POCL_MSG_PRINT_INFO ("serializing program.bc: %s\n", program_bc_path);
-  //buffer = serialize_file (program_bc_path, basedir_len, buffer);
-  
-  //>>>>>>> upstream/release_4_0
   unsigned actually_serialized_entries = 0;
   if (dev->num_serialize_entries == 0)
   {
@@ -801,7 +775,6 @@ pocl_binary_serialize(cl_program program, unsigned device_i, size_t *size)
 
   if (size)
     *size = (buffer - start);
-#endif
   return CL_SUCCESS;
 }
 
@@ -832,7 +805,6 @@ pocl_binary_deserialize(cl_program program, unsigned device_i)
   assert (buffer < end_of_buffer);
 
   char basedir[POCL_MAX_PATHNAME_LENGTH];
-//<<<<<<< HEAD
   pocl_cache_program_path (basedir, program, device_i);
   size_t basedir_len = strlen (basedir); 
 
@@ -843,18 +815,6 @@ pocl_binary_deserialize(cl_program program, unsigned device_i)
     buffer += deserialize_file (buffer, basedir, basedir_len);
   }
 #else
-  //pocl_cache_program_path (basedir, program, device_i);
-  //size_t basedir_len = strlen (basedir);
-  //POCL_MSG_PRINT_INFO ("deserializing kernel binary: %s\n", basedir);
-  //buffer += deserialize_file (buffer, basedir, basedir_len);
-
-  //if (pocl_exists (basedir)) {
-  //  pocl_read_file (basedir,
-  //                  (char **)(&program->binaries[device_i]),
-  //                 (uint64_t *)(&program->binary_sizes[device_i]));
-  //}
-
-  //=======
   for (i = 0; i < b.root_entries; ++i)
   {
     uint64_t bytes;
@@ -864,7 +824,6 @@ pocl_binary_deserialize(cl_program program, unsigned device_i)
     buffer += bytes;
   }
 #endif
-//>>>>>>> upstream/release_4_0
 
   pocl_binary_kernel k;
 
@@ -921,7 +880,6 @@ pocl_binary_sizeof_binary(cl_program program, unsigned device_i)
 cl_int
 pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
 {
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
   unsigned char *binary = program->pocl_binaries[device_i];
   cl_device_id device = program->devices[device_i];
   unsigned j;
@@ -939,7 +897,6 @@ pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
                         CL_INVALID_PROGRAM,
                         "Deserialized a binary, but it doesn't seem to be "
                         "for this device.\n");
-//<<<<<<< HEAD
   size_t len;
 
 #if defined(BUILD_VORTEX)  
@@ -955,17 +912,6 @@ pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
     buffer += len;
   }
 #else  
-  /* skip real path of program.bc */
-  //BUFFER_READ(len, uint32_t);
-  //assert (len > 0);
-  //buffer += len;
-
-  /* skip content of program.bc */
-  //BUFFER_READ(len, uint32_t);
-  //assert (len > 0);
-  //buffer += len;
-  
-  //=======
   unsigned i;
   for (i = 0; i < b.root_entries; ++i)
     {
@@ -977,7 +923,6 @@ pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
     }
 
   unsigned j;
-  //>>>>>>> upstream/release_4_0
   #endif
 
   assert (b.num_kernels > 0);
@@ -1050,6 +995,5 @@ pocl_binary_get_kernels_metadata (cl_program program, unsigned device_i)
           km->reqd_wg_size[l] = k.reqd_wg_size[l];
         }
     }
-#endif
   return CL_SUCCESS;
 }

@@ -11,7 +11,6 @@
 #cmakedefine BUILD_VULKAN
 #cmakedefine BUILD_LEVEL0
 #cmakedefine BUILD_PROXY
-#cmakedefine BUILD_NEWLIB
 #cmakedefine BUILD_VORTEX
 #cmakedefine CROSS_COMPILATION
 

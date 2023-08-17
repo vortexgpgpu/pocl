@@ -243,15 +243,13 @@ option(ENABLE_POCL_BUILDING "When OFF, env var POCL_BUILDING has no effect. Defa
 
 option(ENABLE_VORTEX "Enable the Vortex device driver" OFF)
 
-option(ENABLE_NEWLIB "Enable Newlib device" OFF)
-
 option(ENABLE_RISCV "Enable RISCV-Linux device" OFF)
 
 option(CROSS_COMPILATION "Generate pre-built kernel binaries" OFF)
 
 ###############################################################################
 
-if (ENABLE_NEWLIB OR ENABLE_VORTEX)
+if (ENABLE_VORTEX)
   set(CROSS_COMPILATION 1)
 endif()
 
@@ -347,7 +345,6 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(arm|aarch64)")
   endif()
 endif()
 
-#<<<<<<< HEAD
 if (ENABLE_HOST_CPU_DEVICES)  
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc")
     set(POWERPC 1)
@@ -372,18 +369,9 @@ endif()
 
 ##################################################################################
 
-#if(CMAKE_MAJOR_VERSION GREATER 2)
-#  include(ProcessorCount)
-#  ProcessorCount(CORECOUNT)
-#  if(CORECOUNT LESS 1)
-#    set(CORECOUNT 1)
-#  endif()
-#else()
-#=======
 include(ProcessorCount)
 ProcessorCount(CORECOUNT)
 if(CORECOUNT LESS 1)
-#>>>>>>> upstream/release_4_0
   set(CORECOUNT 1)
 endif()
 message(STATUS "Host CPU cores: ${CORECOUNT}")
@@ -966,9 +954,7 @@ endif()
 
 set(HAVE_DLFCN_H OFF CACHE BOOL "dlopen" FORCE)
 
-if (ENABLE_NEWLIB AND CMAKE_CROSSCOMPILING)
-  message(STATUS "Using statically linked kernels for Newlib CPU platforms")
-elseif(WIN32 AND (NOT MINGW))
+if(WIN32 AND (NOT MINGW))
   message(STATUS "Using LoadLibrary/FreeLibrary in Windows, libltdl not needed.")
 elseif(UNIX)
   if (CMAKE_CROSSCOMPILING AND (NOT ENABLE_HOST_CPU_DEVICES) AND (NOT ENABLE_HSA))
@@ -1761,11 +1747,6 @@ endif()
 
 ##########################################################
 
-if (ENABLE_NEWLIB)
-  set(ENABLE_PTHREAD OFF CACHE INTERNAL "Disable Pthread for Newlib targets")
-  set(BUILD_NEWLIB 1)
-endif()
-
 if (ENABLE_VORTEX)
   set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
   set(OCL_TARGETS "${OCL_TARGETS} vortex")
@@ -2257,7 +2238,6 @@ MESSAGE(STATUS "ENABLE_HSA: ${ENABLE_HSA}")
 MESSAGE(STATUS "ENABLE_ALMAIF_DEVICE: ${ENABLE_ALMAIF_DEVICE}")
 MESSAGE(STATUS "ENABLE_CUDA: ${ENABLE_CUDA}")
 MESSAGE(STATUS "ENABLE_VORTEX: ${ENABLE_VORTEX}")
-MESSAGE(STATUS "ENABLE_NEWLIB: ${ENABLE_NEWLIB}")
 MESSAGE(STATUS "ENABLE_CUDNN: ${ENABLE_CUDNN}")
 MESSAGE(STATUS "ENABLE_HOST_CPU_DEVICES: ${ENABLE_HOST_CPU_DEVICES}")
 MESSAGE(STATUS "ENABLE_VULKAN: ${ENABLE_VULKAN}")

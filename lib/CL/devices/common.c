@@ -531,13 +531,7 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
 #endif
 
   /* temporary filename for kernel.so */
-#if defined(BUILD_NEWLIB)
-  error = pocl_llvm_build_newlib_program (kernel, device_i, device, tmp_objfile, final_binary_path); 
-  if (error) {
-    POCL_MSG_PRINT_LLVM ("Static linking kernel.o -> libkernel.a has failed\n");
-    goto FINISH;
-  }
-#elif defined(BUILD_VORTEX)
+#if defined(BUILD_VORTEX)
   POCL_MSG_PRINT_LLVM ("Writing parallel.bc to %s.\n", parallel_bc_path);
   error = pocl_cache_write_kernel_parallel_bc (llvm_module, program, device_i, kernel, command, specialize);
   if (error) {
@@ -1246,10 +1240,8 @@ get_new_dlhandle_cache_item ()
   if ((handle_count >= MAX_CACHE_ITEMS) && ci && (ci != pocl_dlhandle_cache))
     {
       DL_DELETE (pocl_dlhandle_cache, ci);
-#if defined(OCS_AVAILABLE) || !defined(BUILD_NEWLIB)
       dlclose (ci->dlhandle);
       dl_error = dlerror ();
-#endif
       if (dl_error != NULL)
         POCL_ABORT ("dlclose() failed with error: %s\n", dl_error);
       memset (ci, 0, sizeof (pocl_dlhandle_cache_item));
@@ -1451,23 +1443,7 @@ pocl_check_kernel_dlhandle_cache (_cl_command_node *command,
   size_t max_grid_width = pocl_cmd_max_grid_dim_width (run_cmd);
   ci->max_grid_dim_width = max_grid_width;
 
-#if defined(BUILD_NEWLIB) && !defined(OCS_AVAILABLE)
-  {
-    ci->wg = run_cmd->kernel->meta->data[0];  
-  }  
-#elif defined(BUILD_NEWLIB) && defined(OCS_AVAILABLE)
-  {
-    char *module_fn = pocl_check_kernel_disk_cache (command, specialize); 
-    cl_program p = run_cmd->kernel->program;    
-    unsigned dev_i = command->device_i;
-    int err = pocl_read_file(module_fn, (char**)&p->pocl_binaries[dev_i], &p->pocl_binary_sizes[dev_i]);
-    if (err) {
-      POCL_MSG_PRINT_LLVM ("loading kernel binary has failed\n");
-      return;
-    }
-    POCL_MEM_FREE (module_fn);
-  }
-#elif defined(BUILD_VORTEX) && !defined(OCS_AVAILABLE)
+#if defined(BUILD_VORTEX) && !defined(OCS_AVAILABLE)
   {
     // skip
   }
