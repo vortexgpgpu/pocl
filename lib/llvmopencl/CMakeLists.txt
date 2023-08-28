@@ -86,10 +86,12 @@ set(LLVMPASSES_SOURCES "AllocasToEntry.cc"
                        "WorkitemHandler.h"
                        "WorkitemHandlerChooser.cc"
                        "WorkitemHandlerChooser.h"
+                       "WorkitemLoopsVX.cc"
                        "WorkitemLoops.cc"
                        "WorkitemLoops.h"
                        "WorkitemReplication.cc"
-                       "WorkitemReplication.h")
+                       "WorkitemReplication.h"
+)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${LLVM_CFLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LLVM_CXXFLAGS}")

@@ -43,6 +43,17 @@ namespace llvm {
 
 namespace pocl {
   class Workgroup;
+  
+  struct VortexCMData {
+    llvm::Value* LocalID;
+    llvm::Value* TpC;
+    llvm::Value* workload;
+    llvm::Value* loopWorks;
+    llvm::Value* remains;
+    llvm::Value* num_local_xy;
+    llvm::Value* num_local_x;
+    llvm::Value* localIDHolder;
+  };
 
   class WorkitemLoops : public pocl::WorkitemHandler {
 
@@ -118,6 +129,12 @@ namespace pocl {
                      llvm::Value *localIdVar, size_t LocalSizeForDim,
                      bool addIncBlock = true,
                      llvm::Value *DynamicLocalSize = NULL);
+
+    // Function for Vortex CM Convertion
+    void CreateVortexCMVar(llvm::Function* F, VortexCMData& tmdata);
+    std::pair<llvm::BasicBlock*, llvm::BasicBlock*>
+    CreateVortexCMLoop(ParallelRegion& region, llvm::BasicBlock* entryBB,
+                       llvm::BasicBlock* exitBB, VortexCMData tmdata);
 
     llvm::BasicBlock *
       AppendIncBlock

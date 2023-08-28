@@ -26,6 +26,7 @@
 #include <map>
 #include <sstream>
 #include <vector>
+#include <cstdlib>
 
 #include "pocl.h"
 
@@ -403,6 +404,20 @@ WorkitemLoops::ProcessFunction(Function &F)
   IRBuilder<> builder(&*(F.getEntryBlock().getFirstInsertionPt()));
   localIdXFirstVar = builder.CreateAlloca(SizeT, 0, ".pocl.local_id_x_init");
 
+  int vortex_scheduling_flag = 0;
+#ifdef BUILD_VORTEX
+  vortex_scheduling_flag = std::stoi(std::string(std::getenv("VORTEX_SCHEDULE_FLAG")));
+  std::cerr << "VORTEX Scheduling Flag : " << vortex_scheduling_flag << std::endl;
+
+  VortexCMData tmdata;
+  if (vortex_scheduling_flag == 1) {
+    CreateVortexCMVar(&F, tmdata);
+  }else if(vortex_scheduling_flag != 0){
+    std::cerr << "VORTEX Scheduling Flag : Not Supported flag " << vortex_scheduling_flag << std::endl;
+    vortex_scheduling_flag = 0;
+  }
+#endif
+
   //  F.viewCFGOnly();
 
 #if 0
@@ -551,7 +566,10 @@ WorkitemLoops::ProcessFunction(Function &F)
         }
       }
 
-    if (WGDynamicLocalSize) {
+    if (vortex_scheduling_flag == 1) {
+      l = CreateVortexCMLoop(*original, l.first, l.second, tmdata);
+
+    } else if (WGDynamicLocalSize) {
       GlobalVariable *gv;
       gv = M->getGlobalVariable("_local_size_x");
       if (gv == NULL)

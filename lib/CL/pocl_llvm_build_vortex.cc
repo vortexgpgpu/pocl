@@ -88,6 +88,13 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     return -1;
   }
 
+  std::string build_schedule = pocl_get_string_option ("VORTEX_SCHEDULE_FLAG", "");
+  if(build_ldflags == ""){
+    POCL_MSG_ERR("LLVM_PREFIX : 'POCL_SCHEDULE_FLAGE' need to be set\n");
+    return -1;
+  }
+  int schedule_flag = std::stoi(build_schedule);
+
   const char* llvm_install_path = getenv("LLVM_PREFIX");
   if (llvm_install_path) {
     if (!pocl_exists(llvm_install_path)) {
@@ -114,7 +121,15 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
   }
   
-  {  
+  {
+   /*    SW warp scheduling, Mapping one SW warp to HW.
+    TM (0):   mapping one SW warp to one HW thread, vx_spawn_kernel
+    CM (1):   mapping one SW warp to one HW core, vx_spawn_kernel_cm
+    GM (2):   mapping one SW warp to N number of HW cores, vx_spawn_kernel_gm
+    GDM (3):  mapping one SW warp to N number of HW cores with M group size of SW thread for the distribution, vx_spwan_kernel_gdm
+    PM (4):   mapping one SW warp to N number of HW cores with N pipelining method, vx_spwan_kernel_pm  
+    */ 
+  
     char pfn_workgroup_string[WORKGROUP_STRING_LENGTH];
     std::stringstream ss;
 
@@ -125,8 +140,23 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
           "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z);\n"  
           "int main() {\n"
           "  const context_t* ctx = (const context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
-          "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n"
-          "  vx_spawn_kernel(ctx, (void*)" << pfn_workgroup_string << ", args);\n"
+          "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n";
+
+    if(schedule_flag == 0){ 
+      ss <<  "  vx_spawn_kernel(ctx, (void*)";
+    }else if (schedule_flag == 1){
+      ss <<  "  vx_spawn_kernel_cm(ctx, (void*)"; 
+    }else if (schedule_flag == 2){
+      ss <<  "  vx_spawn_kernel_gm(ctx, (void*)"; 
+    }else if (schedule_flag == 3){
+      ss <<  "  vx_spawn_kernel_gdm(ctx, (void*)"; 
+    }else if (schedule_flag == 4){
+      ss <<  "  vx_spawn_kernel_pm(ctx, (void*)"; 
+    }else {
+      ss <<  "  vx_spawn_kernel(ctx, (void*)"; 
+    }
+
+    ss << pfn_workgroup_string << ", args);\n"
           "  return 0;\n"
           "}";
     {
