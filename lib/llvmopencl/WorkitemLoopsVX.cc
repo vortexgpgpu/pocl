@@ -76,9 +76,12 @@ void WorkitemLoops::CreateVortexCMVar(
         GlobalValue::ThreadLocalMode::NotThreadLocal,
         0, true);
 
-  LoadInst* loadLx = builder.CreateLoad(builder.getInt32Ty(), nLx, "nl_x");
-  LoadInst* loadLy = builder.CreateLoad(builder.getInt32Ty(), nLy, "nl_y");
-  LoadInst* loadLz = builder.CreateLoad(builder.getInt32Ty(), nLz, "nl_z");
+  LLVMContext& context = M->getContext();
+  auto inty = IntegerType::get(context, SizeTWidth);
+
+  LoadInst* loadLx = builder.CreateLoad(inty, nLx, "nl_x");
+  LoadInst* loadLy = builder.CreateLoad(inty, nLy, "nl_y");
+  LoadInst* loadLz = builder.CreateLoad(inty, nLz, "nl_z");
   auto loadLxy = builder.CreateBinOp(Instruction::Mul, loadLx, loadLy, "nl_xy");
   auto loadLxyz = builder.CreateBinOp(Instruction::Mul, loadLxy, loadLz, "nl_xyz");
   /*{{{*/
@@ -121,8 +124,8 @@ void WorkitemLoops::CreateVortexCMVar(
     }*/
   /*}}}*/
   // Generate function def for getting VX function
-  LLVMContext& context = M->getContext();
-  FunctionType* nTTy = FunctionType::get(IntegerType::getInt32Ty(context), true);
+  //FunctionType* nTTy = FunctionType::get(IntegerType::getInt32Ty(context), true);
+  FunctionType* nTTy = FunctionType::get(inty, true);
 
   FunctionCallee tidC = M->getOrInsertFunction("vx_thread_id", nTTy);
   FunctionCallee widC = M->getOrInsertFunction("vx_warp_id", nTTy);
@@ -139,7 +142,7 @@ void WorkitemLoops::CreateVortexCMVar(
 
   //auto remains = builder.CreateURem(loadLxyz, nHT, "remains");
   //auto loopWorks = builder.CreateSub(loadLxyz, remains, "loop_works");
-  auto localIDHolder = builder.CreateAlloca(SizeT, 0, ".pocl.vortex_local_id");
+  auto localIDHolder = builder.CreateAlloca(inty, 0, ".pocl.vortex_local_id");
 
   tmdata.LocalID = tlid;
   tmdata.TpC = TpC;
@@ -166,13 +169,13 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   auto num_local_x = tmdata.num_local_x;
   auto num_local_xy = tmdata.num_local_xy;
   auto localIDHolder = tmdata.localIDHolder;
-  llvm::Type* localIDHolderTy = localIDHolder->getType();
 
   llvm::BasicBlock* loopBodyEntryBB = entryBB;
   llvm::LLVMContext& ctx = loopBodyEntryBB->getContext();
   llvm::Function* F = loopBodyEntryBB->getParent();
   auto M = F->getParent();
   LLVMContext& context = M->getContext();
+  auto inty = IntegerType::get(context, SizeTWidth);
 
   loopBodyEntryBB->setName(std::string("pregion_for_entry.") + entryBB->getName().str());
   assert(exitBB->getTerminator()->getNumSuccessors() == 1);
@@ -228,13 +231,13 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   exitBB->getTerminator()->replaceUsesOfWith(oldEntry, forIncBB);
 
   builder.SetInsertPoint(forIncBB);
-  auto add = builder.CreateAdd(builder.CreateLoad(localIDHolderTy, localIDHolder), TpC);
+  auto add = builder.CreateAdd(builder.CreateLoad(inty, localIDHolder), TpC);
   builder.CreateStore(add, localIDHolder);
   builder.CreateBr(oldEntry);
 
   // Add instruction for Cond Block
   builder.SetInsertPoint(forCondBB);
-  auto curid = builder.CreateLoad(localIDHolderTy, localIDHolder);
+  auto curid = builder.CreateLoad(inty, localIDHolder);
   llvm::Value* cmpResult = builder.CreateICmpULT(curid, workload);
   Instruction* loopBranch = builder.CreateCondBr(
       cmpResult, loopBodyEntryBB, loopEndBB);
@@ -242,7 +245,7 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   // Replace usage of local id to vortex drived local id
   {
     builder.SetInsertPoint(&(loopBodyEntryBB->front()));
-    auto curid = builder.CreateLoad(localIDHolderTy, localIDHolder);
+    auto curid = builder.CreateLoad(inty, localIDHolder);
 
     // simple version
     auto local_id_z = builder.CreateUDiv(curid, num_local_xy, "new_lid_z");
