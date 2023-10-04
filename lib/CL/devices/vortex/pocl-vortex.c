@@ -299,7 +299,7 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
   }
 
   // TODO : change this to vortex mem size
-  device->global_mem_size = 1024*1024*1024; //MIN_MAX_MEM_ALLOC_SIZE;
+  device->global_mem_size = 4*1024*1024*1024; //MIN_MAX_MEM_ALLOC_SIZE;
   POCL_MSG_WARN("GLOBAL_MEM_SIZE  : %ld\n", device->global_mem_size);
 
   device->vendor = "Georgia Tech";
