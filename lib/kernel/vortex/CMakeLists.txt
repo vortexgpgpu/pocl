@@ -29,11 +29,20 @@ set(LLVM_TARGET riscv32)
 
 set(KERNEL_SOURCES ${SOURCES_GENERIC})
 
-foreach(FILE atomics.cl)
+foreach(FILE printf_base.c atomics.cl)
   list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
 endforeach()
 
-set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET}" "-emit-llvm" "-D_CL_DISABLE_HALF")
+foreach(FILE printf.c)
+  list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
+  list(APPEND KERNEL_SOURCES "vortex/${FILE}")
+endforeach()
+
+if(OCS_AVAILABLE)
+  set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET}" "-emit-llvm" "-D_CL_DISABLE_HALF" "-D OCS_AVAILABLE=${OCS_AVAILABLE}" "-I ${VORTEX_DRIVER_INC}")
+else()
+  set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET}" "-emit-llvm" "-D_CL_DISABLE_HALF")
+endif() 
 
 set(KERNEL_CL_FLAGS "-Xclang" "-cl-std=CL${VORTEX_DEVICE_CL_STD}" "-D__OPENCL_C_VERSION__=${VORTEX_DEVICE_CL_VERSION}" ${KERNEL_CL_FLAGS})
 
