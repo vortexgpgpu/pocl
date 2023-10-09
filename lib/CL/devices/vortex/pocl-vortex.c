@@ -299,7 +299,8 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
   }
 
   // TODO : change this to vortex mem size
-  device->global_mem_size = 4*1024*1024*1024; //MIN_MAX_MEM_ALLOC_SIZE;
+  device->global_mem_size = 3*1024*1024*1024; //MIN_MAX_MEM_ALLOC_SIZE;
+  device->max_mem_alloc_size=device->global_mem_size / 4;
   POCL_MSG_WARN("GLOBAL_MEM_SIZE  : %ld\n", device->global_mem_size);
 
   device->vendor = "Georgia Tech";
@@ -374,8 +375,11 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
   device->data = d;  
 
 #if (HOST_DEVICE_CL_VERSION_MAJOR >= 3)
-  device->features = "__opencl_c_images";
- // device->features = "__opencl_c_3d_image_writes  __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16 __opencl_c_fp64 __opencl_c_int64";
+  // TODO : opencl_3d_images, opencl_c_fp64 has some redefine issue, https://reviews.llvm.org/D106260.
+  //device->features = "__opencl_c_images";
+  // device->features = "__opencl_c_3d_image_writes  __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16 __opencl_c_fp64 __opencl_c_int64";
+  device->features = " __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16  __opencl_c_int64";
+
   device->program_scope_variables_pass = CL_TRUE;
   device->generic_as_support = CL_TRUE;
 
@@ -395,7 +399,7 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
                       " cl_khr_local_int32_extended_atomics");
   strcat (extensions, "cl_khr_3d_image_writes"
                       "cl_khr_spir"
-                      "cl_khr_fp64"
+                      "cl_khr_fp16"
                       "cl_khr_int64_base_atomics"
                       "cl_khr_int64_extended_atomics"
                       "cl_khr_fp64"); 
