@@ -91,6 +91,8 @@ set(LLVMPASSES_SOURCES "AllocasToEntry.cc"
                        "WorkitemLoops.h"
                        "WorkitemReplication.cc"
                        "WorkitemReplication.h"
+                       "VortexPrintf.cc"
+                       "VortexBarrier.cc"
 )
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${LLVM_CFLAGS}")

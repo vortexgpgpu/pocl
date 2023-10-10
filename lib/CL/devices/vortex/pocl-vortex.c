@@ -376,9 +376,9 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
 
 #if (HOST_DEVICE_CL_VERSION_MAJOR >= 3)
   // TODO : opencl_3d_images, opencl_c_fp64 has some redefine issue, https://reviews.llvm.org/D106260.
-  //device->features = "__opencl_c_images";
+  device->features = "__opencl_c_images";
   // device->features = "__opencl_c_3d_image_writes  __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16 __opencl_c_fp64 __opencl_c_int64";
-  device->features = " __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16  __opencl_c_int64";
+  //device->features = " __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16  __opencl_c_int64";
 
   device->program_scope_variables_pass = CL_TRUE;
   device->generic_as_support = CL_TRUE;

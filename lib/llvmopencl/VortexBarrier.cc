@@ -7,6 +7,7 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #include "config.h"
 #include "pocl.h"
+#include "pocl_llvm_api.h"
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/IR/Module.h"
@@ -17,8 +18,6 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include "Barrier.h"
 #include "Workgroup.h"
 
-#include "VortexFunctionLink.h"
-
 POP_COMPILER_DIAGS
 
 using namespace llvm;
@@ -28,62 +27,58 @@ class VortexBarrierLowering : public ModulePass {
 
   public:
   static char ID;
-  VortexBarrierLowering()
-      : ModulePass(ID)
-  {
-  }
+  VortexBarrierLowering() : ModulePass(ID) {}
 
   virtual bool runOnModule(Module& M);
 };
 
 } // namespace
 
-//#define DEBUG_VORTEX_BARRIER
-
-extern cl::opt<std::string> KernelName;
-
 char VortexBarrierLowering::ID = 0;
 static RegisterPass<VortexBarrierLowering>
-    X("vortex-barrier-lowering",
+    X("vortex-barriers",
         "Lower pocl barrier to vortex barrier function");
 
-static void recursivelyConvertBarrier(Function* F, std::set<Instruction*>& Barriers)
+//#define DEBUG_VORTEX_CONVERT
+
+
+static void recursivelyFind(Function* F, std::set<Instruction*>& barriers)
 {
 
-#ifdef DEBUG_VORTEX_BARRIER
+#ifdef DEBUG_VORTEX_CONVERT
   std::cerr << "### VortexBarrierLowering: SCANNING " << F->getName().str()
             << std::endl;
 #endif
 
   for (Function::iterator I = F->begin(), E = F->end(); I != E; ++I) {
     for (BasicBlock::iterator BI = I->begin(), BE = I->end(); BI != BE; ++BI) {
-      // Pass barrier in First Block, implict barrier
-      if (I == F->begin())
+
+      Instruction* instr = dyn_cast<Instruction>(BI);
+      if (!llvm::isa<CallInst>(instr))
         continue;
 
-      Instruction* Instr = dyn_cast<Instruction>(BI);
-      if (!llvm::isa<CallInst>(Instr))
+      CallInst* call_inst = dyn_cast<CallInst>(instr);
+      Function* callee = call_inst->getCalledFunction();
+
+      if ((callee == nullptr) || callee->getName().startswith("llvm."))
         continue;
 
-      CallInst* CallInstr = dyn_cast<CallInst>(Instr);
-      Function* Callee = CallInstr->getCalledFunction();
+      auto func_name = callee->getName().str();
 
-      if ((Callee == nullptr) || Callee->getName().startswith("llvm."))
-        continue;
+      if (llvm::isa<pocl::Barrier>(call_inst)) {
+        // Pass barrier in First Block, implict barrier
+        if (I == F->begin())
+          continue;
 
-      if (llvm::isa<pocl::Barrier>(CallInstr)) {
         // Pass barrier in Exit block
-        if (Instr->getNextNode() != nullptr)
-          if (llvm::isa<llvm::ReturnInst>(Instr->getNextNode()))
+        if (instr->getNextNode() != nullptr)
+          if (llvm::isa<llvm::ReturnInst>(instr->getNextNode()))
             continue;
 
-#ifdef DEBUG_VORTEX_BARRIER
-        std::cerr << "### VortexBarrierLowering: find barrier"
-                  << F->getName().str() << std::endl;
-#endif
-        Barriers.insert(Instr);
-      } else {
-        recursivelyConvertBarrier(Callee, Barriers);
+        barriers.insert(instr);
+
+      }else {
+        recursivelyFind(callee, barriers);
       }
     }
   }
@@ -92,9 +87,14 @@ static void recursivelyConvertBarrier(Function* F, std::set<Instruction*>& Barri
 
 bool VortexBarrierLowering::runOnModule(Module& M)
 {
-  bool Changed = false;
-  std::set<Instruction*> Barriers;
-  std::set<Instruction*> debug;
+  bool changed = false;
+  std::set<Instruction*> barriers;
+
+  std::string KernelName;
+  getModuleStringMetadata(M, "KernelName", KernelName);
+
+  if(KernelName == "")
+    return false;
 
   // Find barrier
   for (llvm::Module::iterator I = M.begin(), E = M.end(); I != E; ++I) {
@@ -102,18 +102,18 @@ bool VortexBarrierLowering::runOnModule(Module& M)
     if (F->isDeclaration())
       continue;
 
-    if (KernelName == F->getName() || pocl::Workgroup::isKernelToProcess(*F)) {
+    if (KernelName == F->getName().str() || pocl::Workgroup::isKernelToProcess(*F)) {
 
-#ifdef DEBUG_VORTEX_BARRIER
+#ifdef DEBUG_VORTEX_CONVERT
       std::cerr << "### VortexBarrierLowering Pass running on " << KernelName
                 << std::endl;
 #endif
       // we don't want to set alwaysInline on a Kernel, only its subroutines.
-      recursivelyConvertBarrier(F, Barriers);
+      recursivelyFind(F, barriers);
     }
   }
 
-  if (!Barriers.empty()) {
+  if (!barriers.empty()) {
     LLVMContext& context = M.getContext();
     // Generate function def for getting VX Warp Size
     FunctionType* nTTy = FunctionType::get(IntegerType::getInt32Ty(context), true);
@@ -126,7 +126,7 @@ bool VortexBarrierLowering::runOnModule(Module& M)
     Function* VXBarF = dyn_cast<Function>(VXBarC.getCallee());
 
     int curBNum_ = 1;
-    for (auto B : Barriers) {
+    for (auto B : barriers) {
       IRBuilder<> builder(B);
       CallInst* nW = builder.CreateCall(nWC);
       auto curBNum = llvm::ConstantInt::get(
@@ -134,7 +134,8 @@ bool VortexBarrierLowering::runOnModule(Module& M)
       CallInst* vxbar = builder.CreateCall(VXBarF, { curBNum, nW });
     }
 
-    Changed = true;
+    changed = true;
   }
-  return Changed;
+  
+  return changed;
 }

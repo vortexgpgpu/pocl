@@ -227,6 +227,10 @@ static PassManager &kernel_compiler_passes(cl_device_id device) {
   */
 
   std::vector<std::string> passes;
+  #ifdef BUILD_VORTEX
+    passes.push_back("vortex-printfs");
+  #endif 
+
   passes.push_back("inline-kernels");
   passes.push_back("remove-optnone");
   passes.push_back("optimize-wi-func-calls");
@@ -278,6 +282,9 @@ static PassManager &kernel_compiler_passes(cl_device_id device) {
     passes.push_back("workitemloops");
     // Remove the (pseudo) barriers.   They have no use anymore due to the
     // work-item loop control taking care of them.
+    #ifdef BUILD_VORTEX
+      passes.push_back("vortex-barriers");
+    #endif 
     passes.push_back("remove-barriers");
   }
 
