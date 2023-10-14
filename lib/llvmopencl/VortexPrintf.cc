@@ -39,7 +39,7 @@ static RegisterPass<VortexPrintfLowering>
     X("vortex-printfs",
         "Lower printf to vortex printf function");
 
-#define DEBUG_VORTEX_PRINTF
+//#define DEBUG_VORTEX_PRINTF
 
 static void printfLowering(Module& M, Instruction* inst, 
     std::vector<Instruction *>& need_remove){
@@ -136,17 +136,13 @@ bool VortexPrintfLowering::runOnModule(Module& M)
       recursivelyFind(M, F, need_remove);
     }
   }
-
-  {
-    std::string str;
-    llvm::raw_string_ostream ostream { str };
-    M.print(ostream, nullptr, false);
-    std::cout << str << std::endl;
-  }
+ 
+  if(!need_remove.empty())
+    changed = true;
 
   for(auto inst : need_remove){
     inst->eraseFromParent();
   }
-
+  
   return changed;
 }

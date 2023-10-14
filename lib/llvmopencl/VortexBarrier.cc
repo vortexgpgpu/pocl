@@ -136,6 +136,5 @@ bool VortexBarrierLowering::runOnModule(Module& M)
 
     changed = true;
   }
-  
   return changed;
 }

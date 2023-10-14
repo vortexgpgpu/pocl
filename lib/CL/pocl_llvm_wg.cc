@@ -228,7 +228,9 @@ static PassManager &kernel_compiler_passes(cl_device_id device) {
 
   std::vector<std::string> passes;
   #ifdef BUILD_VORTEX
+    passes.push_back("vortex-mno-riscv-attribute");
     passes.push_back("vortex-printfs");
+    //passes.push_back("print-module");
   #endif 
 
   passes.push_back("inline-kernels");

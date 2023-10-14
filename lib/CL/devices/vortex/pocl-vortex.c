@@ -392,18 +392,18 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
   //pocl_setup_extensions_with_version (device);
   char extensions[1024];
   extensions[0] = 0;
-  strcat (extensions, "cl_khr_byte_addressable_store"
+ /* strcat (extensions, "cl_khr_byte_addressable_store"
                       " cl_khr_global_int32_base_atomics"
                       " cl_khr_global_int32_extended_atomics"
                       " cl_khr_local_int32_base_atomics"
-                      " cl_khr_local_int32_extended_atomics");
-  strcat (extensions, "cl_khr_3d_image_writes"
-                      "cl_khr_spir"
-                      "cl_khr_fp16"
-                      "cl_khr_int64_base_atomics"
-                      "cl_khr_int64_extended_atomics"
-                      "cl_khr_fp64"); 
-
+                      " cl_khr_local_int32_extended_atomics"); 
+  strcat (extensions, //" cl_khr_3d_image_writes"
+                      //" cl_khr_spir"
+                      //" cl_khr_fp16"
+                      //" cl_khr_int64_base_atomics"
+                      //" cl_khr_int64_extended_atomics"
+                      //" cl_khr_fp64"
+                      ); */
   device->extensions = strdup (extensions);
 
   return ret;

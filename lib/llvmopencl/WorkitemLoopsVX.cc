@@ -336,7 +336,7 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   builder.CreateBr(oldExit);
 
   std::cerr << "### VortexLoopGen : End program" << std::endl;
-  printIR(F);
+  //printIR(F);
 
   return std::make_pair(forInitBB, loopEndBB);
 }
