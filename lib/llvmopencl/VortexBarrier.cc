@@ -87,7 +87,11 @@ static void recursivelyFind(Function* F, std::set<Instruction*>& barriers)
 
 bool VortexBarrierLowering::runOnModule(Module& M)
 {
-  bool changed = false;
+
+  int vortex_scheduling_flag = std::stoi(std::string(std::getenv("VORTEX_SCHEDULE_FLAG")));
+  if(vortex_scheduling_flag == 0)
+    return false;
+
   std::set<Instruction*> barriers;
 
   std::string KernelName;
@@ -133,8 +137,8 @@ bool VortexBarrierLowering::runOnModule(Module& M)
           context, llvm::APInt(32, curBNum_++, false));
       CallInst* vxbar = builder.CreateCall(VXBarF, { curBNum, nW });
     }
-
-    changed = true;
+    return true;
   }
-  return changed;
+
+  return false;
 }

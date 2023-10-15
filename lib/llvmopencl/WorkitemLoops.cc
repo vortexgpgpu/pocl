@@ -407,13 +407,11 @@ WorkitemLoops::ProcessFunction(Function &F)
   int vortex_scheduling_flag = 0;
 #ifdef BUILD_VORTEX
   vortex_scheduling_flag = std::stoi(std::string(std::getenv("VORTEX_SCHEDULE_FLAG")));
-  std::cerr << "VORTEX Scheduling Flag : " << vortex_scheduling_flag << std::endl;
 
   VortexCMData tmdata;
   if (vortex_scheduling_flag == 1) {
     CreateVortexCMVar(&F, tmdata);
   }else if(vortex_scheduling_flag != 0){
-    std::cerr << "VORTEX Scheduling Flag : Not Supported flag " << vortex_scheduling_flag << std::endl;
     vortex_scheduling_flag = 0;
   }
 #endif
