@@ -25,8 +25,7 @@
 
 include("bitcode_rules")
 
-set(LLVM_TARGET riscv32-unknown-unknown-elf)
-#set(LLVM_TARGET riscv32)
+set(LLVM_TARGET riscv32)
 
 set(KERNEL_SOURCES ${SOURCES_GENERIC})
 
@@ -39,18 +38,13 @@ foreach(FILE printf.c)
   list(APPEND KERNEL_SOURCES "vortex/${FILE}")
 endforeach()
 
-# TODO : we need to add some flag like -mno-riscv-attribute in GNU compiler, but I cannot find right flag similar flag in clang.
-# the kernel function contain useless RISCV extensions in the function argument which are not need for the vortex.
-
-set(CLANG_FLAGS "-ffreestanding" "-v" "-Xclang" "-target-feature" "-Xclang" "+vortex" "-emit-llvm" "-D_CL_DISABLE_HALF"
-#  "-march=rv32imafd" "-mabi=ilp32f" "-v" "-O3" "-Xclang" "-target-feature" "-Xclang" "+vortex" "-fno-rtti" "-fdata-sections" "-ffunction-sections"
-) 
+set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET}" "-emit-llvm" "-D_CL_DISABLE_HALF")
 
 set(KERNEL_CL_FLAGS "-Xclang" "-cl-std=CL${VORTEX_DEVICE_CL_STD}" "-D__OPENCL_C_VERSION__=${VORTEX_DEVICE_CL_VERSION}" ${KERNEL_CL_FLAGS})
 
 set(LLC_FLAGS "")
 
-set(DEVICE_CL_FLAGS "-D__OPENCL_VERSION__=${VORTEX_DEVICE_CL_VERSION}  -DPOCL_DEVICE_ADDRESS_BITS=32 -Dcl_khr_int64")
+set(DEVICE_CL_FLAGS "-D__OPENCL_VERSION__=${VORTEX_DEVICE_CL_VERSION} -DPOCL_DEVICE_ADDRESS_BITS=32")
 separate_arguments(VORTEX_DEVICE_EXTENSIONS)
 foreach(EXT ${VORTEX_DEVICE_EXTENSIONS})
   set(DEVICE_CL_FLAGS "${DEVICE_CL_FLAGS} -D${EXT}")
