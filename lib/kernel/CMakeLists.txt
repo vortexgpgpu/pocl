@@ -196,7 +196,6 @@ set(KERNEL_TARGET_LIST "")
 
 #*********************************************************************
 
-#if(OCL_TARGETS MATCHES "host")
 if(OCL_TARGETS MATCHES "host" AND (NOT OCL_TARGETS MATCHES "vortex"))
   add_subdirectory("host")
 endif()
