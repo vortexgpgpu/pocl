@@ -316,7 +316,11 @@ pocl_memalign_alloc(size_t align_width, size_t size)
 void *
 pocl_aligned_malloc (size_t alignment, size_t size)
 {
-#ifdef HAVE_ALIGNED_ALLOC  
+#ifdef HAVE_ALIGNED_ALLOC
+  /* posix_memalign requires alignment to be at least sizeof(void *) */
+  if (alignment < sizeof(void *))
+    alignment = sizeof(void* );
+
   assert (alignment > 0);
   /* make sure that size is a multiple of alignment, as posix_memalign
    * does not perform this test, whereas aligned_alloc does */
@@ -325,10 +329,6 @@ pocl_aligned_malloc (size_t alignment, size_t size)
       size = size | (alignment - 1);
       size += 1;
     }
-
-  /* posix_memalign requires alignment to be at least sizeof(void *) */
-  if (alignment < sizeof(void *))
-    alignment = sizeof(void* );
 
   void* result;
 
