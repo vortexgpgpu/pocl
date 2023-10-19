@@ -32,7 +32,6 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include "WorkitemHandlerChooser.h"
 
 
-#include "../../include/vx_schedule_config.h"
 //#define DUMP_CFGS
 
 #include "DebugHelpers.h"
@@ -86,45 +85,7 @@ void WorkitemLoops::CreateVortexVar(
   LoadInst* loadLz = builder.CreateLoad(inty, nLz, "nl_z");
   auto loadLxy = builder.CreateBinOp(Instruction::Mul, loadLx, loadLy, "nl_xy");
   auto loadLxyz = builder.CreateBinOp(Instruction::Mul, loadLxy, loadLz, "nl_xyz");
-  /*{{{*/
-  /*{
-    GlobalVariable* nGx = M->getGlobalVariable("_num_groups_x");
-    if (nGx == NULL)
-    nGx = new GlobalVariable(*M, SizeT, true, GlobalValue::CommonLinkage,
-    NULL, "_num_groups_x", NULL,
-    GlobalValue::ThreadLocalMode::NotThreadLocal,
-    0, true);
 
-    GlobalVariable* nGy = M->getGlobalVariable("_num_groups_y");
-    if (nGy == NULL)
-    nGy = new GlobalVariable(*M, SizeT, true, GlobalValue::CommonLinkage,
-    NULL, "_num_groups_y", NULL,
-    GlobalValue::ThreadLocalMode::NotThreadLocal,
-    0, true);
-
-    GlobalVariable* nGz = M->getGlobalVariable("_num_groups_z");
-    if (nGz == NULL)
-    nGz = new GlobalVariable(*M, SizeT, true, GlobalValue::CommonLinkage,
-    NULL, "_num_groups_z", NULL,
-    GlobalValue::ThreadLocalMode::NotThreadLocal,
-    0, true);
-    LoadInst* loadGx = builder.CreateLoad(nGx, "ng_x");
-    LoadInst* loadGy = builder.CreateLoad(nGy, "ng_y");
-    auto loadGxy = builder.CreateBinOp(Instruction::Mul, loadGx, loadGy, "ng_xy");
-
-    GlobalVariable* gIDx = M->getGlobalVariable("_group_id_x");
-    GlobalVariable* gIDy = M->getGlobalVariable("_group_id_y");
-    GlobalVariable* gIDz = M->getGlobalVariable("_group_id_z");
-
-    LoadInst* loadGIDx = builder.CreateLoad(gIDx, "gid_x");
-    LoadInst* loadGIDy = builder.CreateLoad(gIDy, "gid_y");
-    LoadInst* loadGIDz = builder.CreateLoad(gIDz, "gid_z");
-    auto tempIDy = builder.CreateBinOp(Instruction::Mul, loadGIDy, loadGx);
-    auto tempIDz = builder.CreateBinOp(Instruction::Mul, loadGIDz, loadGxy);
-    auto tempIDxy = builder.CreateBinOp(Instruction::Add, loadGIDx, tempIDy);
-    auto gID = builder.CreateBinOp(Instruction::Add, tempIDxy, tempIDz, "gid");
-    }*/
-  /*}}}*/
   // Generate function def for getting VX function
   //FunctionType* nTTy = FunctionType::get(IntegerType::getInt32Ty(context), true);
   FunctionType* nTTy = FunctionType::get(inty, true);
@@ -141,16 +102,12 @@ void WorkitemLoops::CreateVortexVar(
 
   auto tlid = builder.CreateAdd(tid, builder.CreateMul(wid, nHW), "tlid");
   auto TpC = builder.CreateBinOp(Instruction::Mul, nHT, nHW, "HTpC");
-
-  //auto remains = builder.CreateURem(loadLxyz, nHT, "remains");
-  //auto loopWorks = builder.CreateSub(loadLxyz, remains, "loop_works");
   auto localIDHolder = builder.CreateAlloca(inty, 0, ".pocl.vortex_local_id");
+
 
   tmdata.LocalID = tlid;
   tmdata.TpC = TpC;
   tmdata.workload = loadLxyz;
-  //tmdata.loopWorks = loopWorks;
-  //tmdata.remains = remains;
   tmdata.num_local_x = loadLx;
   tmdata.num_local_xy = loadLxy;
   tmdata.localIDHolder = localIDHolder;
@@ -166,8 +123,6 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   auto lid = tmdata.LocalID;
   auto TpC = tmdata.TpC;
   auto workload = tmdata.workload;
-  //auto loopWorks = tmdata.loopWorks;
-  //auto remains = tmdata.remains;
   auto num_local_x = tmdata.num_local_x;
   auto num_local_xy = tmdata.num_local_xy;
   auto localIDHolder = tmdata.localIDHolder;
@@ -324,10 +279,10 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
           if (pname.equals("_local_id_x")) {
             Instr->replaceAllUsesWith(local_id_x);
             trashs.push_back(Instr);
-          } else if (pname.equals("_local_id_y")) {
+          } else if (flag_y && pname.equals("_local_id_y")) {
             Instr->replaceAllUsesWith(local_id_y);
             trashs.push_back(Instr);
-          } else if (pname.equals("_local_id_z")) {
+          } else if (flag_z && pname.equals("_local_id_z")) {
             Instr->replaceAllUsesWith(local_id_z);
             trashs.push_back(Instr);
           }
