@@ -264,7 +264,7 @@ pocl_vortex_probe(struct pocl_device_ops *ops)
 }
 
 cl_int
-pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
+pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
 {
   struct vx_device_data_t *d;
   cl_int ret = CL_SUCCESS;
@@ -279,10 +279,10 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
     }
   //device->global_mem_id = 0;
 
-  pocl_init_default_device_infos(device);
+  pocl_init_default_device_infos(dev);
 
   // TODO : temporary disable 
-  //vx_err = pocl_topology_detect_device_info(device);
+  //vx_err = pocl_topology_detect_device_info(dev);
   //if (vx_err != 0)
   //  return CL_INVALID_DEVICE;
 
@@ -292,26 +292,30 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
   }
 
   // TODO : change this to vortex mem size
-  device->global_mem_size = 3*1024*1024*1024; //MIN_MAX_MEM_ALLOC_SIZE;
-  device->max_mem_alloc_size=device->global_mem_size / 4;
-  POCL_MSG_WARN("GLOBAL_MEM_SIZE  : %ld\n", device->global_mem_size);
+  dev->global_mem_size = 3*1024*1024*1024; //MIN_MAX_MEM_ALLOC_SIZE;
+  dev->max_mem_alloc_size=dev->global_mem_size / 4;
+  POCL_MSG_WARN("GLOBAL_MEM_SIZE  : %ld\n", dev->global_mem_size);
 
-  device->vendor = "Vortex Group";
-  device->vendor_id = 0;
-  device->type = CL_DEVICE_TYPE_GPU;
+  dev->vendor = "Vortex Group";
+  dev->vendor_id = 0;
+  dev->type = CL_DEVICE_TYPE_GPU;
 
-  device->address_bits = 32;  
-  device->llvm_target_triplet = "riscv32";
-  device->llvm_cpu = "";
+  dev->address_bits = 32;  
+  dev->llvm_target_triplet = "riscv32";
+  dev->llvm_cpu = "";
 
-  device->max_compute_units = 1;
+  dev->max_compute_units = 1;
 
-  device->long_name = "Vortex Open-Source GPU";
-  device->short_name = "Vortex";
+  dev->long_name = "Vortex Open-Source GPU";
+  dev->short_name = "Vortex";
+
+  //idev->spmd = CL_TRUE;
+  dev->image_support = CL_TRUE;
+  dev->has_64bit_long = 1; 
 
   // TODO : temporary disable 
-  //pocl_cpuinfo_detect_device_info(device);
-  pocl_set_buffer_image_limits(device); 
+  //pocl_cpuinfo_detect_device_info(dev);
+  pocl_set_buffer_image_limits(dev); 
 
 #if !defined(OCS_AVAILABLE)
 
@@ -323,8 +327,8 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
     return CL_DEVICE_NOT_FOUND;
   }
   
-  device->device_side_printf = 1;
-  device->printf_buffer_size = PRINT_BUFFER_SIZE;
+  dev->device_side_printf = 1;
+  dev->printf_buffer_size = PRINT_BUFFER_SIZE;
 
   // add storage for position pointer
   uint64_t printf_buffer_devaddr;
@@ -355,39 +359,40 @@ pocl_vortex_init (unsigned j, cl_device_id device, const char* parameters)
 
   POCL_INIT_LOCK(d->cq_lock);
   
-  device->data = d;  
+  dev->data = d;  
 
+  //SETUP_DEVICE_CL_VERSION(1, 2);
 #if (HOST_DEVICE_CL_VERSION_MAJOR >= 3)
   // TODO : opencl_3d_images, opencl_c_fp64 has some redefine issue, https://reviews.llvm.org/D106260.
-  device->features = "__opencl_c_images";
-  // device->features = "__opencl_c_3d_image_writes  __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16 __opencl_c_fp64 __opencl_c_int64";
-  //device->features = " __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16  __opencl_c_int64";
+  dev->features = "__opencl_c_images";
+  // dev->features = "__opencl_c_3d_image_writes  __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16 __opencl_c_fp64 __opencl_c_int64";
+  //dev->features = " __opencl_c_images   __opencl_c_atomic_order_acq_rel __opencl_c_atomic_order_seq_cst   __opencl_c_atomic_scope_device __opencl_c_program_scope_global_  variables   __opencl_c_generic_address_space __opencl_c_subgroups __opencl_c_atomic_scope_all_devices __opencl_c_read_write_images __opencl_c_fp16  __opencl_c_int64";
 
-  device->program_scope_variables_pass = CL_TRUE;
-  device->generic_as_support = CL_TRUE;
+  dev->program_scope_variables_pass = CL_TRUE;
+  dev->generic_as_support = CL_TRUE;
 
-  pocl_setup_opencl_c_with_version (device, CL_TRUE);
-  pocl_setup_features_with_version (device);
+  pocl_setup_opencl_c_with_version (dev, CL_TRUE);
+  pocl_setup_features_with_version (dev);
 #else
-  pocl_setup_opencl_c_with_version (device, CL_FALSE);
+  pocl_setup_opencl_c_with_version (dev, CL_FALSE);
 #endif
 
-  //pocl_setup_extensions_with_version (device);
+  //pocl_setup_extensions_with_version (dev);
   char extensions[1024];
   extensions[0] = 0;
- /* strcat (extensions, "cl_khr_byte_addressable_store"
+  strcat (extensions, "cl_khr_byte_addressable_store"
                       " cl_khr_global_int32_base_atomics"
                       " cl_khr_global_int32_extended_atomics"
                       " cl_khr_local_int32_base_atomics"
                       " cl_khr_local_int32_extended_atomics"); 
-  strcat (extensions, //" cl_khr_3d_image_writes"
+  /*strcat (extensions, //" cl_khr_3d_image_writes"
                       //" cl_khr_spir"
                       //" cl_khr_fp16"
                       //" cl_khr_int64_base_atomics"
                       //" cl_khr_int64_extended_atomics"
                       //" cl_khr_fp64"
                       ); */
-  device->extensions = strdup (extensions);
+  dev->extensions = strdup (extensions);
 
   return ret;
 }

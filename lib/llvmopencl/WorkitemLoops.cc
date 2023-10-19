@@ -406,11 +406,11 @@ WorkitemLoops::ProcessFunction(Function &F)
 
   int vortex_scheduling_flag = 0;
 #ifdef BUILD_VORTEX
-  vortex_scheduling_flag = std::stoi(std::string(std::getenv("VORTEX_SCHEDULE_FLAG")));
-
-  VortexCMData tmdata;
-  if (vortex_scheduling_flag == 1) {
-    CreateVortexCMVar(&F, tmdata);
+  if(std::getenv("VORTEX_SCHEDULE_FLAG") != nullptr)
+      vortex_scheduling_flag = std::stoi(std::string(std::getenv("VORTEX_SCHEDULE_FLAG")));
+  VortexData tmdata;
+  if (vortex_scheduling_flag == 1 || vortex_scheduling_flag == 2) {
+    CreateVortexVar(&F, tmdata, vortex_scheduling_flag);
   }else if(vortex_scheduling_flag != 0){
     vortex_scheduling_flag = 0;
   }
@@ -564,7 +564,7 @@ WorkitemLoops::ProcessFunction(Function &F)
         }
       }
 
-    if (vortex_scheduling_flag == 1) {
+    if (vortex_scheduling_flag == 1 || vortex_scheduling_flag == 2) {
       l = CreateVortexCMLoop(*original, l.first, l.second, tmdata);
 
     } else if (WGDynamicLocalSize) {

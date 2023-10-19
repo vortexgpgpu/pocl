@@ -31,6 +31,8 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include "Kernel.h"
 #include "WorkitemHandlerChooser.h"
 
+
+#include "../../include/vx_schedule_config.h"
 //#define DUMP_CFGS
 
 #include "DebugHelpers.h"
@@ -50,8 +52,8 @@ void printIR(llvm::Function* F_)
   std::cout << str << std::endl;
 }
 
-void WorkitemLoops::CreateVortexCMVar(
-    llvm::Function* F, VortexCMData& tmdata)
+void WorkitemLoops::CreateVortexVar(
+    llvm::Function* F, VortexData& tmdata, int schedule)
 {
   IRBuilder<> builder(&*(F->getEntryBlock().getFirstInsertionPt()));
   auto M = F->getParent();
@@ -159,7 +161,7 @@ void WorkitemLoops::CreateVortexCMVar(
   std::pair<llvm::BasicBlock*, llvm::BasicBlock*>
 WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
     llvm::BasicBlock* entryBB, llvm::BasicBlock* exitBB,
-    VortexCMData tmdata)
+    VortexData tmdata)
 {
   auto lid = tmdata.LocalID;
   auto TpC = tmdata.TpC;
@@ -244,24 +246,66 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
 
   // Replace usage of local id to vortex drived local id
   {
+    bool flag_x = false, flag_y = false, flag_z = false;
+
+    for (auto I = region.begin(); I != region.end(); ++I) {
+      llvm::BasicBlock* bb = *I;
+      if (!DT->dominates(loopBodyEntryBB, bb))
+        continue;
+
+      for (BasicBlock::iterator BI = bb->begin(); BI != bb->end(); ++BI) {
+        Instruction* Instr = dyn_cast<Instruction>(BI);
+        if(Instr->use_empty())
+          continue;
+
+        if (isa<llvm::LoadInst>(Instr)) {
+          llvm::LoadInst* load = dyn_cast<llvm::LoadInst>(Instr);
+          llvm::Value* pointer = load->getPointerOperand();
+          StringRef pname = pointer->getName();
+
+          if (pname.equals("_local_id_x")) {
+            flag_x = true;
+          } else if (pname.equals("_local_id_y")) {
+            flag_y = true;
+          } else if (pname.equals("_local_id_z")) {
+            flag_z = true;
+          }
+        }
+      }
+    }
+
     builder.SetInsertPoint(&(loopBodyEntryBB->front()));
     auto curid = builder.CreateLoad(inty, localIDHolder);
 
     // simple version
+    /*
     auto local_id_z = builder.CreateUDiv(curid, num_local_xy, "new_lid_z");
     auto remains_xy = builder.CreateSub(curid,
         builder.CreateMul(local_id_z, num_local_xy));
     auto local_id_y = builder.CreateUDiv(remains_xy, num_local_x, "new_lid_y");
     auto local_id_x = builder.CreateSub(remains_xy,
         builder.CreateMul(local_id_y, num_local_x), "new_lid_x");
+    */
+    llvm::Value *local_id_x, *local_id_y, *local_id_z;
 
+    if(flag_x & !flag_y && !flag_z){
+      local_id_x = builder.CreateURem(curid, num_local_x, "new_lid_x");
+    }else {
+      local_id_z = builder.CreateUDiv(curid, num_local_xy, "new_lid_z");
+      auto remains_xy = builder.CreateSub(curid,
+        builder.CreateMul(local_id_z, num_local_xy));
+      local_id_y = builder.CreateUDiv(remains_xy, num_local_x, "new_lid_y");
+      local_id_x = builder.CreateSub(remains_xy,
+        builder.CreateMul(local_id_y, num_local_x), "new_lid_x");
+    }
+  
     auto M = F->getParent();
     std::vector<Instruction*> trashs;
 
     for (auto I = region.begin(); I != region.end(); ++I) {
       llvm::BasicBlock* bb = *I;
-      std::cerr << "### VortexLoopGen : pred Name : " << bb->getName().str()
-        << std::endl;
+      //std::cerr << "### VortexLoopGen : pred Name : " << bb->getName().str()
+      //  << std::endl;
 
       if (!DT->dominates(loopBodyEntryBB, bb))
         continue;
@@ -274,8 +318,8 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
           llvm::Value* pointer = load->getPointerOperand();
           StringRef pname = pointer->getName();
 
-          std::cerr << "### VortexLoopGen : " << pname.str()
-            << " : " << pname.equals("_local_id_x") << std::endl;
+          //std::cerr << "### VortexLoopGen : " << pname.str()
+          //  << " : " << pname.equals("_local_id_x") << std::endl;
 
           if (pname.equals("_local_id_x")) {
             Instr->replaceAllUsesWith(local_id_x);

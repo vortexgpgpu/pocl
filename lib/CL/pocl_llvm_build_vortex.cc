@@ -131,7 +131,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
 
     snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH,
               "_pocl_kernel_%s_workgroup", kernel->name);
-    
+ 
     ss << "#include <vx_spawn.h>\n"
           "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z);\n"  
           "int main() {\n"
@@ -139,22 +139,20 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
           "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n";
 
     if(schedule_flag == 0){ 
-      ss <<  "  vx_spawn_kernel(ctx, (void*)";
+      ss <<  "  vx_spawn_kernel(ctx, (void*)" << pfn_workgroup_string << ", args);\n";
+
     }else if (schedule_flag == 1){
-      ss <<  "  vx_spawn_kernel_cm(ctx, (void*)"; 
+      ss <<  "  vx_spawn_kernel_cm(ctx, (void*)"  << pfn_workgroup_string << ", args);\n";
+
     }else if (schedule_flag == 2){
-      ss <<  "  vx_spawn_kernel_gm(ctx, (void*)"; 
-    }else if (schedule_flag == 3){
-      ss <<  "  vx_spawn_kernel_gdm(ctx, (void*)"; 
-    }else if (schedule_flag == 4){
-      ss <<  "  vx_spawn_kernel_pm(ctx, (void*)"; 
+      ss <<  "  vx_spawn_kernel(ctx, (void*)"  << pfn_workgroup_string << ", args);\n";
     }else {
-      ss <<  "  vx_spawn_kernel(ctx, (void*)"; 
+      ss <<  "  vx_spawn_kernel(ctx, (void*)"  << pfn_workgroup_string << ", args);\n";
     }
 
-    ss << pfn_workgroup_string << ", args);\n"
-          "  return 0;\n"
+    ss << "  return 0;\n"
           "}";
+
     {
       char wrapper_cc[POCL_MAX_PATHNAME_LENGTH + 1];    
       auto content = ss.str();

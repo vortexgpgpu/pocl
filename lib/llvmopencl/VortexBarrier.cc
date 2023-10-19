@@ -88,7 +88,9 @@ static void recursivelyFind(Function* F, std::set<Instruction*>& barriers)
 bool VortexBarrierLowering::runOnModule(Module& M)
 {
 
-  int vortex_scheduling_flag = std::stoi(std::string(std::getenv("VORTEX_SCHEDULE_FLAG")));
+  int vortex_scheduling_flag = 0;  
+  if(std::getenv("VORTEX_SCHEDULE_FLAG") != nullptr)
+    std::stoi(std::string(std::getenv("VORTEX_SCHEDULE_FLAG")));
   if(vortex_scheduling_flag == 0)
     return false;
 
