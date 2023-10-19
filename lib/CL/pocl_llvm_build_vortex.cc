@@ -88,11 +88,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     return -1;
   }
 
-  std::string build_schedule = pocl_get_string_option ("VORTEX_SCHEDULE_FLAG", "");
-  if(build_ldflags == ""){
-    POCL_MSG_ERR("LLVM_PREFIX : 'POCL_SCHEDULE_FLAGE' need to be set\n");
-    return -1;
-  }
+  std::string build_schedule = pocl_get_string_option ("VORTEX_SCHEDULE_FLAG", "0");
   int schedule_flag = std::stoi(build_schedule);
 
   const char* llvm_install_path = getenv("LLVM_PREFIX");
