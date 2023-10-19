@@ -101,10 +101,9 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   }  
 
   std::string clang_path(CLANG);
-
-  //if (llvm_install_path) {
-  //  clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
-  //}
+  if (llvm_install_path) {
+    clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+  }
 
   {
     std::stringstream ss_cmd, ss_out;
@@ -185,9 +184,9 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   }
   {
     std::string objcopy_path(LLVM_OBJCOPY);
-    //if (llvm_install_path) {
-    //  objcopy_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
-    //}
+    if (llvm_install_path) {
+      objcopy_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+    }
 
     std::stringstream ss_cmd, ss_out;
     ss_cmd << objcopy_path.c_str() << " -O binary " << kernel_elf_s << " " << kernel_out;
@@ -201,9 +200,9 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
 
   {
     std::string objdump_path(LLVM_OBJDUMP);
-    //if (llvm_install_path) {
-    //  objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
-    //}
+    if (llvm_install_path) {
+      objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+    }
 
     std::stringstream ss_cmd, ss_out;
     ss_cmd << objdump_path.c_str() << " -D " << kernel_elf_s << " > " << kernel->name << ".dump";
