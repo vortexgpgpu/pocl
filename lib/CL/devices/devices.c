@@ -469,13 +469,6 @@ FINISH:
 cl_int
 pocl_init_devices ()
 {
-  #if !defined(OCS_AVAILABLE)
-    printf("AVAILABLE not defiened \n\n");
-  #else 
-
-    printf("AVAILABLE defiened \n\n");
-  #endif
-
   int errcode = CL_SUCCESS;
 
   /* This is a workaround to a nasty problem with libhwloc: When
