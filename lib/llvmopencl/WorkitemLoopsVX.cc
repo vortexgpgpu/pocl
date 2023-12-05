@@ -100,7 +100,7 @@ void WorkitemLoops::CreateVortexVar(
   auto nHT = builder.CreateCall(nHTC, {}, "nHT");
   auto nHW = builder.CreateCall(nHWC, {}, "nHW");
 
-  auto tlid = builder.CreateAdd(tid, builder.CreateMul(wid, nHW), "tlid");
+  auto tlid = builder.CreateAdd(tid, builder.CreateMul(wid, nHT), "tlid");
   auto TpC = builder.CreateBinOp(Instruction::Mul, nHT, nHW, "HTpC");
   auto localIDHolder = builder.CreateAlloca(inty, 0, ".pocl.vortex_local_id");
 
