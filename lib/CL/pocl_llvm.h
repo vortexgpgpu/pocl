@@ -174,14 +174,15 @@ extern "C" {
                                    unsigned device_i, 
                                    cl_device_id device,
                                    const char *kernel_obj,
-                                   char *kernel_out);
+                                   const char *kernel_out);
   */
   int pocl_llvm_build_vortex_program(cl_kernel kernel, 
                                    unsigned device_i, 
                                    cl_device_id device,
                                    const char *kernel_bc,
                                    const char *kernel_obj,
-                                   char *kernel_out);
+                                   const char *kernel_out,
+                                   int specialize);
   
 
 #ifdef __cplusplus

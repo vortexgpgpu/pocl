@@ -538,7 +538,7 @@ llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
     POCL_MSG_PRINT_GENERAL ("writing parallel.bc failed for kernel %s\n", kernel->name);
     goto FINISH;
   }
-  error = pocl_llvm_build_vortex_program (kernel, device_i, device, parallel_bc_path, tmp_objfile, final_binary_path); 
+  error = pocl_llvm_build_vortex_program (kernel, device_i, device, parallel_bc_path, tmp_objfile, final_binary_path, specialize); 
   if (error) {
     POCL_MSG_PRINT_LLVM ("Vortex compilation kernel.o -> kernel.hex has failed\n");
     goto FINISH;

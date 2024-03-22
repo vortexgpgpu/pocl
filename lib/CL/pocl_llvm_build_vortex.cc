@@ -68,7 +68,8 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
                                    cl_device_id device,
                                    const char *kernel_bc,
                                    const char *kernel_obj,
-                                   char *kernel_out) {
+                                   const char *kernel_out,
+                                   int specialize) {
   cl_program program = kernel->program;
 
   std::string kernel_bc_s(kernel_bc);
@@ -137,16 +138,10 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
           "  const context_t* ctx = (const context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
           "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n";
 
-    if(schedule_flag == 0){ 
+    if (schedule_flag == 1){
+      ss <<  "  vx_spawn_kernel_cm(ctx, (void*)" << pfn_workgroup_string << ", args);\n";
+    } else {
       ss <<  "  vx_spawn_kernel(ctx, (void*)" << pfn_workgroup_string << ", args);\n";
-
-    }else if (schedule_flag == 1){
-      ss <<  "  vx_spawn_kernel_cm(ctx, (void*)"  << pfn_workgroup_string << ", args);\n";
-
-    }else if (schedule_flag == 2){
-      ss <<  "  vx_spawn_kernel(ctx, (void*)"  << pfn_workgroup_string << ", args);\n";
-    }else {
-      ss <<  "  vx_spawn_kernel(ctx, (void*)"  << pfn_workgroup_string << ", args);\n";
     }
 
     ss << "  return 0;\n"
@@ -182,6 +177,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       }
     } 
   }
+
   {
     std::string objcopy_path(LLVM_OBJCOPY);
     if (llvm_install_path) {
@@ -197,7 +193,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       return err;
     }
   }
-
+  
   {
     std::string objdump_path(LLVM_OBJDUMP);
     if (llvm_install_path) {
@@ -205,7 +201,12 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
     }
 
     std::stringstream ss_cmd, ss_out;
-    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf_s << " > " << kernel->name << ".dump";
+    ss_cmd << objdump_path.c_str() << " -D " << kernel_elf_s << " > " << kernel->name;
+    if (specialize != 0) {
+      ss_cmd << "_op" << specialize;
+    }
+    ss_cmd << ".dump";
+
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     int err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
