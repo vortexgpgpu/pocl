@@ -88,6 +88,43 @@ POP_COMPILER_DIAGS
 #include <cassert>
 #endif
 
+std::vector<std::string> cflag_parse(const std::string& flags, const std::string& key) {
+    std::vector<std::string> results;
+    std::string::size_type start = 0;
+
+    while (start < flags.length()) {
+        auto keyPos = flags.find(key, start);
+        if (keyPos == std::string::npos) break; // Stop if the key is not found
+
+        start = keyPos + key.length(); // Move start to after the key
+
+        // Check if the path is quoted
+        if (flags[start] == '\"' || flags[start] == '\'') {
+            char quoteChar = flags[start];
+            auto endQuotePos = flags.find(quoteChar, start + 1);
+            if (endQuotePos != std::string::npos) {
+                results.push_back(flags.substr(start + 1, endQuotePos - start - 1));
+                start = endQuotePos + 1;
+            } else {
+                // Error handling for missing closing quote could go here
+                break;
+            }
+        } else {
+            // Handle non-quoted paths (assuming space is the delimiter)
+            auto spacePos = flags.find(' ', start);
+            if (spacePos != std::string::npos) {
+                results.push_back(flags.substr(start, spacePos - start));
+                start = spacePos + 1;
+            } else {
+                // If there's no more spaces, take the rest of the string
+                results.push_back(flags.substr(start));
+                break;
+            }
+        }
+    }
+
+    return results;
+}
 
 // Unlink input sources
 static inline int
@@ -414,6 +451,10 @@ int pocl_llvm_build_program(cl_program program,
     ss << "-target-cpu " << device->llvm_cpu << " ";
 
 #if defined(BUILD_VORTEX)
+    auto parsed_incdirs = cflag_parse(pocl_get_string_option ("POCL_VORTEX_CFLAGS", ""), "-I");
+    for (auto& dir :parsed_incdirs) {
+      ss << "-I" << dir << " ";
+    }
     ss << "-target-feature +m -target-feature +f -target-feature +vortex -target-abi ilp32f";
 #endif
 

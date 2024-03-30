@@ -818,8 +818,6 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_RUN\n");
   }
-
-  vx_dump_perf(d->vx_device, stdout);
   
   {
     // flush print buffer 
