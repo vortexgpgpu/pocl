@@ -16,24 +16,25 @@ export TOOLDIR=$HOME/tools
  
 ## Building RiscV GNU Toolchain (gcc, binutils, etc..)
 
-- git clone --recursive https://github.com/riscv/riscv-gnu-toolchain
-- cd riscv-gnu-toolchain
-- mkdir build && cd build
-- export RISCV_TOOLCHAIN_PATH=$TOOLDIR/riscv-gnu-toolchain
-- ../configure --prefix=$RISCV_TOOLCHAIN_PATH --with-arch=rv32imf --with-abi=ilp32f
-#- ../configure --prefix=$RISCV_TOOLCHAIN_PATH --with-cmodel=medany --with-arch=rv64imafd --with-abi=lp64d
-- make -j`nproc` 
+- git clone --depth=1 --recursive https://github.com/riscv-collab/riscv-gnu-toolchain.git
+- mkdir build && cd build 
+- export CPATH=$TOOLDIR/GNU/include
+- export LIBRARY_PATH=$TOOLDIR/GNU/lib
+- ../configure --prefix=$TOOLDIR/riscv32-gnu-toolchain --with-cmodel=medany --with-arch=rv32imf --with-abi=ilp32f 
+#../configure --prefix=$TOOLDIR/riscv64-gnu-toolchain --with-cmodel=medany --with-arch=rv64imafd --with-abi=lp64d
+- make -j`nproc`
 - make -j`nproc` build-qemu
 
 ## Building LLVM for Vortex
 
-- git clone -b vortex https://github.com/vortexgpgpu/llvm.git llvm
+- git clone --recursive --branch vortex https://github.com/vortexgpgpu/llvm.git
 - cd llvm
 - mkdir build && cd build
-- export LLVM_VORTEX=$TOOLDIR/llvm-vortex
-- cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
-#- cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv64-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv64-unknown-elf" -DLLVM_TARGETS_TO_BUILD="RISCV" ../llvm
-- cmake --build . --target install
+- export LLVM_PREFIX=$TOOLDIR/llvm-vortex
+- export RISCV_TOOLCHAIN_PATH=$TOOLDIR/riscv64-gnu-toolchain
+- cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX -DLLVM_ENABLE_PROJECTS="clang" -DBUILD_SHARED_LIBS=True -DLLVM_TARGETS_TO_BUILD="RISCV"  -DLLVM_DISABLE_ABI_BREAKING_CHECKS_ENFORCING=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" ../llvm
+- make -j`nproc`
+- make install
 
 ## Sanity test your new RISC-V LLVM
 
@@ -42,7 +43,7 @@ export TOOLDIR=$HOME/tools
 - qemu-riscv32 hello
 
 ## Building llvm-spirv
-- git clone -b release/10.x  https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
+- git clone --depth=1 -b release/10.x  https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
 - cd llvm-spirv
 - mkdir build && cd build
 - export LLVM_VORTEX=$TOOLDIR/llvm-vortex
@@ -52,19 +53,24 @@ export TOOLDIR=$HOME/tools
 # manually copy over llvm-spirv binary
 - cp ./tools/llvm-spirv/llvm-spirv $LLVM_VORTEX/bin
 
-## build POCL for Vortex
-
-- git clone -b vortex https://github.gatech.edu/casl/pocl.git
+## build POCL compiler
+- git clone --branch vortex --recursive https://github.com/vortexgpgpu/pocl
 - cd pocl
-
 - mkdir build_cc && cd build_cc
 - export POCL_CC_PATH=$TOOLDIR/pocl/compiler
-- cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$LLVM_VORTEX/bin/llvm-config -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DENABLE_ICD=OFF -DCLANG_MARCH_FLAG:STRING=-mcpu= -DLLC_HOST_CPU=generic-rv32 ..
-- cmake --build . --target install
+- export LLVM_PREFIX=$TOOLDIR/llvm-vortex
+- cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=$POCL_CC_PATH -DOCS_AVAILABLE=ON -DWITH_LLVM_CONFIG=$LLVM_VORTEX/bin/llvm-config -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DENABLE_ICD=OFF -DCLANG_MARCH_FLAG:STRING=-mcpu= -DLLC_HOST_CPU=generic-rv32 ..
+- make -j`nproc`
+- make install
 
+## build POCL runtime
+- git clone --branch vortex --recursive https://github.com/vortexgpgpu/pocl
+- cd pocl
 - mkdir build_rt && cd build_rt
 - export POCL_RT_PATH=$TOOLDIR/pocl/runtime
-- export VORTEX_DRIVER_INC=~/dev/vortex/runtime/include
-- export VORTEX_DRIVER_LIB=~/dev/vortex/runtime/stub/libvortex.so
-- cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DHOST_DEVICE_BUILD_HASH=riscv32-unknown-unknown-elf -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DOCS_AVAILABLE=OFF -DENABLE_LLVM=OFF -DVORTEX_DRIVER_INC=$VORTEX_DRIVER_INC -DVORTEX_DRIVER_LIB=$VORTEX_DRIVER_LIB -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DENABLE_ICD=OFF ..
-- cmake --build . --target install
+- export VORTEX_DRIVER_INC=$HOME/dev/vortex/runtime/include
+- export VORTEX_DRIVER_LIB=$HOME/dev/vortex/runtime/stub/libvortex.so
+- cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DHOST_DEVICE_BUILD_HASH=riscv32-unknown-unknown-elf -DCMAKE_INSTALL_PREFIX=$POCL_RT_PATH -DOCS_AVAILABLE=OFF -DENABLE_LLVM=OFF -DVORTEX_DRIVER_INC=$VORTEX_DRIVER_INC -DVORTEX_DRIVER_LIB=$VORTEX_DRIVER_LIB -DENABLE_VORTEX=ON -DBUILD_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DENABLE_ICD=OFF ..
+- make -j`nproc`
+- make install
+- cp -r ../include $POCL_RT_PATH
