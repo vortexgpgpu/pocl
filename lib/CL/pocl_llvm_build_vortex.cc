@@ -99,7 +99,23 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       return -1;    
     }
     POCL_MSG_PRINT_INFO("using $LLVM_PREFIX=%s!\n", llvm_install_path);
-  }  
+  }
+
+  std::string llvm_prefix(LLVM_PREFIX);
+  if (llvm_install_path) {
+    llvm_prefix = llvm_install_path; 
+  }
+
+  {
+    std::stringstream ss_cmd, ss_out;
+    ss_cmd << llvm_prefix << "/bin/llvm-dis " << kernel_bc << " -o " << kernel->name << ".ll";
+    POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
+    int err = exec(ss_cmd.str().c_str(), ss_out);
+    if (err != 0) {
+      POCL_MSG_ERR("%s\n", ss_out.str().c_str());
+      return err;
+    }
+  }
 
   std::string clang_path(CLANG);
   if (llvm_install_path) {
@@ -133,15 +149,15 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
               "_pocl_kernel_%s_workgroup", kernel->name);
  
     ss << "#include <vx_spawn.h>\n"
-          "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z);\n"  
+          "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z, uint32_t local_offset);\n"  
           "int main() {\n"
-          "  const context_t* ctx = (const context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
+          "  pocl_kernel_context_t* ctx = (pocl_kernel_context_t*)" << KERNEL_ARG_BASE_ADDR << ";\n"
           "  void* args = (void*)" << (KERNEL_ARG_BASE_ADDR + ALIGNED_CTX_SIZE) << ";\n";
 
     if (schedule_flag == 1){
       ss <<  "  vx_spawn_kernel_cm(ctx, (void*)" << pfn_workgroup_string << ", args);\n";
     } else {
-      ss <<  "  vx_spawn_kernel(ctx, (void*)" << pfn_workgroup_string << ", args);\n";
+      ss <<  "  vx_spawn_pocl_kernel(ctx, (void*)" << pfn_workgroup_string << ", args);\n";
     }
 
     ss << "  return 0;\n"

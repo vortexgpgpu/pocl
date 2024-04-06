@@ -145,7 +145,14 @@ Workgroup::runOnModule(Module &M) {
       Type::getVoidTy(*C),
       {PointerType::get(PointerType::get(Type::getInt8Ty(*C), 0),
                         DeviceArgsASid),
-       PointerType::get(PoclContextT, DeviceContextASid), SizeT, SizeT, SizeT},
+       PointerType::get(PoclContextT, DeviceContextASid), 
+       SizeT, 
+       SizeT, 
+       SizeT
+      #ifdef BUILD_VORTEX
+       , SizeT
+      #endif
+      },
       false);
 
   assert ((SizeTWidth == 64 || SizeTWidth == 32) &&
@@ -594,7 +601,6 @@ static void replacePrintfCalls(Value *pb, Value *pbp, Value *pbc, bool isKernel,
 // Also inlines the wrapped function to the wrapper.
 Function *
 Workgroup::createWrapper(Function *F, FunctionMapping &printfCache) {
-
   SmallVector<Type *, 8> sv;
   LLVMContext &C = M->getContext();
   for (Function::const_arg_iterator i = F->arg_begin(), e = F->arg_end();
@@ -949,7 +955,10 @@ Workgroup::createDefaultWorkgroupLauncher(llvm::Function *F) {
   assert(WorkGroup != nullptr);
   BasicBlock *Block = BasicBlock::Create(M->getContext(), "", WorkGroup);
   Builder.SetInsertPoint(Block);
-
+#ifdef BUILD_VORTEX
+  auto local_offset_iter = std::prev(WorkGroup->arg_end());
+  auto local_offset = &*local_offset_iter;
+#endif
   Function::arg_iterator ai = WorkGroup->arg_begin();
   Argument *AI = &*ai;
 
@@ -1012,6 +1021,13 @@ Workgroup::createDefaultWorkgroupLauncher(llvm::Function *F) {
       if (ii->hasByValAttr()) {
         Arg = Builder.CreatePointerCast(Pointer, ArgType);
       } else {
+      #ifdef BUILD_VORTEX     
+        if (isLocalMemFunctionArg(F, i)) {
+          auto PointerInt = Builder.CreatePtrToInt(Pointer, SizeT, "PointerToInt");
+          auto adjustedPointer = Builder.CreateAdd(PointerInt, local_offset, "adjustedPointer");
+          Pointer = Builder.CreateIntToPtr(adjustedPointer, Pointer->getType());
+        }
+      #endif
         Arg = Builder.CreatePointerCast(Pointer, ArgType->getPointerTo());
         Arg = Builder.CreateLoad(ArgType, Arg);
       }

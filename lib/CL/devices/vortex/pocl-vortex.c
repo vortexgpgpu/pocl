@@ -56,6 +56,7 @@
 #include "pocl_workgroup_func.h"
 
 #include "common_driver.h"
+#include "pocl-vortex-config.h"
 
 #ifdef ENABLE_LLVM
 #include "pocl_llvm.h"
@@ -113,18 +114,6 @@ struct vx_buffer_data_t {
 #endif
   size_t dev_mem_addr;
 };
-
-struct kernel_context_t {
-  uint32_t num_groups[3];
-  uint32_t global_offset[3];
-  uint32_t local_size[3];  
-  uint32_t printf_buffer;
-  uint32_t printf_buffer_position;
-  uint32_t printf_buffer_capacity;  
-  uint32_t work_dim;
-};
-
-static size_t ALIGNED_CTX_SIZE = 4 * ((sizeof(struct kernel_context_t) + 3) / 4);
 
 static const cl_image_format supported_image_formats[] = {
     {CL_A, CL_SNORM_INT8},
@@ -657,9 +646,11 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
     program, dev_i, cmd->device, pocl_cpu_gvar_init_callback
   );
 
-  if (pc->num_groups[0] == 0 
-   || pc->num_groups[1] == 0 
-   || pc->num_groups[2] == 0)
+  int num_groups = 0;
+  for (int i = 0; i < pc->work_dim; ++i) {
+    num_groups += pc->num_groups[i];
+  }
+  if (num_groups == 0)
     return;
 
   assert (data != NULL);
@@ -667,18 +658,18 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
 
   // calculate kernel arguments buffer size
   size_t abuf_args_size = 4 * (meta->num_args + meta->num_locals);
-  size_t abuf_size = ALIGNED_CTX_SIZE + abuf_args_size; 
+  size_t abuf_size = ALIGNED_CTX_SIZE + abuf_args_size;
   size_t local_mem_size = 0;
-  
+
   for (i = 0; i < meta->num_args; ++i) {  
     struct pocl_argument* al = &(cmd->command.run.arguments[i]);  
-    if (ARG_IS_LOCAL(meta->arg_info[i])) {        
+    if (ARG_IS_LOCAL(meta->arg_info[i])) {
       abuf_size += 4;
       local_mem_size += al->size;
     } else
     if ((meta->arg_info[i].type == POCL_ARG_TYPE_POINTER)
-      || (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE)
-      || (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER)) {
+     || (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE)
+     || (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER)) {
       abuf_size += 4;
     } else {
       // scalar argument
@@ -686,22 +677,23 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
     }
   }
 
-  // non-argument local buffers
+  // local buffers
   for (i = 0; i < meta->num_locals; ++i) {
     local_mem_size += meta->local_sizes[i];
     abuf_size += 4;
   }
 
   // allocate local buffer
-  if (local_mem_size) {
+  if (local_mem_size != 0) {
     uint64_t dev_local_mem_size;
     vx_err = vx_dev_caps(d->vx_device, VX_CAPS_LOCAL_MEM_SIZE, &dev_local_mem_size);
     if (vx_err != 0) {
       POCL_ABORT("POCL_VORTEX_RUN\n");
     }
 
-    if (local_mem_size > dev_local_mem_size) {
-      POCL_MSG_ERR("Local memory allocation failed: out of memory needed=%ld, available=%ld\n", local_mem_size, dev_local_mem_size);
+    uint64_t total_local_mem_size = local_mem_size * num_groups;
+    if (total_local_mem_size > dev_local_mem_size) {
+      POCL_MSG_ERR("Local memory allocation failed: out of memory; needed=%ld, available=%ld\n", total_local_mem_size, dev_local_mem_size);
       POCL_ABORT("POCL_VORTEX_RUN\n");
     }
 
@@ -712,55 +704,52 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
   }
 
   // allocate arguments buffer
-  uint64_t args_dev_base_addr = KERNEL_ARG_BASE_ADDR;
-  uint8_t* args_host_base_ptr = malloc(abuf_size);
-  assert(args_host_base_ptr);
+  const uint32_t dev_args_base_addr = KERNEL_ARG_BASE_ADDR;
+  uint8_t* const host_args_base_ptr = malloc(abuf_size);
+  assert(host_args_base_ptr);
 
   // write context data
   {
-    struct kernel_context_t ctx;
+    pocl_kernel_context_t* ctx = (pocl_kernel_context_t*)host_args_base_ptr;
     for (int i = 0; i < 3; ++i) {
-      ctx.num_groups[i] = pc->num_groups[i];
-      ctx.global_offset[i] = pc->global_offset[i];
-      ctx.local_size[i] = pc->local_size[i];        
+      ctx->num_groups[i] = pc->num_groups[i];
+      ctx->global_offset[i] = pc->global_offset[i];
+      ctx->local_size[i] = pc->local_size[i];        
     }
-    ctx.work_dim = pc->work_dim;      
-    ctx.printf_buffer = d->printf_buffer_devaddr;
-    ctx.printf_buffer_position = d->printf_buffer_position;
-    ctx.printf_buffer_capacity = PRINT_BUFFER_SIZE;
-
-    memset(args_host_base_ptr, 0, ALIGNED_CTX_SIZE);
-    memcpy(args_host_base_ptr, &ctx, sizeof(struct kernel_context_t));
+    ctx->printf_buffer = d->printf_buffer_devaddr;
+    ctx->printf_buffer_position = d->printf_buffer_position;
+    ctx->printf_buffer_capacity = PRINT_BUFFER_SIZE;
+    ctx->work_dim = pc->work_dim;
   }
 
   // write arguments
-  
-  uint8_t* args_host_ptr  = args_host_base_ptr + ALIGNED_CTX_SIZE;
-  uint32_t data_dev_addr = args_dev_base_addr + ALIGNED_CTX_SIZE + abuf_args_size;
-  uint64_t local_mem_addr = local_mem_base_addr;
 
+  uint8_t* host_args_ptr = host_args_base_ptr + ALIGNED_CTX_SIZE;
+  uint32_t dev_data_addr = dev_args_base_addr + ALIGNED_CTX_SIZE + abuf_args_size;
+  uint64_t local_mem_addr = local_mem_base_addr;
+  
   for (i = 0; i < meta->num_args; ++i) {
     struct pocl_argument* al = &(cmd->command.run.arguments[i]);
     if (ARG_IS_LOCAL(meta->arg_info[i])) {
-      memcpy(args_host_ptr, &data_dev_addr, 4); // pointer index
-      memcpy(args_host_base_ptr + (data_dev_addr - args_dev_base_addr), &local_mem_addr, 4); // pointer value          
+      memcpy(host_args_ptr, &dev_data_addr, 4); // pointer index
+      memcpy(host_args_base_ptr + (dev_data_addr - dev_args_base_addr), &local_mem_addr, 4); // pointer value          
       local_mem_addr += al->size;
-      args_host_ptr += 4;
-      data_dev_addr += 4;
+      host_args_ptr += 4;
+      dev_data_addr += 4;
     } else
     if (meta->arg_info[i].type == POCL_ARG_TYPE_POINTER) {
-      memcpy(args_host_ptr, &data_dev_addr, 4); // pointer index     
+      memcpy(host_args_ptr, &dev_data_addr, 4); // pointer index     
       if (al->value == NULL) {
-        memset(args_host_base_ptr + (data_dev_addr - args_dev_base_addr), 0, 4); // NULL pointer value 
+        memset(host_args_base_ptr + (dev_data_addr - dev_args_base_addr), 0, 4); // NULL pointer value 
       } else {
         cl_mem m = (*(cl_mem *)(al->value));
         //auto buf_data = (vx_buffer_data_t*)m->device_ptrs[cmd->device->dev_id].mem_ptr;
         struct vx_buffer_data_t* buf_data = (struct vx_buffer_data_t *) m->device_ptrs[cmd->device->global_mem_id].mem_ptr;
         void* dev_mem_addr = (void*)(buf_data->dev_mem_addr + al->offset);
-        memcpy(args_host_base_ptr + (data_dev_addr - args_dev_base_addr), &dev_mem_addr, 4); // pointer value
+        memcpy(host_args_base_ptr + (dev_data_addr - dev_args_base_addr), &dev_mem_addr, 4); // pointer value
       }
-      args_host_ptr += 4;
-      data_dev_addr += 4;
+      host_args_ptr += 4;
+      dev_data_addr += 4;
     } else 
     if (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE) {
         POCL_ABORT("POCL_VORTEX_RUN\n"); 
@@ -769,34 +758,34 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
         POCL_ABORT("POCL_VORTEX_RUN\n"); 
     } else {
       // scalar argument
-      memcpy(args_host_ptr, &data_dev_addr, 4); // scalar index
-      memcpy(args_host_base_ptr + (data_dev_addr - args_dev_base_addr), al->value, al->size); // scalar value
-      args_host_ptr += 4;
-      data_dev_addr += al->size;
+      memcpy(host_args_ptr, &dev_data_addr, 4); // scalar index
+      memcpy(host_args_base_ptr + (dev_data_addr - dev_args_base_addr), al->value, al->size); // scalar value
+      host_args_ptr += 4;
+      dev_data_addr += al->size;
     }
   }
 
   // write local arguments
   for (i = 0; i < meta->num_locals; ++i) {
-    memcpy(args_host_ptr, &data_dev_addr, 4); // pointer index
-    memcpy(args_host_base_ptr + (data_dev_addr - args_dev_base_addr), &local_mem_addr, 4); // pointer value          
+    memcpy(host_args_ptr, &dev_data_addr, 4); // pointer index
+    memcpy(host_args_base_ptr + (dev_data_addr - dev_args_base_addr), &local_mem_addr, 4); // pointer value          
     local_mem_addr += meta->local_sizes[i];
-    args_host_ptr += 4;
-    data_dev_addr += 4;
+    host_args_ptr += 4;
+    dev_data_addr += 4;
   }
 
   // upload kernel arguments buffer
-  vx_err = vx_copy_to_dev(d->vx_device, args_dev_base_addr, args_host_base_ptr, abuf_size);
+  vx_err = vx_copy_to_dev(d->vx_device, dev_args_base_addr, host_args_base_ptr, abuf_size);
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_RUN\n");
   }
 
   // release staging buffer
-  free(args_host_base_ptr);
+  free(host_args_base_ptr);
   
   // upload kernel to device
   if (NULL == d->current_kernel 
-    || d->current_kernel != kernel) {    
+   || d->current_kernel != kernel) {    
       d->current_kernel = kernel;
     char program_bin_path[POCL_MAX_FILENAME_LENGTH];
     pocl_cache_final_binary_path (program_bin_path, program, dev_i, kernel, NULL, 0);
@@ -805,7 +794,6 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
       POCL_ABORT("POCL_VORTEX_RUN\n");
     }
   }
-
     
   // quick off kernel execution
   vx_err = vx_start(d->vx_device);
@@ -819,8 +807,9 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
     POCL_ABORT("POCL_VORTEX_RUN\n");
   }
   
+  // flush print buffer
   {
-    // flush print buffer 
+    // read print buffer size
     uint32_t print_size;
     vx_err = vx_copy_from_dev(d->vx_device, &print_size, d->printf_buffer_devaddr + PRINT_BUFFER_SIZE, sizeof(uint32_t));
     if (vx_err != 0) {
