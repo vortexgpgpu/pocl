@@ -8,7 +8,6 @@
 //static char *vortex_build_ldflags;
 
 #define WORKGROUP_STRING_LENGTH 1024
-#define KERNEL_ARG_BASE_ADDR 0x7fff0000
 
 typedef struct {
   uint32_t num_groups[3];

@@ -69,9 +69,6 @@
  * this should be reasonable for CPU */
 #define DEFAULT_WG_SIZE 4096
 
-// location is local memory where to store kernel parameters
-#define KERNEL_ARG_BASE_ADDR 0x7fff0000
-
 // allocate 1MB OpenCL print buffer
 #define PRINT_BUFFER_SIZE (1024 * 1024)
 
@@ -95,6 +92,7 @@ struct vx_device_data_t {
 
   /* Currently loaded kernel. */
   cl_kernel current_kernel;
+  uint64_t kernel_base_addr;
 };
 
 /*typedef struct _pocl_vortex_usm_allocation_t
@@ -356,6 +354,7 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
 #endif 
 
   d->current_kernel = NULL;
+  d->kernel_base_addr = 0;
 
   POCL_INIT_LOCK(d->cq_lock);
   
@@ -403,6 +402,9 @@ cl_int pocl_vortex_uninit (unsigned j, cl_device_id device) {
     return CL_SUCCESS;  
 
 #if !defined(OCS_AVAILABLE)
+  if (d->kernel_base_addr != 0) {
+    vx_mem_free(d->vx_device, d->kernel_base_addr);
+  }
   free(d->printf_buffer_ptr);
   vx_mem_free(d->vx_device, d->printf_buffer_devaddr);
   vx_dev_close(d->vx_device);
@@ -701,12 +703,18 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
     if (vx_err != 0) {
       POCL_ABORT("POCL_VORTEX_RUN\n");
     }
-  }
+  }  
 
-  // allocate arguments buffer
-  const uint32_t dev_args_base_addr = KERNEL_ARG_BASE_ADDR;
+  // allocate arguments host buffer
   uint8_t* const host_args_base_ptr = malloc(abuf_size);
   assert(host_args_base_ptr);
+
+  // allocate arguments device buffer
+  uint64_t dev_args_base_addr;
+  vx_err = vx_mem_alloc(d->vx_device, abuf_size, &dev_args_base_addr);
+  if (vx_err != 0) {
+    POCL_ABORT("POCL_VORTEX_RUN\n");
+  }
 
   // write context data
   {
@@ -777,26 +785,33 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
   // upload kernel arguments buffer
   vx_err = vx_copy_to_dev(d->vx_device, dev_args_base_addr, host_args_base_ptr, abuf_size);
   if (vx_err != 0) {
+    vx_mem_free(d->vx_device, dev_args_base_addr);
     POCL_ABORT("POCL_VORTEX_RUN\n");
   }
-
-  // release staging buffer
+  
+  // release argument host buffer
   free(host_args_base_ptr);
   
   // upload kernel to device
   if (NULL == d->current_kernel 
    || d->current_kernel != kernel) {    
       d->current_kernel = kernel;
+    
+    if (d->kernel_base_addr != 0) {
+      vx_mem_free(d->vx_device, d->kernel_base_addr);
+    }
+    
     char program_bin_path[POCL_MAX_FILENAME_LENGTH];
     pocl_cache_final_binary_path (program_bin_path, program, dev_i, kernel, NULL, 0);
-    vx_err = vx_upload_kernel_file(d->vx_device, program_bin_path);      
+
+    vx_err = vx_upload_kernel_file(d->vx_device, program_bin_path, &d->kernel_base_addr);      
     if (vx_err != 0) {
       POCL_ABORT("POCL_VORTEX_RUN\n");
     }
   }
     
-  // quick off kernel execution
-  vx_err = vx_start(d->vx_device);
+  // launch kernel execution
+  vx_err = vx_start(d->vx_device, d->kernel_base_addr, dev_args_base_addr);
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_RUN\n");
   }
@@ -806,6 +821,9 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_RUN\n");
   }
+
+  // release arguments device buffer
+  vx_mem_free(d->vx_device, dev_args_base_addr);
   
   // flush print buffer
   {
