@@ -804,7 +804,7 @@ pocl_vortex_run (void *data, _cl_command_node *cmd)
     char program_bin_path[POCL_MAX_FILENAME_LENGTH];
     pocl_cache_final_binary_path (program_bin_path, program, dev_i, kernel, NULL, 0);
 
-    vx_err = vx_upload_kernel_file(d->vx_device, program_bin_path, &d->kernel_base_addr);      
+    vx_err = vx_upload_file(d->vx_device, program_bin_path, &d->kernel_base_addr);      
     if (vx_err != 0) {
       POCL_ABORT("POCL_VORTEX_RUN\n");
     }
