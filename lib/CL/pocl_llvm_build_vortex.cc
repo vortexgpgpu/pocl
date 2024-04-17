@@ -195,13 +195,13 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   }
 
   {
-    std::string objcopy_path(LLVM_OBJCOPY);
-    if (llvm_install_path) {
-      objcopy_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+    std::string vxbin_path = pocl_get_string_option ("POCL_VORTEX_BINTOOL", "");
+    if (vxbin_path == ""){
+      POCL_MSG_ERR("LLVM_PREFIX : 'POCL_VORTEX_BINTOOL' need to be set\n");
+      return -1;
     }
-
-    std::stringstream ss_cmd, ss_out;
-    ss_cmd << objcopy_path.c_str() << " -O binary " << kernel_elf_s << " " << kernel_out;
+    std::stringstream ss_cmd, ss_out;  
+    ss_cmd << vxbin_path << " " << kernel_elf_s << " " << kernel_out;
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     int err = exec(ss_cmd.str().c_str(), ss_out);
     if (err != 0) {
