@@ -29,11 +29,11 @@ set(LLVM_TARGET riscv32)
 
 set(KERNEL_SOURCES ${SOURCES_GENERIC})
 
-foreach(FILE printf_base.c atomics.cl)
+foreach(FILE printf_base.c)
   list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
 endforeach()
 
-foreach(FILE printf.c)
+foreach(FILE printf.c atomics.cl)
   list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
   list(APPEND KERNEL_SOURCES "vortex/${FILE}")
 endforeach()
