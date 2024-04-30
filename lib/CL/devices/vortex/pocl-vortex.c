@@ -44,9 +44,7 @@
 #include <utlist.h>
 
 #if !defined(OCS_AVAILABLE)
-//#include <vortex.h>
-//#include "/nethome/sjeong306/vortex-dev-16/runtime/include/vortex.h"
-#include "vortex.h"
+#include <vortex.h>
 #endif
 
 #include "pocl_cache.h"
@@ -78,6 +76,7 @@ extern char *build_ldflags;
 struct vx_device_data_t {
   #if !defined(OCS_AVAILABLE)
     vx_device_h vx_device;
+    vx_buffer_h vx_kernel_buffer;
     uint8_t* printf_buffer_ptr;
     vx_buffer_h vx_printf_buffer;
     uint32_t printf_buffer_position;
@@ -92,7 +91,6 @@ struct vx_device_data_t {
 
   /* Currently loaded kernel. */
   cl_kernel current_kernel;
-  vx_buffer_h vx_kernel_buffer;
 };
 
 /*typedef struct _pocl_vortex_usm_allocation_t
@@ -109,8 +107,8 @@ struct vx_device_data_t {
 struct vx_buffer_data_t {
 #if !defined(OCS_AVAILABLE)
   vx_device_h vx_device;
-#endif
   vx_buffer_h vx_buffer;
+#endif
 };
 
 static const cl_image_format supported_image_formats[] = {
@@ -347,6 +345,7 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
     return CL_OUT_OF_HOST_MEMORY;
   }
 
+  d->vx_kernel_buffer = NULL;
   d->printf_buffer_ptr = malloc(PRINT_BUFFER_SIZE);
   d->vx_printf_buffer = vx_printf_buffer;
   d->printf_buffer_position = PRINT_BUFFER_SIZE;
@@ -355,7 +354,6 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
 #endif
 
   d->current_kernel = NULL;
-  d->vx_kernel_buffer = NULL;
 
   POCL_INIT_LOCK(d->cq_lock);
 
