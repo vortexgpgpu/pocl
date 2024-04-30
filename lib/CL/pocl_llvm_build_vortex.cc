@@ -5,7 +5,7 @@
 #include <cstdarg>
 #include <vector>
 #include <cstdio>
-#include <ostream> 
+#include <ostream>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -38,7 +38,7 @@ public:
 
     buffer.resize(size);
 
-    vsnprintf(buffer.data(), size, format, args_orig);       
+    vsnprintf(buffer.data(), size, format, args_orig);
     va_end(args_orig);
 
     return buffer.data();
@@ -49,7 +49,7 @@ private:
   size_t index_;
 };
 
-int exec(const char* cmd, std::ostream& out) {  
+int exec(const char* cmd, std::ostream& out) {
   char buffer[128];
   auto pipe = popen(cmd, "r");
   if (!pipe) {
@@ -63,8 +63,8 @@ int exec(const char* cmd, std::ostream& out) {
   return pclose(pipe);
 }
 
-int pocl_llvm_build_vortex_program(cl_kernel kernel, 
-                                   unsigned device_i, 
+int pocl_llvm_build_vortex_program(cl_kernel kernel,
+                                   unsigned device_i,
                                    cl_device_id device,
                                    const char *kernel_bc,
                                    const char *kernel_obj,
@@ -76,7 +76,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   std::string kernel_obj_s(kernel_obj);
   std::string kerenl_out_s(kernel_out);
   std::string kernel_elf_s, wrapper_cc_s;
- 
+
   std::string build_cflags = pocl_get_string_option ("POCL_VORTEX_CFLAGS", "");
   if(build_cflags == ""){
     POCL_MSG_ERR("LLVM_PREFIX : 'POCL_VORTEX_CFLAGS' need to be set\n");
@@ -96,14 +96,14 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
   if (llvm_install_path) {
     if (!pocl_exists(llvm_install_path)) {
       POCL_MSG_ERR("$LLVM_PREFIX: '%s' doesn't exist\n", llvm_install_path);
-      return -1;    
+      return -1;
     }
     POCL_MSG_PRINT_INFO("using $LLVM_PREFIX=%s!\n", llvm_install_path);
   }
 
   std::string llvm_prefix(LLVM_PREFIX);
   if (llvm_install_path) {
-    llvm_prefix = llvm_install_path; 
+    llvm_prefix = llvm_install_path;
   }
 
   {
@@ -119,7 +119,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
 
   std::string clang_path(CLANG);
   if (llvm_install_path) {
-    clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+    clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
   }
 
   {
@@ -131,25 +131,28 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       POCL_MSG_ERR("%s\n", ss_out.str().c_str());
       return err;
     }
+  #ifndef NDEBUG
+    POCL_MSG_PRINT_LLVM("%s\n", ss_out.str().c_str());
+  #endif
   }
-  
+
   {
    /*    SW warp scheduling, Mapping one SW warp to HW.
     TM (0):   mapping one SW warp to one HW thread, vx_spawn_kernel
     CM (1):   mapping one SW warp to one HW core, vx_spawn_kernel_cm
     GM (2):   mapping one SW warp to N number of HW cores, vx_spawn_kernel_gm
     GDM (3):  mapping one SW warp to N number of HW cores with M group size of SW thread for the distribution, vx_spwan_kernel_gdm
-    PM (4):   mapping one SW warp to N number of HW cores with N pipelining method, vx_spwan_kernel_pm  
-    */ 
-  
+    PM (4):   mapping one SW warp to N number of HW cores with N pipelining method, vx_spwan_kernel_pm
+    */
+
     char pfn_workgroup_string[WORKGROUP_STRING_LENGTH];
     std::stringstream ss;
 
     snprintf (pfn_workgroup_string, WORKGROUP_STRING_LENGTH, "_pocl_kernel_%s_workgroup", kernel->name);
- 
+
     ss << "#include <vx_intrinsics.h>\n"
           "#include <vx_spawn.h>\n"
-          "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z, uint32_t local_offset);\n"  
+          "void " << pfn_workgroup_string << "(uint8_t* args, uint8_t* ctx, uint32_t group_x, uint32_t group_y, uint32_t group_z, uint32_t local_offset);\n"
           "int main() {\n"
           "  pocl_kernel_context_t* ctx = (pocl_kernel_context_t*)csr_read(VX_CSR_MSCRATCH);\n"
           "  void* args = (void*)((uint8_t*)ctx + " << ALIGNED_CTX_SIZE << ");\n";
@@ -164,7 +167,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
           "}";
 
     {
-      char wrapper_cc[POCL_MAX_PATHNAME_LENGTH + 1];    
+      char wrapper_cc[POCL_MAX_PATHNAME_LENGTH + 1];
       auto content = ss.str();
       int err = pocl_write_tempfile(wrapper_cc, "/tmp/pocl_vortex_kernel", ".c",
                               content.c_str(), content.size(), nullptr);
@@ -191,7 +194,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
         POCL_MSG_ERR("%s\n", ss_out.str().c_str());
         return err;
       }
-    } 
+    }
   }
 
   {
@@ -200,7 +203,7 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       POCL_MSG_ERR("LLVM_PREFIX : 'POCL_VORTEX_BINTOOL' need to be set\n");
       return -1;
     }
-    std::stringstream ss_cmd, ss_out;  
+    std::stringstream ss_cmd, ss_out;
     ss_cmd << vxbin_path << " " << kernel_elf_s << " " << kernel_out;
     POCL_MSG_PRINT_LLVM("running \"%s\"\n", ss_cmd.str().c_str());
     int err = exec(ss_cmd.str().c_str(), ss_out);
@@ -209,11 +212,11 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       return err;
     }
   }
-  
+
   {
     std::string objdump_path(LLVM_OBJDUMP);
     if (llvm_install_path) {
-      objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path); 
+      objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
     }
 
     std::stringstream ss_cmd, ss_out;
@@ -230,6 +233,6 @@ int pocl_llvm_build_vortex_program(cl_kernel kernel,
       return err;
     }
   }
-  
+
   return 0;
 }

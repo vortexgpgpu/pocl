@@ -13,14 +13,14 @@
 ## Setting tools directory
 
 export TOOLDIR=$HOME/tools
- 
+
 ## Building RiscV GNU Toolchain (gcc, binutils, etc..)
 
 - git clone --depth=1 --recursive https://github.com/riscv-collab/riscv-gnu-toolchain.git
-- mkdir build && cd build 
+- mkdir build && cd build
 - export CPATH=$TOOLDIR/GNU/include
 - export LIBRARY_PATH=$TOOLDIR/GNU/lib
-- ../configure --prefix=$TOOLDIR/riscv32-gnu-toolchain --with-cmodel=medany --with-arch=rv32imf --with-abi=ilp32f 
+- ../configure --prefix=$TOOLDIR/riscv32-gnu-toolchain --with-cmodel=medany --with-arch=rv32imf --with-abi=ilp32f
 #../configure --prefix=$TOOLDIR/riscv64-gnu-toolchain --with-cmodel=medany --with-arch=rv64imafd --with-abi=lp64d
 - make -j`nproc`
 - make -j`nproc` build-qemu
@@ -32,7 +32,7 @@ export TOOLDIR=$HOME/tools
 - mkdir build && cd build
 - export LLVM_PREFIX=$TOOLDIR/llvm-vortex
 - export RISCV_TOOLCHAIN_PATH=$TOOLDIR/riscv64-gnu-toolchain
-- cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX -DLLVM_ENABLE_PROJECTS="clang;lld" -DBUILD_SHARED_LIBS=True -DLLVM_TARGETS_TO_BUILD="RISCV"  -DLLVM_DISABLE_ABI_BREAKING_CHECKS_ENFORCING=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" ../llvm
+- cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX -DLLVM_ENABLE_PROJECTS="clang;lld" -DBUILD_SHARED_LIBS=True -DLLVM_TARGETS_TO_BUILD="RISCV" -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DDEFAULT_SYSROOT=$RISCV_TOOLCHAIN_PATH/riscv32-unknown-elf -DLLVM_DEFAULT_TARGET_TRIPLE="riscv32-unknown-elf" ../llvm
 - make -j`nproc`
 - make install
 

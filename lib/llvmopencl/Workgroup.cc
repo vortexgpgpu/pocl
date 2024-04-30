@@ -145,9 +145,9 @@ Workgroup::runOnModule(Module &M) {
       Type::getVoidTy(*C),
       {PointerType::get(PointerType::get(Type::getInt8Ty(*C), 0),
                         DeviceArgsASid),
-       PointerType::get(PoclContextT, DeviceContextASid), 
-       SizeT, 
-       SizeT, 
+       PointerType::get(PoclContextT, DeviceContextASid),
+       SizeT,
+       SizeT,
        SizeT
       #ifdef BUILD_VORTEX
        , SizeT
@@ -1021,15 +1021,15 @@ Workgroup::createDefaultWorkgroupLauncher(llvm::Function *F) {
       if (ii->hasByValAttr()) {
         Arg = Builder.CreatePointerCast(Pointer, ArgType);
       } else {
-      #ifdef BUILD_VORTEX     
-        if (isLocalMemFunctionArg(F, i)) {
-          auto PointerInt = Builder.CreatePtrToInt(Pointer, SizeT, "PointerToInt");
-          auto adjustedPointer = Builder.CreateAdd(PointerInt, local_offset, "adjustedPointer");
-          Pointer = Builder.CreateIntToPtr(adjustedPointer, Pointer->getType());
-        }
-      #endif
         Arg = Builder.CreatePointerCast(Pointer, ArgType->getPointerTo());
         Arg = Builder.CreateLoad(ArgType, Arg);
+      #ifdef BUILD_VORTEX
+        if (isLocalMemFunctionArg(F, i)) {
+          auto ArgInt = Builder.CreatePtrToInt(Arg, SizeT, "ArgInt");
+          auto adjustedArg = Builder.CreateAdd(ArgInt, local_offset, "adjustedArg");
+          Arg = Builder.CreateIntToPtr(adjustedArg, ArgType);
+        }
+      #endif
       }
     }
     Arguments.push_back(Arg);
