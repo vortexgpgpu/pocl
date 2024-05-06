@@ -88,44 +88,6 @@ POP_COMPILER_DIAGS
 #include <cassert>
 #endif
 
-std::vector<std::string> cflag_parse(const std::string& flags, const std::string& key) {
-    std::vector<std::string> results;
-    std::string::size_type start = 0;
-
-    while (start < flags.length()) {
-        auto keyPos = flags.find(key, start);
-        if (keyPos == std::string::npos) break; // Stop if the key is not found
-
-        start = keyPos + key.length(); // Move start to after the key
-
-        // Check if the path is quoted
-        if (flags[start] == '\"' || flags[start] == '\'') {
-            char quoteChar = flags[start];
-            auto endQuotePos = flags.find(quoteChar, start + 1);
-            if (endQuotePos != std::string::npos) {
-                results.push_back(flags.substr(start + 1, endQuotePos - start - 1));
-                start = endQuotePos + 1;
-            } else {
-                // Error handling for missing closing quote could go here
-                break;
-            }
-        } else {
-            // Handle non-quoted paths (assuming space is the delimiter)
-            auto spacePos = flags.find(' ', start);
-            if (spacePos != std::string::npos) {
-                results.push_back(flags.substr(start, spacePos - start));
-                start = spacePos + 1;
-            } else {
-                // If there's no more spaces, take the rest of the string
-                results.push_back(flags.substr(start));
-                break;
-            }
-        }
-    }
-
-    return results;
-}
-
 // Unlink input sources
 static inline int
 unlink_source(FrontendOptions &fe)
@@ -449,18 +411,13 @@ int pocl_llvm_build_program(cl_program program,
     ss << "-triple=" << device->llvm_target_triplet << " ";
   if (device->llvm_cpu && *device->llvm_cpu)
     ss << "-target-cpu " << device->llvm_cpu << " ";
-
 #if defined(BUILD_VORTEX)
-    auto parsed_incdirs = cflag_parse(pocl_get_string_option ("POCL_VORTEX_CFLAGS", ""), "-I");
-    for (auto& dir :parsed_incdirs) {
-      ss << "-I" << dir << " ";
-    }
-    ss << "-target-feature +m -target-feature +f -target-feature +vortex -target-abi ilp32f";
+    ss << pocl_get_string_option("POCL_VORTEX_LLCFLAGS", "");
 #endif
 
   //debug passes
   //ss << "-mdebug-pass Structure ";
-  
+
   std::string AllBuildOpts = ss.str();
 
   POCL_MSG_PRINT_LLVM("all build options: %s\n", AllBuildOpts.c_str());
@@ -634,11 +591,11 @@ int pocl_llvm_build_program(cl_program program,
   if (device->use_only_clang_opencl_headers == CL_FALSE) {
     po.Includes.push_back(KernelH);
   }
-  
+
   clang::TargetOptions &ta = pocl_build.getTargetOpts();
 
 #ifdef DEBUG_POCL_LLVM_API
-  std::cout << "### TargetOptions: Triple: " << ta.Triple.c_str() 
+  std::cout << "### TargetOptions: Triple: " << ta.Triple.c_str()
             << ", CPU: " << ta.CPU
             << ", ABI: " << ta.ABI
             << ", Features: ";
@@ -1081,7 +1038,8 @@ static llvm::Module *getKernelLibrary(cl_device_id device,
   }
 #endif
 #ifdef BUILD_VORTEX
-  if (triple.getArch() == Triple::riscv32) {
+  if (triple.getArch() == Triple::riscv32 ||
+      triple.getArch() == Triple::riscv64) {
     subdir = "vortex";
     is_host = false;
   }
