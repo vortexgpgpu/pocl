@@ -1025,9 +1025,7 @@ Workgroup::createDefaultWorkgroupLauncher(llvm::Function *F) {
         Arg = Builder.CreateLoad(ArgType, Arg);
       #ifdef BUILD_VORTEX
         if (isLocalMemFunctionArg(F, i)) {
-          auto ArgInt = Builder.CreatePtrToInt(Arg, SizeT, "ArgInt");
-          auto adjustedArg = Builder.CreateAdd(ArgInt, local_offset, "adjustedArg");
-          Arg = Builder.CreateIntToPtr(adjustedArg, ArgType);
+          Arg = Builder.CreateGEP(ArgType, Arg, local_offset, "adjustedArg");
         }
       #endif
       }
