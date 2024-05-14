@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <sstream>
 #include <vector>
@@ -25,70 +26,68 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #define DEBUG_TYPE "workitem-loops-vx"
 
-#include "WorkitemLoops.h"
-#include "Workgroup.h"
 #include "Barrier.h"
 #include "Kernel.h"
+#include "Workgroup.h"
 #include "WorkitemHandlerChooser.h"
-
+#include "WorkitemLoops.h"
 
 //#define DUMP_CFGS
 
 #include "DebugHelpers.h"
 
-//#define DEBUG_WORK_ITEM_LOOPS
+#define DEBUG_WORK_ITEM_LOOPS_VX (0)
 
 #include "VariableUniformityAnalysis.h"
 
 using namespace llvm;
 using namespace pocl;
 
-void printIR(llvm::Function* F_)
-{
+void printIR(llvm::Function *F_) {
   std::string str;
-  llvm::raw_string_ostream ostream { str };
+  llvm::raw_string_ostream ostream{str};
   F_->print(ostream, nullptr, false);
   std::cout << str << std::endl;
 }
 
-void WorkitemLoops::CreateVortexVar(
-    llvm::Function* F, VortexData& tmdata, int schedule)
-{
-  IRBuilder<> builder(&*(F->getEntryBlock().getFirstInsertionPt()));
+void WorkitemLoops::CreateVortexVar(llvm::Function *F) {
+  sche_data = new VortexData;
+
+  IRBuilder<> builder(&(F->getEntryBlock().front()));
   auto M = F->getParent();
 
   // Load Global variable for Vortex lowering
-  GlobalVariable* nLx = M->getGlobalVariable("_local_size_x");
+  GlobalVariable *nLx = M->getGlobalVariable("_local_size_x");
   if (nLx == NULL)
-    nLx = new GlobalVariable(*M, SizeT, true, GlobalValue::CommonLinkage,
-        NULL, "_local_size_x", NULL,
-        GlobalValue::ThreadLocalMode::NotThreadLocal,
-        0, true);
+    nLx = new GlobalVariable(*M, SizeT, true, GlobalValue::CommonLinkage, NULL,
+        "_local_size_x", NULL, GlobalValue::ThreadLocalMode::NotThreadLocal, 0,
+        true);
 
-  GlobalVariable* nLy = M->getGlobalVariable("_local_size_y");
+  GlobalVariable *nLy = M->getGlobalVariable("_local_size_y");
   if (nLy == NULL)
-    nLy = new GlobalVariable(*M, SizeT, false, GlobalValue::CommonLinkage,
-        NULL, "_local_size_y");
+    nLy = new GlobalVariable(
+        *M, SizeT, false, GlobalValue::CommonLinkage, NULL, "_local_size_y");
 
-  GlobalVariable* nLz = M->getGlobalVariable("_local_size_z");
+  GlobalVariable *nLz = M->getGlobalVariable("_local_size_z");
   if (nLz == NULL)
-    nLz = new GlobalVariable(*M, SizeT, true, GlobalValue::CommonLinkage,
-        NULL, "_local_size_z", NULL,
-        GlobalValue::ThreadLocalMode::NotThreadLocal,
-        0, true);
+    nLz = new GlobalVariable(*M, SizeT, true, GlobalValue::CommonLinkage, NULL,
+        "_local_size_z", NULL, GlobalValue::ThreadLocalMode::NotThreadLocal, 0,
+        true);
 
-  LLVMContext& context = M->getContext();
+  LLVMContext &context = M->getContext();
   auto inty = IntegerType::get(context, SizeTWidth);
 
-  LoadInst* loadLx = builder.CreateLoad(inty, nLx, "nl_x");
-  LoadInst* loadLy = builder.CreateLoad(inty, nLy, "nl_y");
-  LoadInst* loadLz = builder.CreateLoad(inty, nLz, "nl_z");
+  LoadInst *loadLx = builder.CreateLoad(inty, nLx, "nl_x");
+  LoadInst *loadLy = builder.CreateLoad(inty, nLy, "nl_y");
+  LoadInst *loadLz = builder.CreateLoad(inty, nLz, "nl_z");
   auto loadLxy = builder.CreateBinOp(Instruction::Mul, loadLx, loadLy, "nl_xy");
-  auto loadLxyz = builder.CreateBinOp(Instruction::Mul, loadLxy, loadLz, "nl_xyz");
+  auto loadLxyz =
+      builder.CreateBinOp(Instruction::Mul, loadLxy, loadLz, "nl_xyz");
 
   // Generate function def for getting VX function
-  //FunctionType* nTTy = FunctionType::get(IntegerType::getInt32Ty(context), true);
-  FunctionType* nTTy = FunctionType::get(inty, true);
+  // FunctionType* nTTy = FunctionType::get(IntegerType::getInt32Ty(context),
+  // true);
+  FunctionType *nTTy = FunctionType::get(inty, true);
 
   FunctionCallee tidC = M->getOrInsertFunction("vx_thread_id", nTTy);
   FunctionCallee widC = M->getOrInsertFunction("vx_warp_id", nTTy);
@@ -104,45 +103,62 @@ void WorkitemLoops::CreateVortexVar(
   auto TpC = builder.CreateBinOp(Instruction::Mul, nHT, nHW, "HTpC");
   auto localIDHolder = builder.CreateAlloca(inty, 0, ".pocl.vortex_local_id");
 
+  sche_data->LocalID = tlid;
+  sche_data->TpC = TpC;
+  sche_data->workload = loadLxyz;
+  sche_data->num_local_x = loadLx;
+  sche_data->num_local_xy = loadLxy;
+  sche_data->localIDHolder = localIDHolder;
 
-  tmdata.LocalID = tlid;
-  tmdata.TpC = TpC;
-  tmdata.workload = loadLxyz;
-  tmdata.num_local_x = loadLx;
-  tmdata.num_local_xy = loadLxy;
-  tmdata.localIDHolder = localIDHolder;
+  printIR(F);
 
   return;
 }
 
-  std::pair<llvm::BasicBlock*, llvm::BasicBlock*>
-WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
-    llvm::BasicBlock* entryBB, llvm::BasicBlock* exitBB,
-    VortexData tmdata)
-{
-  auto lid = tmdata.LocalID;
-  auto TpC = tmdata.TpC;
-  auto workload = tmdata.workload;
-  auto num_local_x = tmdata.num_local_x;
-  auto num_local_xy = tmdata.num_local_xy;
-  auto localIDHolder = tmdata.localIDHolder;
+std::pair<llvm::BasicBlock *, llvm::BasicBlock *>
+WorkitemLoops::CreateVortexCMLoop(ParallelRegion &region,
+    llvm::BasicBlock *entryBB, llvm::BasicBlock *exitBB) {
 
-  llvm::BasicBlock* loopBodyEntryBB = entryBB;
-  llvm::LLVMContext& ctx = loopBodyEntryBB->getContext();
-  llvm::Function* F = loopBodyEntryBB->getParent();
+  llvm::BasicBlock *loopBodyEntryBB = entryBB;
+  llvm::LLVMContext &ctx = loopBodyEntryBB->getContext();
+  llvm::Function *F = loopBodyEntryBB->getParent();
   auto M = F->getParent();
-  LLVMContext& context = M->getContext();
+
+  if (sche_data == nullptr)
+    CreateVortexVar(F);
+
+  if (DEBUG_WORK_ITEM_LOOPS_VX == 1) {
+    std::cerr << "### VortexLoopGen : In Region " << (region_cnt++)
+              << std::endl;
+    std::cerr << "### VortexLoopGen : EntryBB" << std::endl;
+    llvm::errs() << *entryBB;
+    std::cerr << "### VortexLoopGen : EntryBB end" << std::endl;
+  }
+
+  auto lid = sche_data->LocalID;
+  auto TpC = sche_data->TpC;
+  auto workload = sche_data->workload;
+  auto num_local_x = sche_data->num_local_x;
+  auto num_local_xy = sche_data->num_local_xy;
+  auto localIDHolder = sche_data->localIDHolder;
+
+  LLVMContext &context = M->getContext();
   auto inty = IntegerType::get(context, SizeTWidth);
 
-  loopBodyEntryBB->setName(std::string("pregion_for_entry.") + entryBB->getName().str());
+  loopBodyEntryBB->setName(
+      std::string("pregion_for_entry.") + entryBB->getName().str());
   assert(exitBB->getTerminator()->getNumSuccessors() == 1);
 
   // Generate basic block
-  llvm::BasicBlock* oldExit = exitBB->getTerminator()->getSuccessor(0);
-  llvm::BasicBlock* forInitBB = BasicBlock::Create(ctx, "pregion_for_init", F, loopBodyEntryBB);
-  llvm::BasicBlock* forIncBB = BasicBlock::Create(ctx, "pregion_for_inc", F, exitBB);
-  llvm::BasicBlock* forCondBB = BasicBlock::Create(ctx, "pregion_for_cond", F, exitBB);
-  llvm::BasicBlock* loopEndBB = BasicBlock::Create(ctx, "pregion_for_end", F, exitBB);
+  llvm::BasicBlock *oldExit = exitBB->getTerminator()->getSuccessor(0);
+  llvm::BasicBlock *forInitBB =
+      BasicBlock::Create(ctx, "pregion_for_init", F, loopBodyEntryBB);
+  llvm::BasicBlock *forIncBB =
+      BasicBlock::Create(ctx, "pregion_for_inc", F, exitBB);
+  llvm::BasicBlock *forCondBB =
+      BasicBlock::Create(ctx, "pregion_for_cond", F, exitBB);
+  llvm::BasicBlock *loopEndBB =
+      BasicBlock::Create(ctx, "pregion_for_end", F, exitBB);
 
   // Run DominatorTree
   DTP->runOnFunction(*F);
@@ -151,7 +167,7 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
      exit. These are used in determining whether load instructions may
      be executed unconditionally in the parallel loop (see below). */
   llvm::SmallPtrSet<llvm::BasicBlock *, 8> dominatesExitBB;
-  for (auto bb: region) {
+  for (auto bb : region) {
     if (DT->dominates(bb, exitBB)) {
       dominatesExitBB.insert(bb);
     }
@@ -160,16 +176,15 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   // Replace Terminator
   BasicBlockVector preds;
   llvm::pred_iterator PI = llvm::pred_begin(entryBB),
-    E = llvm::pred_end(entryBB);
+                      E = llvm::pred_end(entryBB);
 
   for (; PI != E; ++PI) {
-    llvm::BasicBlock* bb = *PI;
+    llvm::BasicBlock *bb = *PI;
     preds.push_back(bb);
   }
 
-  for (BasicBlockVector::iterator it = preds.begin();
-      it != preds.end(); ++it) {
-    llvm::BasicBlock* bb = *it;
+  for (BasicBlockVector::iterator it = preds.begin(); it != preds.end(); ++it) {
+    llvm::BasicBlock *bb = *it;
     if (DT->dominates(loopBodyEntryBB, bb))
       continue;
     bb->getTerminator()->replaceUsesOfWith(loopBodyEntryBB, forInitBB);
@@ -178,12 +193,13 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   // Add inst for InitBlock, jump to condition block
   IRBuilder<> builder(forInitBB);
   builder.CreateStore(lid, localIDHolder);
-  builder.CreateBr(forCondBB);
+  // builder.CreateBr(forCondBB);
+  builder.CreateBr(loopBodyEntryBB);
 
   exitBB->getTerminator()->replaceUsesOfWith(oldExit, forCondBB);
 
   // Add instruction for Inc Block
-  llvm::BasicBlock* oldEntry = exitBB->getTerminator()->getSuccessor(0);
+  llvm::BasicBlock *oldEntry = exitBB->getTerminator()->getSuccessor(0);
   assert(oldEntry != NULL);
   exitBB->getTerminator()->replaceUsesOfWith(oldEntry, forIncBB);
 
@@ -195,27 +211,27 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   // Add instruction for Cond Block
   builder.SetInsertPoint(forCondBB);
   auto curid = builder.CreateLoad(inty, localIDHolder);
-  llvm::Value* cmpResult = builder.CreateICmpULT(curid, workload);
-  Instruction* loopBranch = builder.CreateCondBr(
-      cmpResult, loopBodyEntryBB, loopEndBB);
+  llvm::Value *cmpResult = builder.CreateICmpULT(curid, workload);
+  Instruction *loopBranch =
+      builder.CreateCondBr(cmpResult, loopBodyEntryBB, loopEndBB);
 
   // Replace usage of local id to vortex drived local id
   {
     bool flag_x = false, flag_y = false, flag_z = false;
 
     for (auto I = region.begin(); I != region.end(); ++I) {
-      llvm::BasicBlock* bb = *I;
+      llvm::BasicBlock *bb = *I;
       if (!DT->dominates(loopBodyEntryBB, bb))
         continue;
 
       for (BasicBlock::iterator BI = bb->begin(); BI != bb->end(); ++BI) {
-        Instruction* Instr = dyn_cast<Instruction>(BI);
-        if(Instr->use_empty())
+        Instruction *Instr = dyn_cast<Instruction>(BI);
+        if (Instr->use_empty())
           continue;
 
-        if (isa<llvm::LoadInst>(Instr)) {
-          llvm::LoadInst* load = dyn_cast<llvm::LoadInst>(Instr);
-          llvm::Value* pointer = load->getPointerOperand();
+        if (isa<llvm::LoadInst>(Instr) && !Instr->use_empty()) {
+          llvm::LoadInst *load = dyn_cast<llvm::LoadInst>(Instr);
+          llvm::Value *pointer = load->getPointerOperand();
           StringRef pname = pointer->getName();
 
           if (pname.equals("_local_id_x")) {
@@ -243,37 +259,45 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
     */
     llvm::Value *local_id_x, *local_id_y, *local_id_z;
 
-    if(flag_x & !flag_y && !flag_z){
+    if (flag_x & !flag_y && !flag_z) {
       local_id_x = builder.CreateURem(curid, num_local_x, "new_lid_x");
-    }else {
+    } else {
       local_id_z = builder.CreateUDiv(curid, num_local_xy, "new_lid_z");
-      auto remains_xy = builder.CreateSub(curid,
-        builder.CreateMul(local_id_z, num_local_xy));
+      auto remains_xy =
+          builder.CreateSub(curid, builder.CreateMul(local_id_z, num_local_xy));
       local_id_y = builder.CreateUDiv(remains_xy, num_local_x, "new_lid_y");
-      local_id_x = builder.CreateSub(remains_xy,
-        builder.CreateMul(local_id_y, num_local_x), "new_lid_x");
+      local_id_x = builder.CreateSub(
+          remains_xy, builder.CreateMul(local_id_y, num_local_x), "new_lid_x");
     }
-  
+
     auto M = F->getParent();
-    std::vector<Instruction*> trashs;
+    std::vector<Instruction *> trashs;
+
+    int bcnt = 0;
 
     for (auto I = region.begin(); I != region.end(); ++I) {
-      llvm::BasicBlock* bb = *I;
-      //std::cerr << "### VortexLoopGen : pred Name : " << bb->getName().str()
+      llvm::BasicBlock *bb = *I;
+      // std::cerr << "### VortexLoopGen : pred Name : " << bb->getName().str()
       //  << std::endl;
 
       if (!DT->dominates(loopBodyEntryBB, bb))
         continue;
 
+      if (DEBUG_WORK_ITEM_LOOPS_VX == 1) {
+        std::cerr << "### VortexLoopGen : check Replace of Block " << (bcnt++)
+                  << " in Region " << (region_cnt - 1) << std::endl;
+        llvm::errs() << *bb;
+      }
+
       for (BasicBlock::iterator BI = bb->begin(); BI != bb->end(); ++BI) {
-        Instruction* Instr = dyn_cast<Instruction>(BI);
+        Instruction *Instr = dyn_cast<Instruction>(BI);
 
         if (isa<llvm::LoadInst>(Instr)) {
-          llvm::LoadInst* load = dyn_cast<llvm::LoadInst>(Instr);
-          llvm::Value* pointer = load->getPointerOperand();
+          llvm::LoadInst *load = dyn_cast<llvm::LoadInst>(Instr);
+          llvm::Value *pointer = load->getPointerOperand();
           StringRef pname = pointer->getName();
 
-          //std::cerr << "### VortexLoopGen : " << pname.str()
+          // std::cerr << "### VortexLoopGen : " << pname.str()
           //  << " : " << pname.equals("_local_id_x") << std::endl;
 
           if (pname.equals("_local_id_x")) {
@@ -288,26 +312,31 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
           }
         }
       }
+      if (DEBUG_WORK_ITEM_LOOPS_VX == 1) {
+        std::cerr << "### VortexLoopGen : after Replace of Block " << (bcnt++)
+                  << " in Region " << (region_cnt - 1) << std::endl;
+        llvm::errs() << *bb;
+      }
     }
-  std::cerr << "### VortexLoopGen : before trash" << std::endl;
     for (auto BI : trashs) {
       BI->eraseFromParent();
     }
   }
 
-  std::cerr << "### VortexLoopGen : Finish structure gen" << std::endl;
+  // std::cerr << "### VortexLoopGen : Finish structure gen" << std::endl;
 
-  /* Add the metadata to mark a parallel loop. The metadata 
+  /* Add the metadata to mark a parallel loop. The metadata
      refer to a loop-unique dummy metadata that is not merged
      automatically. */
 
   /* This creation of the identifier metadata is copied from
      LLVM's MDBuilder::createAnonymousTBAARoot(). */
 
-  MDNode *Dummy = MDNode::getTemporary(context, ArrayRef<Metadata*>()).release();
+  MDNode *Dummy =
+      MDNode::getTemporary(context, ArrayRef<Metadata *>()).release();
   MDNode *AccessGroupMD = MDNode::getDistinct(context, {});
-  MDNode *ParallelAccessMD = MDNode::get(
-      context, {MDString::get(context, "llvm.loop.parallel_accesses"), AccessGroupMD});
+  MDNode *ParallelAccessMD = MDNode::get(context,
+      {MDString::get(context, "llvm.loop.parallel_accesses"), AccessGroupMD});
 
   MDNode *Root = MDNode::get(context, {Dummy, ParallelAccessMD});
 
@@ -321,21 +350,43 @@ WorkitemLoops::CreateVortexCMLoop(ParallelRegion& region,
   //   !1 = metadata !{metadata !1} <- self-referential root
   loopBranch->setMetadata("llvm.loop", Root);
 
-  auto IsLoadUnconditionallySafe =
-    [&dominatesExitBB](llvm::Instruction *insn) -> bool {
-      assert(insn->mayReadFromMemory());
-      // Checks that the instruction isn't in a conditional block.
-      return dominatesExitBB.count(insn->getParent());
-    };
+  auto IsLoadUnconditionallySafe = [&dominatesExitBB](
+                                       llvm::Instruction *insn) -> bool {
+    assert(insn->mayReadFromMemory());
+    // Checks that the instruction isn't in a conditional block.
+    return dominatesExitBB.count(insn->getParent());
+  };
 
   region.AddParallelLoopMetadata(AccessGroupMD, IsLoadUnconditionallySafe);
-
 
   builder.SetInsertPoint(loopEndBB);
   builder.CreateBr(oldExit);
 
-  std::cerr << "### VortexLoopGen : End program" << std::endl;
-  //printIR(F);
+  if (DEBUG_WORK_ITEM_LOOPS_VX == 1)
+    std::cerr << "### VortexLoopGen : End program" << std::endl;
+
+  /*
+  if (region_cnt == 5) {
+    printIR(F);
+    DTP->runOnFunction(*F);
+
+    for (Function::iterator I = F->begin(), E = F->end(); I != E; ++I) {
+      for (BasicBlock::iterator BI = I->begin(), BE = I->end(); BI != BE;
+           ++BI) {
+        if (auto *op = dyn_cast<Instruction>(BI)) {
+          for (unsigned i = 0, e = op->getNumOperands(); i != e; ++i) {
+            Value *v = op->getOperand(i);
+            if (isa<Instruction>(v) || isa<Argument>(v)) {
+              if (!DT->dominates(v, op)) {
+                errs() << "Variable " << *v << " does not dominate its use in "
+                       << *op << "\n";
+              }
+            }
+          }
+        } // op
+      }
+    }
+  }*/
 
   return std::make_pair(forInitBB, loopEndBB);
 }
