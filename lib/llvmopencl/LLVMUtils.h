@@ -76,6 +76,7 @@ POCL_EXPORT
 bool isGVarUsedByFunction(llvm::GlobalVariable *GVar, llvm::Function *F);
 
 // Checks if the given argument of Func is a local buffer.
+POCL_EXPORT
 bool isLocalMemFunctionArg(llvm::Function *Func, unsigned ArgIndex);
 
 // determines if GVar is OpenCL program-scope variable

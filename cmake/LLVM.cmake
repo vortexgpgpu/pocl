@@ -293,9 +293,13 @@ endif()
 
 find_program_or_die(LLVM_OPT  "opt"       "LLVM optimizer")
 find_program_or_die(LLVM_LLC  "llc"       "LLVM static compiler")
+find_program_or_die(LLVM_AR   "llvm-ar"   "LLVM archiver")
 find_program_or_die(LLVM_AS   "llvm-as"   "LLVM assembler")
+find_program_or_die(LLVM_DIS  "llvm-dis"  "LLVM disassembler")
 find_program_or_die(LLVM_LINK "llvm-link" "LLVM IR linker")
 find_program_or_die(LLVM_LLI  "lli"       "LLVM interpreter")
+find_program_or_die(LLVM_OBJCOPY "llvm-objcopy" "LLVM object copying")
+find_program_or_die(LLVM_OBJDUMP "llvm-objdump" "LLVM object dump")
 
 if(NOT DEFINED LLVM_SPIRV)
   find_program(LLVM_SPIRV NAMES "llvm-spirv${LLVM_BINARY_SUFFIX}${CMAKE_EXECUTABLE_SUFFIX}" "llvm-spirv-${LLVM_MAJOR}${CMAKE_EXECUTABLE_SUFFIX}" "llvm-spirv${CMAKE_EXECUTABLE_SUFFIX}" HINTS "${LLVM_BINDIR}" "${LLVM_CONFIG_LOCATION}" "${LLVM_PREFIX}" "${LLVM_PREFIX_BIN}")

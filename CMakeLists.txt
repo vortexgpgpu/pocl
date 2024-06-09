@@ -215,6 +215,8 @@ option(POCL_DEBUG_MESSAGES
 
 option(ENABLE_LOADABLE_DRIVERS "Enable drivers to be dlopen()-ed at pocl runtime, instead of being linked into libpocl" ON)
 
+option(ENABLE_VORTEX "Enable the Vortex OpenGPU device driver" OFF)
+
 option(ENABLE_HSA "Enable the HSA base profile runtime device driver" OFF)
 
 option(ENABLE_CUDA "Enable the CUDA device driver for NVIDIA devices" OFF)
@@ -1145,9 +1147,9 @@ endif()
 
 endif()
 
-setup_cached_var(ENABLE_ICD "Using an ICD loader"
-  "Requested build with icd, but ICD loader not found! some examples will not work.."
-  "ICD loader found, but requested build without it")
+  setup_cached_var(ENABLE_ICD "Using an ICD loader"
+    "Requested build with icd, but ICD loader not found! some examples will not work.."
+    "ICD loader found, but requested build without it")
 
 if(ENABLE_ICD)
   # only meaningful to link tests with ocl-icd
@@ -1857,7 +1859,7 @@ if(ENABLE_CUDA)
   endif()
 
   # FP64 is always enabled for CUDA, it should be available since Compute Capability 1.3
-  set(CUDA_DEVICE_EXTENSIONS "${CUDA_DEVICE_EXTENSIONS} cl_khr_fp64")
+    set(CUDA_DEVICE_EXTENSIONS "${CUDA_DEVICE_EXTENSIONS} cl_khr_fp64")
   set(CUDA_DEVICE_FEATURES_30 "${CUDA_DEVICE_FEATURES_30} __opencl_c_fp64")
 
   if(ENABLE_CUDNN)
@@ -1865,6 +1867,25 @@ if(ENABLE_CUDA)
   endif()
 
 
+endif()
+
+##########################################################
+
+if (ENABLE_VORTEX)
+  set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
+  set(OCL_TARGETS "${OCL_TARGETS} vortex")
+  if(NOT DEFINED VORTEX_PREFIX)
+    message(FATAL_ERROR "should set 'VORTEX_PREFIX' option")
+  endif()
+  if(NOT DEFINED VORTEX_XLEN)
+    message(FATAL_ERROR "should set 'VORTEX_XLEN' option")
+  endif()
+  set(BUILD_VORTEX 1)
+  set(VORTEX_DEVICE_EXTENSIONS "cl_khr_byte_addressable_store")
+  set(VORTEX_DEVICE_CL_VERSION_MAJOR 1)
+  set(VORTEX_DEVICE_CL_VERSION_MINOR 2)
+  set(VORTEX_DEVICE_CL_VERSION "120")
+  set(VORTEX_DEVICE_CL_STD "1.2")
 endif()
 
 ##########################################################
@@ -2341,6 +2362,7 @@ MESSAGE(STATUS "ENABLE_TCEMC: ${ENABLE_TCEMC}")
 MESSAGE(STATUS "ENABLE_HSA: ${ENABLE_HSA}")
 MESSAGE(STATUS "ENABLE_ALMAIF_DEVICE: ${ENABLE_ALMAIF_DEVICE}")
 MESSAGE(STATUS "ENABLE_CUDA: ${ENABLE_CUDA}")
+MESSAGE(STATUS "ENABLE_VORTEX: ${ENABLE_VORTEX}")
 MESSAGE(STATUS "ENABLE_CUDNN: ${ENABLE_CUDNN}")
 MESSAGE(STATUS "ENABLE_HOST_CPU_DEVICES: ${ENABLE_HOST_CPU_DEVICES}")
 MESSAGE(STATUS "ENABLE_VULKAN: ${ENABLE_VULKAN}")

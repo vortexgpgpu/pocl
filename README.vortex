@@ -1,0 +1,11 @@
+## build POCL runtime
+- git clone --branch vortex --recursive https://github.com/vortexgpgpu/pocl
+- cd pocl
+- mkdir build && cd build
+- export POCL_PATH=$TOOLDIR/pocl
+- export VORTEX_PREFIX=$HOME/tools/vortex
+- export LLVM_PREFIX=$TOOLDIR/llvm-vortex
+- cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=$POCL_PATH -DWITH_LLVM_CONFIG=$LLVM_PREFIX/bin/llvm-config -DVORTEX_PREFIX=$VORTEX_PREFIX -DVORTEX_XLEN=32 -DENABLE_VORTEX=ON -DKERNEL_CACHE_DEFAULT=OFF -DENABLE_HOST_CPU_DEVICES=OFF -DENABLE_TESTS=OFF -DPOCL_DEBUG_MESSAGES=ON -DENABLE_ICD=OFF ..
+- make -j`nproc`
+- make install
+- cp -r ../include $POCL_RT_PATH

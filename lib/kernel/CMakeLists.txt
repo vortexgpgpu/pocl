@@ -224,6 +224,12 @@ endif()
 
 #*********************************************************************
 
+if(OCL_TARGETS MATCHES "vortex")
+  add_subdirectory("vortex")
+endif()
+
+#*********************************************************************
+
 # "Escape" a list before passing to an external command
 string(REPLACE ";" "****" KERNEL_BC_LIST_ESCAPED "${KERNEL_BC_LIST}")
 
