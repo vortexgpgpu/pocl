@@ -593,7 +593,7 @@ pocl_exec_command (_cl_command_node *node)
     case CL_COMMAND_UNMAP_MEM_OBJECT:
       pocl_update_event_running (event);
       pocl_mem_identifier *mem_id = &mem->device_ptrs[dev->global_mem_id];
-      if (mem->is_image == CL_FALSE || IS_IMAGE1D_BUFFER (event->mem_objs[0]))
+      if (mem->is_image == CL_FALSE || IS_IMAGE1D_BUFFER (mem))
         {
           assert (dev->ops->unmap_mem != NULL);
           dev->ops->unmap_mem (dev->data, cmd->unmap.mem_id, mem,
@@ -1710,6 +1710,7 @@ pocl_init_default_device_infos (cl_device_id dev,
 #ifdef ENABLE_LLVM
 
   dev->llvm_target_triplet = OCL_KERNEL_TARGET;
+  dev->kernellib_fallback_name = NULL;
 
   char kernellib[POCL_MAX_PATHNAME_LENGTH] = "kernel-";
   char kernellib_fallback[POCL_MAX_PATHNAME_LENGTH];
@@ -1730,9 +1731,9 @@ pocl_init_default_device_infos (cl_device_id dev,
   strcpy(kernellib_fallback, kernellib);
   strcat(kernellib_fallback, OCL_KERNEL_TARGET_CPU);
   strcat(kernellib, dev->llvm_cpu);
+  dev->kernellib_fallback_name = strdup(kernellib_fallback);
 #endif
   dev->kernellib_name = strdup(kernellib);
-  dev->kernellib_fallback_name = strdup(kernellib_fallback);
   dev->kernellib_subdir = "host";
   dev->llvm_abi = pocl_get_llvm_cpu_abi ();
 

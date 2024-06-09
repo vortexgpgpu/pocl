@@ -160,6 +160,7 @@ void pocl_level0_init_device_ops(struct pocl_device_ops *Ops) {
 
   Ops->get_device_info_ext = pocl_level0_get_device_info_ext;
   Ops->set_kernel_exec_info_ext = pocl_level0_set_kernel_exec_info_ext;
+  Ops->get_synchronized_timestamps = pocl_driver_get_synchronized_timestamps;
 }
 
 
@@ -315,6 +316,8 @@ static int runAndAppendOutputToBuildLog(cl_program Program, unsigned DeviceI,
   return Errcode;
 }
 
+// disabled for now, need to solve the problem of linking different version
+#if 0
 static int linkWithSpirvLink(cl_program Program, cl_uint DeviceI,
                              char ProgramSpvPathTemp[POCL_MAX_PATHNAME_LENGTH],
                              std::vector<std::string> &SpvBinaryPaths,
@@ -344,6 +347,7 @@ static int linkWithSpirvLink(cl_program Program, cl_uint DeviceI,
                        CL_LINK_PROGRAM_FAILURE, "spirv-link failed\n");
   return CL_SUCCESS;
 }
+#endif
 
 static int linkWithLLVMLink(cl_program Program, cl_uint DeviceI,
                             char ProgramBcPathTemp[POCL_MAX_PATHNAME_LENGTH],
@@ -1216,7 +1220,8 @@ int pocl_level0_alloc_mem_obj(cl_device_id ClDevice, cl_mem Mem, void *HostPtr) 
     assert(Mem->image_channel_order != 0);
     ze_image_handle_t Image = Device->allocImage(
         Mem->image_channel_data_type, Mem->image_channel_order, Mem->type,
-        Mem->flags, Mem->image_width, Mem->image_height, Mem->image_depth);
+        Mem->flags, Mem->image_width, Mem->image_height, Mem->image_depth,
+        Mem->image_array_size);
     if (Image == nullptr) {
       if (Allocation != nullptr) {
         Device->freeMem(Allocation);
@@ -1524,9 +1529,11 @@ cl_int pocl_level0_set_kernel_exec_info_ext(
       return CL_INVALID_ARG_VALUE;
     void **Elems = (void **)param_value;
     size_t AllocationSize;
+    void *RawPtr;
     // find the allocation sizes for the pointers. Needed for L0 API
     for (cl_uint i = 0; i < NumElem; ++i) {
       AllocationSize = 0;
+      RawPtr = nullptr;
       // TODO: DEVICE ptrs do not have vm_ptr set, the check will fail.
 
       if (param_name == CL_KERNEL_EXEC_INFO_DEVICE_PTRS_EXT) {
@@ -1535,14 +1542,15 @@ cl_int pocl_level0_set_kernel_exec_info_ext(
         POCL_RETURN_ERROR_ON((DevPtr == nullptr), CL_INVALID_VALUE,
                              "Invalid pointer given to the call\n");
         AllocationSize = DevPtr->size;
+        RawPtr = DevPtr->dev_ptr;
       } else {
-        int err = pocl_svm_check_pointer(Kernel->context, Elems[i], 1,
-                                         &AllocationSize);
+        int err = pocl_svm_check_get_pointer(Kernel->context, Elems[i], 1,
+                                             &AllocationSize, &RawPtr);
         POCL_RETURN_ERROR_ON((err != CL_SUCCESS), CL_INVALID_VALUE,
                              "Invalid pointer given to the call\n");
       }
       assert(AllocationSize > 0);
-      UsedPtrs[Elems[i]] = AllocationSize;
+      UsedPtrs[RawPtr] = AllocationSize;
     }
     L0Kernel->setAccessedPointers(UsedPtrs);
     return CL_SUCCESS;

@@ -306,6 +306,10 @@ POCL_EXPORT
 int pocl_svm_check_pointer (cl_context context, const void *svm_ptr,
                             size_t size, size_t *buffer_size);
 
+POCL_EXPORT
+int pocl_svm_check_get_pointer (cl_context context, const void *svm_ptr,
+                            size_t size, size_t *buffer_size, void **actual_ptr);
+
 /* returns !0 if binary is SPIR-V bitcode with OpCapability Kernel
  * OpenCL-style bitcode produced by e.g. llvm-spirv */
 POCL_EXPORT
@@ -341,6 +345,14 @@ void pocl_str_toupper (char *out, const char *in);
 
 POCL_EXPORT
 void pocl_str_tolower (char *out, const char *in);
+
+/* Concatenates 'num_str' strings from 'strs' array together into a
+ * new string.
+ *
+ * @return NULL if num_strs == 0 or allocation failed. Otherwise, return the
+ * result. */
+POCL_EXPORT
+char *pocl_strcatdup_v (size_t num_strs, const char **strs);
 
 /* Concatenates *dst and src strings into a new string and replaces
  * the dst with it.
@@ -471,7 +483,7 @@ while (0)
         (command_queue == NULL && command_buffer->num_queues > 1),            \
         CL_INVALID_COMMAND_QUEUE);                                            \
       int queue_in_buffer = 0;                                                \
-      for (int ii = 0; ii < command_buffer->num_queues; ++ii)                 \
+      for (unsigned ii = 0; ii < command_buffer->num_queues; ++ii)            \
         {                                                                     \
           queue_in_buffer |= (command_queue == command_buffer->queues[ii]);   \
         }                                                                     \

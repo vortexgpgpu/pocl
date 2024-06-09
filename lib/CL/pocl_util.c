@@ -961,8 +961,6 @@ FINISH_VER_SETUP:
       cmd_export->command.migrate.type = ENQUEUE_MIGRATE_TYPE_D2H;
       cmd_export->command.migrate.migration_size = migration_size;
 
-      pocl_command_enqueue (ex_cq, cmd_export);
-
       last_migration_event = ev_export;
 
       if (ev_export_p)
@@ -1012,8 +1010,6 @@ FINISH_VER_SETUP:
           cmd_import->command.migrate.migration_size = migration_size;
         }
 
-      pocl_command_enqueue (dev_cq, cmd_import);
-
       /* because explicit event */
       if (ev_export)
         POname (clReleaseEvent) (ev_export);
@@ -1043,6 +1039,22 @@ FINISH_VER_SETUP:
         POname (clReleaseEvent) (last_migration_event);
     }
   POCL_UNLOCK_OBJ (mem);
+
+  if (do_export) {
+    POCL_MSG_PRINT_MEMORY (
+      "Queuing a %zu-byte device-to-host migration for buf %zu%s\n",
+      migration_size, mem->id, mem->parent != NULL ? " (sub-buffer)" : "");
+
+    pocl_command_enqueue (ex_cq, cmd_export);
+  }
+
+  if (do_import) {
+    POCL_MSG_PRINT_MEMORY (
+      "Queuing a %zu-byte host-to-device migration for buf %zu%s\n",
+      migration_size, mem->id, mem->parent != NULL ? " (sub-buffer)" : "");
+
+    pocl_command_enqueue (dev_cq, cmd_import);
+  }
 
   return CL_SUCCESS;
 }
@@ -2443,6 +2455,7 @@ pocl_update_event_finished (cl_int status, const char *func, unsigned line,
   assert (event != NULL);
   assert (event->queue != NULL);
   assert (event->status > CL_COMPLETE);
+  int notify_cmdq = CL_FALSE;
 
   cl_command_queue cq = event->queue;
   POCL_LOCK_OBJ (cq);
@@ -2470,6 +2483,10 @@ pocl_update_event_finished (cl_int status, const char *func, unsigned line,
   if (cq->last_event.event == event)
     cq->last_event.event = NULL;
   DL_DELETE (cq->events, event);
+
+  if (ops->notify_cmdq_finished && (cq->command_count == 0) && cq->notification_waiting_threads) {
+    notify_cmdq = CL_TRUE;
+  }
 
   POCL_UNLOCK_OBJ (cq);
   /* note that we must unlock the CmqQ before calling pocl_event_updated,
@@ -2526,16 +2543,17 @@ pocl_update_event_finished (cl_int status, const char *func, unsigned line,
   pocl_free_event_node (event);
   pocl_free_event_memobjs (event);
 
-  POCL_LOCK_OBJ (cq);
-  if (ops->notify_cmdq_finished && (cq->command_count == 0))
-    ops->notify_cmdq_finished (cq);
-  POCL_UNLOCK_OBJ (cq);
   POCL_LOCK_OBJ (event);
   if (ops->notify_event_finished)
     ops->notify_event_finished (event);
   POCL_UNLOCK_OBJ (event);
-
   POname (clReleaseEvent) (event);
+
+  if (notify_cmdq) {
+    POCL_LOCK_OBJ (cq);
+    ops->notify_cmdq_finished (cq);
+    POCL_UNLOCK_OBJ (cq);
+  }
 }
 
 
@@ -2843,6 +2861,35 @@ pocl_str_toupper(char *out, const char *in)
   out[i] = '\0';
 }
 
+char *
+pocl_strcatdup_v (size_t num_strs, const char **strs)
+{
+  assert (strs || !num_strs && "strs is NULL while num_strs > 0!");
+  switch (num_strs)
+    {
+    default:
+      break;
+    case 0:
+      return NULL;
+    case 1:
+      return strdup (strs[0]);
+    }
+
+  size_t new_size = 1; /* Place for NULL. */
+  for (size_t i = 0; i < num_strs; i++)
+    {
+      assert (strs[i]);
+      new_size += strlen (strs[i]);
+    }
+
+  char *new_str = calloc (new_size, 1);
+  if (new_str == NULL)
+    return NULL;
+  for (size_t i = 0; i < num_strs; i++)
+    strcat (new_str, strs[i]);
+  return new_str;
+}
+
 void
 pocl_str_tolower(char *out, const char *in)
 {
@@ -2985,8 +3032,8 @@ pocl_free_kernel_metadata (cl_program program, unsigned kernel_i)
 }
 
 int
-pocl_svm_check_pointer (cl_context context, const void *svm_ptr, size_t size,
-                        size_t *buffer_size)
+pocl_svm_check_get_pointer (cl_context context, const void *svm_ptr, size_t size,
+                            size_t *buffer_size, void** actual_ptr)
 {
 
   /* TODO we need a better data structure than linked list,
@@ -3010,24 +3057,35 @@ pocl_svm_check_pointer (cl_context context, const void *svm_ptr, size_t size,
 
   /* if the device does not support system allocation,
    * then the pointer must be found in the context's SVM alloc list */
-  if (found == NULL
-      && (context->svm_allocdev->svm_caps & (CL_DEVICE_SVM_FINE_GRAIN_SYSTEM))
-             == 0)
+  if (found == NULL) {
+    if (context->svm_allocdev->svm_caps & CL_DEVICE_SVM_FINE_GRAIN_SYSTEM)
     {
+      return CL_SUCCESS;
+    } else {
       POCL_MSG_ERR (
           "Can't find the pointer %p in list of allocated SVM pointers\n",
             svm_ptr);
       return CL_INVALID_OPERATION;
     }
-
-  if (found != NULL && (((char *)svm_ptr + size) > svm_alloc_end))
+  } else {
+    assert (found != NULL);
+    if (((char *)svm_ptr + size) > svm_alloc_end)
     {
       POCL_MSG_ERR ("The pointer+size exceeds the size of the allocation\n");
       return CL_INVALID_OPERATION;
     }
 
-  if (found != NULL && buffer_size != NULL)
-    *buffer_size = item->size;
+    if (buffer_size != NULL)
+      *buffer_size = found->size;
 
-  return CL_SUCCESS;
+    if (actual_ptr != NULL)
+      *actual_ptr = found->vm_ptr;
+    return CL_SUCCESS;
+  }
+}
+
+int pocl_svm_check_pointer (cl_context context, const void *svm_ptr,
+                            size_t size, size_t *buffer_size)
+{
+  return pocl_svm_check_get_pointer(context, svm_ptr, size, buffer_size, NULL);
 }

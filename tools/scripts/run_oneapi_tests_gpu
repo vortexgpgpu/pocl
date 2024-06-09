@@ -1,0 +1,42 @@
+#!/bin/bash
+# run_sycl_tests_cpu - Runs OneAPI/SYCL tests with GPU device
+#
+# Copyright (c) 2024 Michal Babej / Intel Finland Oy
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+set -e
+
+export POCL_BUILDING=1
+export POCL_DEVICES=level0
+# let PoCL pretend to be NEO (Intel Compute Runtime)
+export POCL_DRIVER_VERSION_OVERRIDE=23.35.27191.9
+
+export ONEAPI_DEVICE_SELECTOR=opencl:gpu
+
+# set by oneAPI setvars
+unset OCL_ICD_FILENAMES
+
+# set in CTestCustom.cmake
+unset OCL_ICD_VENDORS
+
+# check that OCL-ICD still loads PoCL
+ctest --output-on-failure -R pocl_version_check || exit 1
+
+ctest -L "dpcpp-book-samples|oneapi-samples|simple-sycl-samples|intel-compute-samples" $@

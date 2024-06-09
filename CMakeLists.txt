@@ -105,7 +105,7 @@ if(UNIX)
 endif()
 
 set(MAJOR_VERSION 6)
-set(MINOR_VERSION 0)
+set(MINOR_VERSION 1)
 set(VERSION_SUFFIX_FIXED_TEXT "-pre")
 set(VERSION_SUFFIX "${VERSION_SUFFIX_FIXED_TEXT}")
 set(VERSION_STRING ${MAJOR_VERSION}.${MINOR_VERSION}${VERSION_SUFFIX})
@@ -572,11 +572,6 @@ endif()
 ######################################################################################
 
 if(ENABLE_LLVM)
-
-  # minimum LLVM version at which to enable new PM
-  if(NOT DEFINED MIN_LLVM_NEW_PASSMANAGER)
-    set(MIN_LLVM_NEW_PASSMANAGER 14)
-  endif()
 
   include(LLVM RESULT_VARIABLE RES)
   if(NOT RES)
@@ -1269,21 +1264,6 @@ file(WRITE "${CMAKE_BINARY_DIR}/pocl_build_timestamp.h" "#define POCL_BUILD_TIME
 set(DEFAULT_HOST_CLANG_FLAGS "${CLANG_TARGET_OPTION}${LLC_TRIPLE}")
 set(DEFAULT_HOST_LLC_FLAGS "-relocation-model=pic -mtriple=${LLC_TRIPLE}")
 
-if(ARM32 OR (LLC_TRIPLE MATCHES "^arm"))
-  if(LLC_TRIPLE MATCHES "gnueabihf")
-    # hardfloat
-    set(DEFAULT_HOST_LLC_FLAGS "${DEFAULT_HOST_LLC_FLAGS} -float-abi=hard")
-    set(DEFAULT_HOST_CLANG_FLAGS "${DEFAULT_HOST_CLANG_FLAGS} -mfloat-abi=hard")
-    set(DEFAULT_HOST_AS_FLAGS "${DEFAULT_HOST_AS_FLAGS} -mfloat-abi=hard")
-  else()
-    # softfloat
-    set(HOST_FLOAT_SOFT_ABI 1)
-    set(DEFAULT_HOST_LLC_FLAGS "${DEFAULT_HOST_LLC_FLAGS} -float-abi=soft")
-    set(DEFAULT_HOST_CLANG_FLAGS "${DEFAULT_HOST_CLANG_FLAGS} -mfloat-abi=soft")
-    set(DEFAULT_HOST_AS_FLAGS "${DEFAULT_HOST_AS_FLAGS} -mfloat-abi=soft")
-  endif()
-endif()
-
 # Option for users to define Clang's --target-abi argument.
 # Not required on most platforms, but can be useful on RISC-V
 if(NOT DEFINED HOST_CPU_TARGET_ABI)
@@ -1764,9 +1744,6 @@ if (ENABLE_LEVEL0)
   if(NOT LLVM_SPIRV)
     message(FATAL_ERROR "Level Zero requires llvm-spirv translator")
   endif()
-  if(NOT SPIRV_LINK)
-    message(FATAL_ERROR "Level Zero requires spirv-link from SPIR-V tools")
-  endif()
   if(NOT STATIC_LLVM)
     message(WARNING "Level Zero might run into symbol conflicts when using dynamic LLVM libraries, consider using -DSTATIC_LLVM=ON")
   endif()
@@ -1989,10 +1966,11 @@ endif()
 # 13:0:11 == 4.0 (the libpocl.so will be named libpocl.so.2.11.X )
 # 14:0:12 == 5.0 (the libpocl.so will be named libpocl.so.2.12.X )
 # 15:0:13 == 6.0 (the libpocl.so will be named libpocl.so.2.13.X )
+# 16:0:14 == 6.1 (the libpocl.so will be named libpocl.so.2.14.X )
 
-set(LIB_CURRENT_VERSION 15)
+set(LIB_CURRENT_VERSION 16)
 set(LIB_REVISION_VERSION 0)
-set(LIB_AGE_VERSION 13)
+set(LIB_AGE_VERSION 14)
 
 math(EXPR LIB_FIRST_VERSION "${LIB_CURRENT_VERSION} - ${LIB_AGE_VERSION}")
 
@@ -2079,29 +2057,6 @@ if(ENABLE_ICD)
   set(CPACK_DEBIAN_ICD_PACKAGE_RECOMMENDS "poclcc")
 endif()
 
-if(ENABLE_ASAN OR ENABLE_LSAN)
-  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/lsan.supp" CONTENT "leak:${LLVM_SRC_ROOT}/lib/Support/Unix/Signals.inc")
-  set(SAN_EXTRA "set(ENV{LSAN_OPTIONS} \"suppressions=${CMAKE_BINARY_DIR}/lsan.supp\")")
-endif()
-
-# pointing OCL_ICD_VENDORS to pocl doesn't make sense with the proxy driver;
-# we want the driver to proxy to another OpenCL, so
-# we must let ocl-icd load it
-if(ENABLE_PROXY_DEVICE)
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/CTestCustom.cmake" CONTENT "
-  ${SAN_EXTRA}
-  set(ENV{POCL_ENABLE_UNINIT} \"1\")
-  set(ENV{POCL_BUILDING} \"1\")
-")
-else()
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/CTestCustom.cmake" CONTENT "
-  ${SAN_EXTRA}
-  set(ENV{POCL_ENABLE_UNINIT} \"1\")
-  set(ENV{POCL_BUILDING} \"1\")
-  set(ENV{OCL_ICD_VENDORS} \"${CMAKE_BINARY_DIR}/ocl-vendors\")
-")
-endif()
-
 ##########################################################
 
 if(UNIX)
@@ -2127,6 +2082,49 @@ add_subdirectory("poclu")
 # these are set in lib/cmakelists.txt
 message(STATUS "OPENCL_LIBS: ${OPENCL_LIBS}")
 message(STATUS "OPENCL_CFLAGS: ${OPENCL_CFLAGS}")
+message(STATUS "OPENCL_LIBDIR: ${OPENCL_LIBDIR}")
+message(STATUS "OPENCL_LIBNAME: ${OPENCL_LIBNAME}")
+
+##########################################################
+## generate CTestCustom.cmake
+
+if(ENABLE_ASAN OR ENABLE_LSAN)
+  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/lsan.supp" CONTENT "leak:${LLVM_SRC_ROOT}/lib/Support/Unix/Signals.inc")
+  set(SAN_EXTRA "set(ENV{LSAN_OPTIONS} \"suppressions=${CMAKE_BINARY_DIR}/lsan.supp\")")
+endif()
+
+# We need to use the oneAPI environment's LD_LIBRARY_PATH (need to source
+# the setvars.sh before testing), but still ensure we use the system's libOpenCL.so
+# (ideally ocl-icd) to pick up libpocl. This is ensured by prepending Opencl LIBDIR
+# before all paths in LD_LIBRARY_PATH. Otherwise libOpenCL.so will be found in /opt/intel/oneapi
+# which is not ocl-icd).
+if(SYCL_LIBDIR)
+  set(SYCL_EXTRA "set(ENV{LD_LIBRARY_PATH} \"${OPENCL_LIBDIR}:${SYCL_LIBDIR}:$ENV{LD_LIBRARY_PATH}\")")
+endif()
+
+# pointing OCL_ICD_VENDORS to pocl doesn't make sense with the proxy driver;
+# we want the driver to proxy to another OpenCL, so
+# we must let ocl-icd load it
+if(ENABLE_PROXY_DEVICE)
+
+  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/CTestCustom.cmake" CONTENT "
+  ${SAN_EXTRA}
+  set(ENV{POCL_ENABLE_UNINIT} \"1\")
+  set(ENV{POCL_BUILDING} \"1\")
+  ${SYCL_EXTRA}
+  ")
+else()
+
+  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/CTestCustom.cmake" CONTENT "
+  ${SAN_EXTRA}
+  set(ENV{POCL_ENABLE_UNINIT} \"1\")
+  set(ENV{POCL_BUILDING} \"1\")
+  set(ENV{OCL_ICD_VENDORS} \"${CMAKE_BINARY_DIR}/ocl-vendors/\")
+  ${SYCL_EXTRA}
+  ")
+endif()
+
+##########################################################
 
 # for tests / examples
 set(POCLU_LINK_OPTIONS poclu ${OPENCL_LIBS} ${LIBMATH})
@@ -2137,7 +2135,6 @@ if(ENABLE_POCLCC)
     add_subdirectory("bin")
 endif()
 
-
 include(add_test_pocl)
 
 if(ENABLE_TESTS)
@@ -2146,6 +2143,10 @@ if(ENABLE_TESTS)
     # make check & make check_tier1
     add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} "--output-on-failure" -j ${HOST_CPU_CORECOUNT} ${COMMAND_USES_TERMINAL})
     add_custom_target(check_tier1 COMMAND ${CMAKE_CTEST_COMMAND} "--output-on-failure" -L "'internal|piglit|PyOpenCL|conformance_suite_micro|shoc|chipStar'" -j ${HOST_CPU_CORECOUNT} ${COMMAND_USES_TERMINAL})
+
+    add_custom_target(check-cuda COMMAND
+      "${CMAKE_SOURCE_DIR}/tools/scripts/run_cuda_tests"
+      "--output-on-failure" -j ${HOST_CPU_CORECOUNT} ${COMMAND_USES_TERMINAL})
 endif()
 
 if(ENABLE_EXAMPLES)

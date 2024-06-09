@@ -52,8 +52,8 @@ typedef struct
 using BatchType = std::deque<cl_event>;
 /// limit the Batch size to this number of commands
 constexpr unsigned BatchSizeLimit = 128;
-/// the number of events allocatable per single batch
-constexpr unsigned EventPoolSize = 16384;
+/// the number of events allocated for each Event Pool
+constexpr unsigned EventPoolSize = 2048;
 
 class Level0WorkQueueInterface {
 
@@ -70,8 +70,8 @@ class Level0Queue {
 
 public:
   Level0Queue(Level0WorkQueueInterface *WH, ze_command_queue_handle_t Q,
-              ze_command_list_handle_t L, ze_event_pool_handle_t E,
-              uint32_t EvPoolSize, Level0Device *D);
+              ze_command_list_handle_t L,
+              Level0Device *D);
   ~Level0Queue();
 
   Level0Queue(Level0Queue const &) = delete;
@@ -82,19 +82,18 @@ public:
   void runThread();
 
 private:
-  ze_command_queue_handle_t QueueH;
-  ze_command_list_handle_t CmdListH;
-  ze_event_pool_handle_t EvtPoolH;
   std::queue<ze_event_handle_t> AvailableDeviceEvents;
   std::queue<ze_event_handle_t> DeviceEventsToReset;
+  std::map<void *, size_t> MemPtrsToMakeResident;
+  std::map<std::pair<char*, char*>, size_t> UseMemHostPtrsToSync;
+
+  ze_command_queue_handle_t QueueH;
+  ze_command_list_handle_t CmdListH;
 
   ze_event_handle_t CurrentEventH;
   ze_event_handle_t PreviousEventH;
 
   Level0Device *Device;
-  uint64_t *EventStart = nullptr;
-  uint64_t *EventFinish = nullptr;
-
   std::thread Thread;
   Level0WorkQueueInterface *WorkHandler;
 
@@ -199,6 +198,10 @@ private:
   void appendEventToList(_cl_command_node *Cmd, const char **Msg);
   void execCommand(_cl_command_node *Cmd);
   void execCommandBatch(BatchType &Batch);
+  void reset();
+  void closeCmdList();
+  void makeMemResident();
+  void syncMemHostPtrs();
   void allocNextFreeEvent();
 
   void syncUseMemHostPtr(pocl_mem_identifier *MemId, cl_mem Mem,
@@ -220,6 +223,7 @@ public:
   Level0QueueGroup& operator=(Level0QueueGroup &&) = delete;
 
   bool init(unsigned Ordinal, unsigned Count, Level0Device *Device);
+  void uninit();
 
   void pushWork(_cl_command_node *Command) override;
   void pushCommandBatch(BatchType Batch) override;
@@ -241,6 +245,20 @@ private:
 };
 
 class Level0Driver;
+class Level0Device;
+
+class Level0EventPool {
+public:
+  Level0EventPool(Level0Device *D, unsigned EvtPoolSize);
+  ~Level0EventPool();
+  bool isEmpty() const { return LastIdx >= AvailableEvents.size(); }
+  ze_event_handle_t getEvent();
+private:
+  std::vector<ze_event_handle_t> AvailableEvents;
+  ze_event_pool_handle_t EvtPoolH;
+  Level0Device *Dev;
+  unsigned LastIdx;
+};
 
 class Level0Device {
 
@@ -273,7 +291,7 @@ public:
                                cl_channel_order ChOrder,
                                cl_mem_object_type ImgType,
                                cl_mem_flags ImgFlags, size_t Width,
-                               size_t Height, size_t Depth);
+                               size_t Height, size_t Depth, size_t ArraySize);
   static void freeImage(ze_image_handle_t ImageH);
 
   ze_sampler_handle_t allocSampler(cl_addressing_mode AddrMode,
@@ -307,6 +325,7 @@ public:
   cl_device_id getMemAssoc(const void *USMPtr);
   cl_mem_alloc_flags_intel getMemFlags(const void *USMPtr);
 
+  ze_event_handle_t getNewEvent();
   ze_device_handle_t getDeviceHandle() { return DeviceHandle; }
   ze_context_handle_t getContextHandle() { return ContextHandle; }
   void getTimingInfo(uint32_t &TS, uint32_t &KernelTS, double &TimerFreq,
@@ -324,6 +343,8 @@ public:
   bool supportsUniversalQueues() { return UniversalQueues.available(); }
 
 private:
+  std::deque<Level0EventPool> EventPools;
+  std::mutex EventPoolLock;
   Level0QueueGroup CopyQueues;
   Level0QueueGroup ComputeQueues;
   Level0QueueGroup UniversalQueues;

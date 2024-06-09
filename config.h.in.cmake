@@ -23,6 +23,8 @@
 
 #define CMAKE_BUILD_TYPE "@CMAKE_BUILD_TYPE@"
 
+#cmakedefine DEVELOPER_MODE
+
 #cmakedefine HAVE_CLSPV
 #define CLSPV "@CLSPV@"
 #define CLSPV_REFLECTION "@CLSPV_REFLECTION@"
@@ -143,8 +145,6 @@
 
 #define HOST_LLC_FLAGS  "@HOST_LLC_FLAGS@"
 
-#cmakedefine HOST_FLOAT_SOFT_ABI
-
 #define HOST_DEVICE_LATEST_CTS_PASS "v2022-04-19-01"
 
 #define HOST_CPU_TARGET_ABI "@HOST_CPU_TARGET_ABI@"
@@ -183,8 +183,6 @@
 
 #define LLVM_SPIRV "@LLVM_SPIRV@"
 
-#define SPIRV_LINK "@SPIRV_LINK@"
-
 #endif
 
 
@@ -220,9 +218,6 @@
 #define LLVM_LINK "@LLVM_LINK@"
 
 #cmakedefine LLVM_MAJOR @LLVM_VERSION_MAJOR@
-
-/* minimum LLVM version at which to enable new PM */
-#define MIN_LLVM_NEW_PASSMANAGER @MIN_LLVM_NEW_PASSMANAGER@
 
 #cmakedefine LLVM_BUILD_MODE_DEBUG
 

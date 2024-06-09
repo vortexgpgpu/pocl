@@ -79,7 +79,7 @@ bool Level0Kernel::createForBuild(BuildSpecialization Spec,
   //  POCL_MSG_WARN("Using kernel name: %s, MODULE: %p\n", Name.c_str(), Mod);
   ze_result_t Res = zeKernelCreate(hModule, &KernelDesc, &hKernel);
   if (Res != ZE_RESULT_SUCCESS) {
-    POCL_MSG_ERR("Failed to create ZE kernel: %u\n", (unsigned)Res);
+    POCL_MSG_ERR("Failed to create ZE kernel: %x\n", (unsigned)Res);
     return false;
   }
 
@@ -655,7 +655,7 @@ static bool compileSPIRVtoNativeZE(Level0Program *Program,
 
   pocl_mkdir_p(ProgNativeDir.c_str());
   pocl_write_file(ProgCachePath.c_str(), (char *)NativeBinary.data(),
-                  (uint64_t)NativeSize, 0, 1);
+                  (uint64_t)NativeSize, 0);
   Res = true;
 
 FINISH:

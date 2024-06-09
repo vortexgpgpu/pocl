@@ -105,15 +105,14 @@ void writeModuleIRtoString(const llvm::Module *mod, std::string& dest) {
   sos.str(); // flush
 }
 
-int pocl_write_module(void *module, const char *path, int dont_rewrite) {
+int pocl_write_module(void *module, const char *path) {
   assert(module);
   assert(path);
 
   std::string binary;
   writeModuleIRtoString((const Module *)module, binary);
 
-  return pocl_write_file(path, binary.data(), (uint64_t)binary.size(), 0,
-                         dont_rewrite);
+  return pocl_write_file(path, binary.data(), (uint64_t)binary.size(), 0);
 }
 
 llvm::Module *parseModuleIRMem(const char *input_stream, size_t size,
@@ -123,8 +122,11 @@ llvm::Module *parseModuleIRMem(const char *input_stream, size_t size,
       MemoryBuffer::getMemBufferCopy(input_stream_ref);
 
   auto parsed_module = parseBitcodeFile(buffer->getMemBufferRef(), *c);
-  if (!parsed_module)
+  if (auto error = parsed_module.takeError()) {
+    POCL_MSG_ERR("parseBitcodeFile failed:\n%s\n",
+                 toString(std::move(error)).c_str());
     return nullptr;
+  }
   return parsed_module.get().release();
 }
 
@@ -254,7 +256,7 @@ const struct kernellib_features {
 const char *pocl_get_distro_kernellib_variant() {
   StringMap<bool> Features;
 
-#if defined(__x86_64__)
+#if defined(__i386__) || defined(__x86_64__)
   if (!llvm::sys::getHostCPUFeatures(Features)) {
     POCL_MSG_WARN("LLVM can't get host CPU flags!\n");
     return NULL;
@@ -292,7 +294,7 @@ const char *pocl_get_distro_kernellib_variant() {
 const char *pocl_get_distro_cpu_name(const char *kernellib_variant) {
   StringMap<bool> Features;
 
-#if defined(__x86_64__)
+#if defined(__i386__) || defined(__x86_64__)
   if (!llvm::sys::getHostCPUFeatures(Features)) {
     POCL_MSG_WARN("LLVM can't get host CPU flags!\n");
     return NULL;

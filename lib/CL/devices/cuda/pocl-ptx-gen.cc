@@ -1,6 +1,7 @@
 /* pocl-ptx-gen.cc - PTX code generation functions
 
     Copyright (c) 2016-2017 James Price / University of Bristol
+                  2024 Henry Linjamäki / Intel Finland Oy
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to
@@ -97,7 +98,7 @@ static bool verifyModule(llvm::Module *Module, const char *step) {
 }
 
 int pocl_ptx_gen(void *llvm_module, const char *PTXFilename, const char *Arch,
-                 const char *LibDevicePath, int HasOffsets,
+                 unsigned PtxVersion, const char *LibDevicePath, int HasOffsets,
                  void **AlignmentMapPtr) {
 
   llvm::Module *Module = (llvm::Module *)llvm_module;
@@ -169,13 +170,13 @@ int pocl_ptx_gen(void *llvm_module, const char *PTXFilename, const char *Arch,
   // TODO: Set options?
   llvm::TargetOptions Options;
 
-  // TODO: CPU and features?
+  auto Features = std::string("+ptx") + std::to_string(PtxVersion);
 #ifdef LLVM_OLDER_THAN_16_0
   std::unique_ptr<llvm::TargetMachine> Machine(
-      Target->createTargetMachine(Triple, Arch, "+ptx40", Options, llvm::None));
+      Target->createTargetMachine(Triple, Arch, Features, Options, llvm::None));
 #else
-  std::unique_ptr<llvm::TargetMachine> Machine(
-      Target->createTargetMachine(Triple, Arch, "+ptx40", Options, std::nullopt));
+  std::unique_ptr<llvm::TargetMachine> Machine(Target->createTargetMachine(
+      Triple, Arch, Features, Options, std::nullopt));
 #endif
   llvm::legacy::PassManager Passes;
 
@@ -202,7 +203,7 @@ int pocl_ptx_gen(void *llvm_module, const char *PTXFilename, const char *Arch,
   const char *Content = PTX.data();
   size_t ContentSize = PTX.size();
 
-  if (pocl_write_file(PTXFilename, Content, ContentSize, 0, 0)) {
+  if (pocl_write_file(PTXFilename, Content, ContentSize, 0)) {
     POCL_MSG_ERR("[CUDA] ptx-gen: failed to write final PTX into %s\n",
                  PTXFilename);
     return CL_BUILD_PROGRAM_FAILURE;
@@ -638,8 +639,9 @@ int linkLibDevice(llvm::Module *Module, const char *LibDevicePath) {
   // Load libdevice bitcode library.
   llvm::Expected<std::unique_ptr<llvm::Module>> LibDeviceModule =
       parseBitcodeFile(Buffer->get()->getMemBufferRef(), Module->getContext());
-  if (!LibDeviceModule) {
-    POCL_MSG_ERR("[CUDA] failed to load libdevice bitcode\n");
+  if (auto Error = LibDeviceModule.takeError()) {
+    POCL_MSG_ERR("[CUDA] failed to load libdevice bitcode:\n%s\n",
+                 toString(std::move(Error)).c_str());
     return -1;
   }
 
