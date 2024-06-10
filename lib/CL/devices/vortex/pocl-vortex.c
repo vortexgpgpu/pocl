@@ -70,6 +70,10 @@ static cl_bool vortex_available = CL_TRUE;
 
 static const char *vortex_native_device_aux_funcs[] = {NULL};
 
+char* pocl_vortex_init_build(void *data) {
+    return strdup("-target-feature +m -target-feature +a -target-feature +f -target-feature +d");
+}
+
 void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
 
   ops->device_name = "vortex";
@@ -95,6 +99,7 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
   ops->supports_binary = pocl_driver_supports_binary;
   ops->build_poclbinary = pocl_driver_build_poclbinary;
   ops->build_builtin = pocl_driver_build_opencl_builtins;
+  ops->init_build = pocl_vortex_init_build;
 
   ops->post_build_program = pocl_vortex_post_build_program;
   ops->free_program = pocl_vortex_free_program;
@@ -175,6 +180,7 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   dev->address_bits = VORTEX_XLEN;
   dev->llvm_target_triplet = is64bit ? "riscv64-unknown-unknown" : "riscv32-unknown-unknown";
   dev->llvm_abi = is64bit ? "lp64d" : "ilp32f";
+  dev->llvm_cpu = is64bit ? "generic-rv64" : "generic-rv32";
   dev->kernellib_name = is64bit ? "kernel-riscv64" : "kernel-riscv32";
   dev->kernellib_fallback_name = NULL;
   dev->kernellib_subdir = "vortex";
@@ -214,9 +220,31 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
     return CL_DEVICE_NOT_FOUND;
   }
 
+  uint64_t num_warps;
+  vx_err = vx_dev_caps(vx_device, VX_CAPS_NUM_WARPS, &num_warps);
+  if (vx_err != 0) {
+    vx_dev_close(vx_device);
+    free(dd);
+    return CL_DEVICE_NOT_FOUND;
+  }
+
+  uint64_t num_threads;
+  vx_err = vx_dev_caps(vx_device, VX_CAPS_NUM_THREADS, &num_threads);
+  if (vx_err != 0) {
+    vx_dev_close(vx_device);
+    free(dd);
+    return CL_DEVICE_NOT_FOUND;
+  }
+
+  uint64_t max_work_group_size = num_warps * num_threads;
+
   dev->global_mem_size = global_mem_size;
   dev->max_mem_alloc_size = global_mem_size;
   dev->local_mem_size = local_mem_size;
+  dev->max_work_group_size    = max_work_group_size;
+  dev->max_work_item_sizes[0] = max_work_group_size;
+  dev->max_work_item_sizes[1] = max_work_group_size;
+  dev->max_work_item_sizes[2] = max_work_group_size;
   dev->max_compute_units = num_cores;
 
   dd->vx_kernel_buffer = NULL;
@@ -345,7 +373,7 @@ int pocl_vortex_create_kernel (cl_device_id device, cl_program program,
     const char* current = pdata->kernel_names;
     int i = 0;
     int found = 0;
-    for (int i = 0; i < pdata->num_kernels; ++i) {
+    for (; i < pdata->num_kernels; ++i) {
       if (strcmp(current, kernel->name) == 0) {
         found = 1;
         break;
@@ -439,7 +467,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   }
 
   // check occupancy
-  if (local_mem_size != 0) {
+  if (group_size != 1) {
     int available_localmem;
     vx_err = vx_check_occupancy(dd->vx_device, group_size, &available_localmem);
     if (vx_err != 0) {

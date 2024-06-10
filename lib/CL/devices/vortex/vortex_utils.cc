@@ -101,10 +101,10 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
 
   auto I32Ty = llvm::Type::getInt32Ty(Context);
   auto I8Ty = llvm::Type::getInt8Ty(Context);
+  auto I8PtrTy = I8Ty->getPointerTo();
 
   // Create new function signature
-  auto ArgBufferType = llvm::PointerType::get(llvm::Type::getInt8Ty(Context), 0);
-  auto NewFuncType = llvm::FunctionType::get(function->getReturnType(), {ArgBufferType}, false);
+  auto NewFuncType = llvm::FunctionType::get(function->getReturnType(), {I8PtrTy}, false);
   auto NewFunc = llvm::Function::Create(NewFuncType, function->getLinkage(), function->getName() + "_vortex");
   module->getFunctionList().insert(function->getIterator(), NewFunc);
   NewFunc->takeName(function);
@@ -116,12 +116,13 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
   auto ai = NewFunc->arg_begin();
   auto ArgBuffer = &*ai++;
   ArgBuffer->setName("ArgBuffer");
-  auto I8PtrTy = I8Ty->getPointerTo();
 
   unsigned arg_idx = 0;
   unsigned arg_offset = 0;
 
   llvm::Value* allocated_local_mem = nullptr;
+
+  auto MDS = llvm::MDNode::get(Context, llvm::MDString::get(Context, "vortex.uniform"));
 
   for (auto& OldArg : function->args()) {
     auto ArgType = OldArg.getType();
@@ -149,6 +150,10 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
       Arg = Builder.CreateLoad(ArgType, offset_ptr, OldArg.getName() + "_loaded");
       arg_offset += DL.getTypeAllocSize(ArgType);
     }
+    auto instr = llvm::cast<llvm::Instruction>(Arg);
+    assert(instr != nullptr);
+    instr->setMetadata("vortex.uniform", MDS);
+
     OldArg.replaceAllUsesWith(Arg);
     arg_idx += 1;
   }
@@ -186,9 +191,9 @@ static void addKernelSelect(llvm::SmallVector<std::string, 8>& funcNames, llvm::
   auto& Context = module->getContext();
 
   auto I32Ty = llvm::Type::getInt32Ty(Context);
-  auto VoidTy = llvm::Type::getVoidTy(Context);
-  auto VoidPtrTy = llvm::PointerType::getUnqual(VoidTy);
-  auto GetKernelCallbackTy = llvm::FunctionType::get(VoidPtrTy, {I32Ty}, false);
+  auto I8Ty = llvm::Type::getInt8Ty(Context);
+  auto I8PtrTy = I8Ty->getPointerTo();
+  auto GetKernelCallbackTy = llvm::FunctionType::get(I8PtrTy, {I32Ty}, false);
 
   auto GetKernelCallbackFunc = llvm::Function::Create(
     GetKernelCallbackTy, llvm::Function::ExternalLinkage, "__vx_get_kernel_callback", module);
