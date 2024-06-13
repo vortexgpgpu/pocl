@@ -1,14 +1,22 @@
 #include <vx_spawn.h>
 
+#if __riscv_xlen == 64
+    typedef uint64_t SizeT;
+#elif __riscv_xlen == 32
+    typedef uint32_t SizeT;
+#else
+    #error "Unsupported RISC-V XLEN"
+#endif
+
 extern int g_work_dim;
 extern dim3_t g_global_offset;
 
-uint32_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+uint32_t _CL_OVERLOADABLE
 get_work_dim (void) {
   return g_work_dim;
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_num_groups(uint32_t dimindx) {
   switch (dimindx) {
   default: return gridDim.x;
@@ -17,7 +25,7 @@ get_num_groups(uint32_t dimindx) {
   }
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_local_size(uint32_t dimindx) {
   switch (dimindx) {
   default: return blockDim.x;
@@ -26,7 +34,7 @@ get_local_size(uint32_t dimindx) {
   }
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_global_offset(uint32_t dimindx) {
   switch (dimindx) {
   default: return g_global_offset.x;
@@ -35,7 +43,7 @@ get_global_offset(uint32_t dimindx) {
   }
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_group_id(uint32_t dimindx) {
   switch (dimindx) {
   default: return blockIdx.x;
@@ -44,7 +52,7 @@ get_group_id(uint32_t dimindx) {
   }
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_local_id(uint32_t dimindx) {
   switch (dimindx) {
   default: return threadIdx.x;
@@ -53,7 +61,7 @@ get_local_id(uint32_t dimindx) {
   }
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_global_size(uint32_t dimindx) {
   switch (dimindx) {
   default: return blockDim.x * gridDim.x;
@@ -62,7 +70,7 @@ get_global_size(uint32_t dimindx) {
   }
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_global_id(uint32_t dimindx) {
   switch (dimindx) {
   default: return blockIdx.x * blockDim.x + threadIdx.x + g_global_offset.x;
@@ -71,14 +79,14 @@ get_global_id(uint32_t dimindx) {
   }
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_global_linear_id(void) {
   return ((blockIdx.z * blockDim.z + threadIdx.z) * blockDim.y * gridDim.y * blockDim.x * gridDim.x)
        + ((blockIdx.y * blockDim.y + threadIdx.y) * blockDim.x * gridDim.x)
        + ((blockIdx.x * blockDim.z + threadIdx.x));
 }
 
-size_t _CL_OVERLOADABLE _CL_READNONE _CL_OPTNONE
+SizeT _CL_OVERLOADABLE
 get_local_linear_id(void) {
   return (threadIdx.z * blockDim.y * blockDim.x) + (threadIdx.y * blockDim.x) + threadIdx.x;
 }

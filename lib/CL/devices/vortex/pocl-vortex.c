@@ -47,6 +47,8 @@ typedef struct {
 
   pocl_lock_t compile_lock;
 
+  int is_64bit;
+
   size_t ctx_refcount;
 } vortex_device_data_t;
 
@@ -120,15 +122,14 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
   ops->free_mapping_ptr = pocl_driver_free_mapping_ptr;
 }
 
-char * pocl_vortex_build_hash (cl_device_id device)
+char * pocl_vortex_build_hash (cl_device_id dev)
 {
   char *res = (char *)calloc(1000, sizeof(char));
-  vortex_device_data_t *dd = (vortex_device_data_t *)device->data;
-#if (VORTEX_XLEN == 64)
-  snprintf(res, 1000, "vortex-riscv64-unknown-unknown-elf");
-#else
-  snprintf(res, 1000, "vortex-riscv32-unknown-unknown-elf");
-#endif
+  if (dev->address_bits == 64) {
+    snprintf(res, 1000, "vortex-riscv64-unknown-unknown-elf");
+  } else {
+    snprintf(res, 1000, "vortex-riscv32-unknown-unknown-elf");
+  }
   return res;
 }
 
@@ -143,9 +144,9 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   int vx_err;
   vortex_device_data_t *dd;
 
-  const char* sz_cflags = pocl_get_string_option("POCL_VORTEX_CFLAGS", "");
+  const char* sz_xlen = pocl_get_string_option("POCL_VORTEX_XLEN", "32");
 
-  int is64bit = (VORTEX_XLEN == 64);
+  int is_64bit = (strcmp(sz_xlen, "64") == 0);
 
   assert (dev->data == NULL);
 
@@ -169,19 +170,19 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   dev->run_workgroup_pass = CL_FALSE;
   dev->execution_capabilities = CL_EXEC_KERNEL;
   //dev->global_as_id = VX_ADDR_SPACE_GLOBAL;
-  //dev->local_as_id = VX_ADDR_SPACE_LOCAL;
+  //dev->local_as_id = VX_ADDR_SPACE_LOCAL;439
   //dev->constant_as_id = VX_ADDR_SPACE_CONSTANT;
   dev->autolocals_to_args = POCL_AUTOLOCALS_TO_ARGS_ALWAYS;
   dev->device_alloca_locals = CL_FALSE;
   dev->device_side_printf = 0;
-  dev->has_64bit_long = is64bit;
+  dev->has_64bit_long = is_64bit;
 
   dev->llvm_cpu = NULL;
-  dev->address_bits = VORTEX_XLEN;
-  dev->llvm_target_triplet = is64bit ? "riscv64-unknown-unknown" : "riscv32-unknown-unknown";
-  dev->llvm_abi = is64bit ? "lp64d" : "ilp32f";
-  dev->llvm_cpu = is64bit ? "generic-rv64" : "generic-rv32";
-  dev->kernellib_name = is64bit ? "kernel-riscv64" : "kernel-riscv32";
+  dev->address_bits = is_64bit ? 64 : 32;
+  dev->llvm_target_triplet = is_64bit ? "riscv64-unknown-unknown" : "riscv32-unknown-unknown";
+  dev->llvm_abi = is_64bit ? "lp64d" : "ilp32f";
+  dev->llvm_cpu = is_64bit ? "generic-rv64" : "generic-rv32";
+  dev->kernellib_name = is_64bit ? "kernel-riscv64" : "kernel-riscv32";
   dev->kernellib_fallback_name = NULL;
   dev->kernellib_subdir = "vortex";
   dev->device_aux_functions = vortex_native_device_aux_funcs;
@@ -252,6 +253,8 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
 
   dd->ctx_refcount = 0;
 
+  dd->is_64bit = is_64bit;
+
   POCL_INIT_LOCK(dd->compile_lock);
   POCL_INIT_LOCK(dd->cq_lock);
 
@@ -261,8 +264,8 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   return CL_SUCCESS;
 }
 
-cl_int pocl_vortex_uninit (unsigned j, cl_device_id device) {
-  vortex_device_data_t *dd = (vortex_device_data_t *)device->data;
+cl_int pocl_vortex_uninit (unsigned j, cl_device_id dev) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
   if (NULL == dd)
     return CL_SUCCESS;
 
@@ -274,12 +277,12 @@ cl_int pocl_vortex_uninit (unsigned j, cl_device_id device) {
   POCL_DESTROY_LOCK (dd->compile_lock);
   POCL_DESTROY_LOCK (dd->cq_lock);
   POCL_MEM_FREE(dd);
-  device->data = NULL;
+  dev->data = NULL;
   return CL_SUCCESS;
 }
 
-int pocl_vortex_init_context (cl_device_id device, cl_context context) {
-  vortex_device_data_t *dd = (vortex_device_data_t *)device->data;
+int pocl_vortex_init_context (cl_device_id dev, cl_context context) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
   if (NULL == dd)
     return CL_SUCCESS;
 
@@ -288,13 +291,13 @@ int pocl_vortex_init_context (cl_device_id device, cl_context context) {
   return CL_SUCCESS;
 }
 
-int pocl_vortex_free_context (cl_device_id device, cl_context context) {
-  vortex_device_data_t *dd = (vortex_device_data_t *)device->data;
+int pocl_vortex_free_context (cl_device_id dev, cl_context context) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
   if (NULL == dd)
     return CL_SUCCESS;
 
   if (--dd->ctx_refcount == 0) {
-    pocl_vortex_uninit(0, device);
+    pocl_vortex_uninit(0, dev);
   }
 
   return CL_SUCCESS;
@@ -302,8 +305,8 @@ int pocl_vortex_free_context (cl_device_id device, cl_context context) {
 
 int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
   int result;
-  cl_device_id device = program->devices[device_i];
-  vortex_device_data_t *ddata = (vortex_device_data_t *)device->data;
+  cl_device_id dev = program->devices[device_i];
+  vortex_device_data_t *ddata = (vortex_device_data_t *)dev->data;
   vortex_program_data_t *pdata = NULL;
 
   POCL_LOCK (ddata->compile_lock);
@@ -339,14 +342,14 @@ int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
   return result;
 }
 
-int pocl_vortex_free_program (cl_device_id device, cl_program program,
+int pocl_vortex_free_program (cl_device_id dev, cl_program program,
                               unsigned device_i) {
-  vortex_device_data_t *ddata = (vortex_device_data_t *)device->data;
+  vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
   vortex_program_data_t *pdata = (vortex_program_data_t *)program->data[device_i];
   if (pdata == NULL)
     return CL_SUCCESS;
 
-  pocl_driver_free_program (device, program, device_i);
+  pocl_driver_free_program (dev, program, device_i);
 
   POCL_MEM_FREE (pdata->kernel_names);
   POCL_MEM_FREE (pdata);
@@ -355,7 +358,7 @@ int pocl_vortex_free_program (cl_device_id device, cl_program program,
   return CL_SUCCESS;
 }
 
-int pocl_vortex_create_kernel (cl_device_id device, cl_program program,
+int pocl_vortex_create_kernel (cl_device_id dev, cl_program program,
                                cl_kernel kernel, unsigned device_i) {
   int result = CL_SUCCESS;
   pocl_kernel_metadata_t *meta = kernel->meta;
@@ -392,7 +395,7 @@ int pocl_vortex_create_kernel (cl_device_id device, cl_program program,
   return result;
 }
 
-int pocl_vortex_free_kernel (cl_device_id device, cl_program program,
+int pocl_vortex_free_kernel (cl_device_id dev, cl_program program,
                              cl_kernel kernel, unsigned device_i) {
   pocl_kernel_metadata_t *meta = kernel->meta;
   assert(meta->data != NULL);
@@ -433,7 +436,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   assert (data != NULL);
   dd = (vortex_device_data_t *)data;
 
-  int ptr_size = VORTEX_XLEN / 8;
+  int ptr_size = dd->is_64bit ? 8 : 4;
 
   // calculate kernel arguments buffer size
   int local_mem_size = 0;
@@ -602,9 +605,9 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   vx_mem_free(vx_kargs_buffer);
 }
 
-cl_int pocl_vortex_alloc_mem_obj(cl_device_id device, cl_mem mem_obj, void *host_ptr) {
+cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_ptr) {
   int vx_err;
-  pocl_mem_identifier *p = &mem_obj->device_ptrs[device->global_mem_id];
+  pocl_mem_identifier *p = &mem_obj->device_ptrs[dev->global_mem_id];
 
   /* let other drivers preallocate */
   if ((mem_obj->flags & CL_MEM_ALLOC_HOST_PTR) && (mem_obj->mem_host_ptr == NULL))
@@ -626,7 +629,7 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id device, cl_mem mem_obj, void *host
     if ((flags & CL_MEM_WRITE_ONLY) != 0)
       vx_flags = VX_MEM_WRITE;
 
-    vortex_device_data_t* dd = (vortex_device_data_t *)device->data;
+    vortex_device_data_t* dd = (vortex_device_data_t *)dev->data;
 
     vx_buffer_h vx_buffer;
     vx_err = vx_mem_alloc(dd->vx_device, mem_obj->size, vx_flags, &vx_buffer);
@@ -663,8 +666,8 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id device, cl_mem mem_obj, void *host
   return CL_SUCCESS;
 }
 
-void pocl_vortex_free(cl_device_id device, cl_mem mem_obj) {
-  pocl_mem_identifier *p = &mem_obj->device_ptrs[device->global_mem_id];
+void pocl_vortex_free(cl_device_id dev, cl_mem mem_obj) {
+  pocl_mem_identifier *p = &mem_obj->device_ptrs[dev->global_mem_id];
   cl_mem_flags flags = mem_obj->flags;
   vortex_buffer_data_t* buf_data = (vortex_buffer_data_t*)p->mem_ptr;
 
@@ -742,16 +745,16 @@ void pocl_vortex_submit (_cl_command_node *node, cl_command_queue cq) {
   return;
 }
 
-void pocl_vortex_flush (cl_device_id device, cl_command_queue cq) {
-  vortex_device_data_t *dd = (vortex_device_data_t *)device->data;
+void pocl_vortex_flush (cl_device_id dev, cl_command_queue cq) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
 
   POCL_LOCK (dd->cq_lock);
   vortex_command_scheduler (dd);
   POCL_UNLOCK (dd->cq_lock);
 }
 
-void pocl_vortex_join (cl_device_id device, cl_command_queue cq) {
-  vortex_device_data_t *dd = (vortex_device_data_t *)device->data;
+void pocl_vortex_join (cl_device_id dev, cl_command_queue cq) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
 
   POCL_LOCK (dd->cq_lock);
   vortex_command_scheduler (dd);
@@ -760,8 +763,8 @@ void pocl_vortex_join (cl_device_id device, cl_command_queue cq) {
   return;
 }
 
-void pocl_vortex_notify (cl_device_id device, cl_event event, cl_event finished) {
-  vortex_device_data_t *dd = (vortex_device_data_t *)device->data;
+void pocl_vortex_notify (cl_device_id dev, cl_event event, cl_event finished) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
   _cl_command_node * volatile node = event->command;
 
   if (finished->status < CL_COMPLETE)

@@ -25,17 +25,15 @@
 
 include("bitcode_rules")
 
-if( ${VORTEX_XLEN} EQUAL 64 )
-  set(LLVM_TARGET riscv64)
-  set(TARGET_MARCH rv64imafd)
-else( ${VORTEX_XLEN} EQUAL 64 )
-  set(LLVM_TARGET riscv32)
-  set(TARGET_MARCH rv32imaf)
-endif( ${VORTEX_XLEN} EQUAL 64 )
+set(LLVM_TARGET_64 riscv64)
+set(TARGET_MARCH_64 rv64imafd)
+
+set(LLVM_TARGET_32 riscv32)
+set(TARGET_MARCH_32 rv32imaf)
 
 set(KERNEL_SOURCES ${SOURCES_GENERIC})
 
-foreach(FILE printf.c print_base.c
+foreach(FILE printf.c printf_base.c
              get_work_dim.c get_num_groups.c get_local_size.c get_global_offset.c get_global_size.c
              get_group_id.c get_local_id.c get_global_id.c get_linear_id.c
              barrier.ll
@@ -48,13 +46,9 @@ foreach(FILE workitems.c printf.c barrier.c)
   list(APPEND KERNEL_SOURCES "vortex/${FILE}")
 endforeach()
 
-set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET}" "-march=${TARGET_MARCH}" "-emit-llvm" "-D_CL_DISABLE_HALF" "-I${VORTEX_PREFIX}/kernel/include")
-
 set(KERNEL_CL_FLAGS "-Xclang" "-cl-std=CL${VORTEX_DEVICE_CL_STD}" "-D__OPENCL_C_VERSION__=${VORTEX_DEVICE_CL_VERSION}" ${KERNEL_CL_FLAGS})
 
 set(LLC_FLAGS "")
-
-set(DEVICE_CL_FLAGS "-D__OPENCL_VERSION__=${VORTEX_DEVICE_CL_VERSION} -DPOCL_DEVICE_ADDRESS_BITS=${VORTEX_XLEN}")
 
 separate_arguments(VORTEX_DEVICE_EXTENSIONS)
 foreach(EXT ${VORTEX_DEVICE_EXTENSIONS})
@@ -62,18 +56,28 @@ foreach(EXT ${VORTEX_DEVICE_EXTENSIONS})
 endforeach()
 separate_arguments(DEVICE_CL_FLAGS)
 
-make_kernel_bc(KERNEL_BC "${LLVM_TARGET}" "BCs" 0 0 0 ${KERNEL_SOURCES})
+set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_32}" "-march=${TARGET_MARCH_32}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=32" "-D_CL_DISABLE_HALF" "-I${VORTEX_PREFIX}/kernel/include")
+set(DEVICE_CL_FLAGS "-D__OPENCL_VERSION__=${VORTEX_DEVICE_CL_VERSION} -DPOCL_DEVICE_ADDRESS_BITS=32")
+make_kernel_bc(KERNEL_BC_32 "${LLVM_TARGET_32}" "VX32-BCs" 0 0 0 ${KERNEL_SOURCES})
+
+set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_64}" "-march=${TARGET_MARCH_64}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=64" "-D_CL_DISABLE_HALF" "-I${VORTEX_PREFIX}/kernel/include")
+set(DEVICE_CL_FLAGS "-D__OPENCL_VERSION__=${VORTEX_DEVICE_CL_VERSION} -DPOCL_DEVICE_ADDRESS_BITS=64")
+make_kernel_bc(KERNEL_BC_64 "${LLVM_TARGET_64}" "VX64-BCs" 0 0 0 ${KERNEL_SOURCES})
 
 # just debug
-message(STATUS "${LLVM_TARGET} Kernel BC: ${KERNEL_BC}")
+message(STATUS "${LLVM_TARGET_32} Kernel BC: ${KERNEL_BC_32}")
+message(STATUS "${LLVM_TARGET_64} Kernel BC: ${KERNEL_BC_64}")
 
-list(APPEND KERNEL_BC_LIST "${KERNEL_BC}")
+list(APPEND KERNEL_BC_LIST "${KERNEL_BC_32}")
+list(APPEND KERNEL_BC_LIST "${KERNEL_BC_64}")
 set(KERNEL_BC_LIST "${KERNEL_BC_LIST}" PARENT_SCOPE)
 
 # a target is needed...
-add_custom_target("kernel_${LLVM_TARGET}" DEPENDS ${KERNEL_BC})
+add_custom_target("kernel_${LLVM_TARGET_32}" DEPENDS ${KERNEL_BC_32})
+add_custom_target("kernel_${LLVM_TARGET_64}" DEPENDS ${KERNEL_BC_64})
 
-list(APPEND KERNEL_TARGET_LIST "kernel_${LLVM_TARGET}")
+list(APPEND KERNEL_TARGET_LIST "kernel_${LLVM_TARGET_32}")
+list(APPEND KERNEL_TARGET_LIST "kernel_${LLVM_TARGET_64}")
 set(KERNEL_TARGET_LIST "${KERNEL_TARGET_LIST}" PARENT_SCOPE)
 
-install(FILES "${KERNEL_BC}" DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}" COMPONENT "lib")
+install(FILES "${KERNEL_BC_32}" "${KERNEL_BC_64}" DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}" COMPONENT "lib")
