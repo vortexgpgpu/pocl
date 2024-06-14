@@ -7,3 +7,7 @@ typedef struct {
   uint32_t global_offset[3];
   uint32_t kernel_id;
 } kernel_args_t;
+
+inline uint32_t alignOffset(uint32_t offset, uint32_t alignment) {
+  return (offset + alignment - 1) & ~(alignment - 1);
+}

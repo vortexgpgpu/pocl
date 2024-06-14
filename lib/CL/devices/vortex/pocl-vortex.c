@@ -179,7 +179,7 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
 
   dev->llvm_cpu = NULL;
   dev->address_bits = is_64bit ? 64 : 32;
-  dev->llvm_target_triplet = is_64bit ? "riscv64-unknown-unknown" : "riscv32-unknown-unknown";
+  dev->llvm_target_triplet = is_64bit ? "riscv64-unknown-unknown-elf" : "riscv32-unknown-unknown-elf";
   dev->llvm_abi = is_64bit ? "lp64d" : "ilp32f";
   dev->llvm_cpu = is_64bit ? "generic-rv64" : "generic-rv32";
   dev->kernellib_name = is_64bit ? "kernel-riscv64" : "kernel-riscv32";
@@ -424,9 +424,9 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   struct pocl_context *pc = &cmd->command.run.pc;
   int vx_err;
 
-  int num_groups = 1;
-  int group_size = 1;
-  for (int i = 0; i < pc->work_dim; ++i) {
+  uint32_t num_groups = 1;
+  uint32_t group_size = 1;
+  for (uint32_t i = 0; i < pc->work_dim; ++i) {
     num_groups *= pc->num_groups[i];
     group_size *= pc->local_size[i];
   }
@@ -436,37 +436,39 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   assert (data != NULL);
   dd = (vortex_device_data_t *)data;
 
-  int ptr_size = dd->is_64bit ? 8 : 4;
+  uint32_t ptr_size = dd->is_64bit ? 8 : 4;
+
+  uint32_t aligned_kernel_args_size = alignOffset(sizeof(kernel_args_t), ptr_size);
 
   // calculate kernel arguments buffer size
-  int local_mem_size = 0;
+  uint32_t local_mem_size = 0;
   size_t abuf_size = 0;
 
   for (int i = 0; i < meta->num_args; ++i) {
     struct pocl_argument* al = &(cmd->command.run.arguments[i]);
     if (ARG_IS_LOCAL(meta->arg_info[i])) {
       local_mem_size += al->size;
-      abuf_size += 4;
+      abuf_size = alignOffset(abuf_size + 4, ptr_size);
     } else
     if ((meta->arg_info[i].type == POCL_ARG_TYPE_POINTER)
      || (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE)
      || (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER)) {
-      abuf_size += ptr_size;
+      abuf_size = alignOffset(abuf_size + ptr_size, ptr_size);
     } else {
       // scalar argument
-      abuf_size += al->size;
+      abuf_size = alignOffset(abuf_size + al->size, ptr_size);
     }
   }
 
   // local buffers
   for (int i = 0; i < meta->num_locals; ++i) {
     local_mem_size += meta->local_sizes[i];
-    abuf_size += 4;
+    abuf_size = alignOffset(abuf_size + 4, ptr_size);
   }
 
   // add local size
   if (local_mem_size != 0) {
-    abuf_size += 4;
+    abuf_size = alignOffset(abuf_size + 4, ptr_size);
   }
 
   // check occupancy
@@ -483,7 +485,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   }
 
   // allocate arguments host buffer
-  size_t kargs_buffer_size = sizeof(kernel_args_t) + abuf_size;
+  size_t kargs_buffer_size = aligned_kernel_args_size + abuf_size;
   uint8_t* const host_kargs_base_ptr = malloc(kargs_buffer_size);
   assert(host_kargs_base_ptr);
 
@@ -514,30 +516,31 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
 
   // write arguments
 
-  uint8_t* host_args_ptr = host_kargs_base_ptr + sizeof(kernel_args_t);
-  int local_mem_offset = 0;
+  uint8_t* const host_args_ptr = host_kargs_base_ptr + aligned_kernel_args_size;
+  uint32_t host_args_offset = 0;
+  uint32_t local_mem_offset = 0;
 
   for (int i = 0; i < meta->num_args; ++i) {
     struct pocl_argument* al = &(cmd->command.run.arguments[i]);
     if (ARG_IS_LOCAL(meta->arg_info[i])) {
       if (local_mem_offset == 0) {
-        memcpy(host_args_ptr, &local_mem_size, 4); // local_size
-        host_args_ptr += 4;
+        memcpy(host_args_ptr + host_args_offset, &local_mem_size, 4); // local_size
+        host_args_offset = alignOffset(host_args_offset + 4, ptr_size);
       }
-      memcpy(host_args_ptr, &local_mem_offset, 4); // arg offset
-      host_args_ptr += 4;
+      memcpy(host_args_ptr + host_args_offset, &local_mem_offset, 4); // arg offset
+      host_args_offset = alignOffset(host_args_offset + 4, ptr_size);
       local_mem_offset += al->size;
     } else
     if (meta->arg_info[i].type == POCL_ARG_TYPE_POINTER) {
       if (al->value == NULL) {
-        memset(host_args_ptr, 0, ptr_size); // NULL pointer value
-        host_args_ptr += ptr_size;
+        memset(host_args_ptr + host_args_offset, 0, ptr_size); // NULL pointer value
+        host_args_offset = alignOffset(host_args_offset + ptr_size, ptr_size);
       } else {
         cl_mem m = (*(cl_mem *)(al->value));
         vortex_buffer_data_t* buf_data = (vortex_buffer_data_t *) m->device_ptrs[cmd->device->global_mem_id].mem_ptr;
         uint64_t dev_mem_addr = buf_data->buf_address + al->offset;
-        memcpy(host_args_ptr, &buf_data->buf_address, ptr_size); // pointer value
-        host_args_ptr += ptr_size;
+        memcpy(host_args_ptr + host_args_offset, &buf_data->buf_address, ptr_size); // pointer value
+        host_args_offset = alignOffset(host_args_offset + ptr_size, ptr_size);
       }
     } else
     if (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE) {
@@ -547,19 +550,19 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
         POCL_ABORT("POCL_VORTEX_RUN\n");
     } else {
       // scalar argument
-      memcpy(host_args_ptr, al->value, al->size); // scalar value
-      host_args_ptr += al->size;
+      memcpy(host_args_ptr + host_args_offset, al->value, al->size); // scalar value
+      host_args_offset = alignOffset(host_args_offset + al->size, ptr_size);
     }
   }
 
   // write local arguments
   for (int i = 0; i < meta->num_locals; ++i) {
     if (local_mem_offset == 0) {
-      memcpy(host_args_ptr, &local_mem_size, 4); // local_size
-      host_args_ptr += 4;
+      memcpy(host_args_ptr + host_args_offset, &local_mem_size, 4); // local_size
+      host_args_offset = alignOffset(host_args_offset + 4, ptr_size);
     }
-    memcpy(host_args_ptr, &local_mem_offset, 4); // arg offset
-    host_args_ptr += 4;
+    memcpy(host_args_ptr + host_args_offset, &local_mem_offset, 4); // arg offset
+    host_args_offset = alignOffset(host_args_offset + 4, ptr_size);
     local_mem_offset += meta->local_sizes[i];
   }
 

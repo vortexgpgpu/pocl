@@ -46,6 +46,7 @@
 #include "pocl_util.h"
 
 #include "LLVMUtils.h"
+#include "kernel_args.h"
 
 static int exec(const char* cmd, std::ostream& out) {
   char buffer[128];
@@ -99,6 +100,9 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
   auto &Context = module->getContext();
   const llvm::DataLayout &DL = module->getDataLayout();
 
+  std::string TargetTriple = module->getTargetTriple();
+  bool is64Bit = TargetTriple.find("riscv64") != std::string::npos;
+
   auto I32Ty = llvm::Type::getInt32Ty(Context);
   auto I8Ty = llvm::Type::getInt8Ty(Context);
   auto I8PtrTy = I8Ty->getPointerTo();
@@ -124,6 +128,8 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
 
   auto MDS = llvm::MDNode::get(Context, llvm::MDString::get(Context, "vortex.uniform"));
 
+  uint32_t BaseAlignment = is64Bit ? 8 : 4;
+
   for (auto& OldArg : function->args()) {
     auto ArgType = OldArg.getType();
     auto ArgOffset = llvm::ConstantInt::get(I32Ty, arg_offset);
@@ -132,8 +138,8 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
       if (allocated_local_mem == nullptr) {
         // Load __local_size
         auto local_size_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, "__local_size_ptr");
-        arg_offset += 4;
         auto local_size = Builder.CreateLoad(I32Ty, local_size_ptr, "__local_size");
+        arg_offset = alignOffset(arg_offset + 4, BaseAlignment);
         // Call vx_local_alloc(__local_size)
         auto function_type = llvm::FunctionType::get(I8PtrTy, {I32Ty}, false);
         auto vx_local_alloc_func = module->getOrInsertFunction("vx_local_alloc", function_type);
@@ -142,13 +148,13 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
       // Load argument __offset
       auto offset_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, OldArg.getName() + "_offset_ptr");
       auto offset = Builder.CreateLoad(I32Ty, offset_ptr, OldArg.getName() + "_offset");
-      arg_offset += 4;
+      arg_offset = alignOffset(arg_offset + 4, BaseAlignment);
       // Apply pointer offset
       Arg = Builder.CreateGEP(I8PtrTy, allocated_local_mem, offset, OldArg.getName() + "_byte_ptr");
     } else {
       auto offset_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, OldArg.getName() + "_offset_ptr");
       Arg = Builder.CreateLoad(ArgType, offset_ptr, OldArg.getName() + "_loaded");
-      arg_offset += DL.getTypeAllocSize(ArgType);
+      arg_offset = alignOffset(arg_offset + DL.getTypeAllocSize(ArgType), BaseAlignment);
     }
     auto instr = llvm::cast<llvm::Instruction>(Arg);
     assert(instr != nullptr);

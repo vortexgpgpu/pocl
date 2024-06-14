@@ -18,8 +18,8 @@ int main(void) {
   for (int i = 0, n = kargs->work_dim; i < 3; i++) {
     g_global_offset.m[i] = (i < n) ? kargs->global_offset[i] : 0;
   }
-
-  void* arg = (void*)((uint8_t*)kargs + sizeof(kernel_args_t));
+  uint32_t aligned_kernel_args_size = alignOffset(sizeof(kernel_args_t), sizeof(size_t));
+  void* arg = (void*)((uint8_t*)kargs + aligned_kernel_args_size);
   vx_kernel_func_cb kernel_func = (vx_kernel_func_cb)__vx_get_kernel_callback(kargs->kernel_id);
   return vx_spawn_threads(kargs->work_dim, kargs->num_groups, kargs->local_size, kernel_func, arg);
 }
