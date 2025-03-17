@@ -46,22 +46,21 @@ foreach(FILE workitems.c printf.c barrier.c)
   list(APPEND KERNEL_SOURCES "vortex/${FILE}")
 endforeach()
 
-set(KERNEL_CL_FLAGS "-Xclang" "-cl-std=CL${VORTEX_DEVICE_CL_STD}" "-D__OPENCL_C_VERSION__=${VORTEX_DEVICE_CL_VERSION}" ${KERNEL_CL_FLAGS})
+set(KERNEL_CL_FLAGS "-Xclang" "-cl-std=CL${VORTEX_DEVICE_CL_STD}" "-D__OPENCL_C_VERSION__=${VORTEX_DEVICE_CL_VERSION}" "-Xclang" "-cl-ext=all" ${KERNEL_CL_FLAGS})
 
 set(LLC_FLAGS "")
 
+set(DEVICE_CL_FLAGS "-D__OPENCL_VERSION__=${VORTEX_DEVICE_CL_VERSION}")
 separate_arguments(VORTEX_DEVICE_EXTENSIONS)
 foreach(EXT ${VORTEX_DEVICE_EXTENSIONS})
   set(DEVICE_CL_FLAGS "${DEVICE_CL_FLAGS} -D${EXT}")
 endforeach()
 separate_arguments(DEVICE_CL_FLAGS)
 
-set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_32}" "-march=${TARGET_MARCH_32}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=32" "-D_CL_DISABLE_HALF" "-I${VORTEX_PREFIX}/kernel/include")
-set(DEVICE_CL_FLAGS "-D__OPENCL_VERSION__=${VORTEX_DEVICE_CL_VERSION} -DPOCL_DEVICE_ADDRESS_BITS=32")
+set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_32}" "-march=${TARGET_MARCH_32}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=32" "-I${VORTEX_PREFIX}/kernel/include")
 make_kernel_bc(KERNEL_BC_32 "${LLVM_TARGET_32}" "VX32-BCs" 0 0 0 ${KERNEL_SOURCES})
 
-set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_64}" "-march=${TARGET_MARCH_64}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=64" "-D_CL_DISABLE_HALF" "-I${VORTEX_PREFIX}/kernel/include")
-set(DEVICE_CL_FLAGS "-D__OPENCL_VERSION__=${VORTEX_DEVICE_CL_VERSION} -DPOCL_DEVICE_ADDRESS_BITS=64")
+set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_64}" "-march=${TARGET_MARCH_64}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=64" "-I${VORTEX_PREFIX}/kernel/include")
 make_kernel_bc(KERNEL_BC_64 "${LLVM_TARGET_64}" "VX64-BCs" 0 0 0 ${KERNEL_SOURCES})
 
 # just debug
