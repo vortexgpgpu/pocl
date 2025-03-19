@@ -139,7 +139,7 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
         // Load __local_size
         auto local_size_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, "__local_size_ptr");
         auto local_size = Builder.CreateLoad(I32Ty, local_size_ptr, "__local_size");
-        arg_offset = alignOffset(arg_offset + 4, BaseAlignment);
+        arg_offset = ALIGN_OFFSET(arg_offset + 4, BaseAlignment);
         // Call vx_local_alloc(__local_size)
         auto function_type = llvm::FunctionType::get(I8PtrTy, {I32Ty}, false);
         auto vx_local_alloc_func = module->getOrInsertFunction("vx_local_alloc", function_type);
@@ -148,13 +148,13 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
       // Load argument __offset
       auto offset_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, OldArg.getName() + "_offset_ptr");
       auto offset = Builder.CreateLoad(I32Ty, offset_ptr, OldArg.getName() + "_offset");
-      arg_offset = alignOffset(arg_offset + 4, BaseAlignment);
+      arg_offset = ALIGN_OFFSET(arg_offset + 4, BaseAlignment);
       // Apply pointer offset
       Arg = Builder.CreateGEP(I8PtrTy, allocated_local_mem, offset, OldArg.getName() + "_byte_ptr");
     } else {
       auto offset_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, OldArg.getName() + "_offset_ptr");
       Arg = Builder.CreateLoad(ArgType, offset_ptr, OldArg.getName() + "_loaded");
-      arg_offset = alignOffset(arg_offset + DL.getTypeAllocSize(ArgType), BaseAlignment);
+      arg_offset = ALIGN_OFFSET(arg_offset + DL.getTypeAllocSize(ArgType), BaseAlignment);
     }
     auto instr = llvm::cast<llvm::Instruction>(Arg);
     assert(instr != nullptr);

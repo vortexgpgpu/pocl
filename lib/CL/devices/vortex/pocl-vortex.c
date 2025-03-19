@@ -438,7 +438,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
 
   uint32_t ptr_size = dd->is_64bit ? 8 : 4;
 
-  uint32_t aligned_kernel_args_size = alignOffset(sizeof(kernel_args_t), ptr_size);
+  uint32_t aligned_kernel_args_size = ALIGN_OFFSET(sizeof(kernel_args_t), ptr_size);
 
   // calculate kernel arguments buffer size
   uint32_t local_mem_size = 0;
@@ -448,27 +448,27 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
     struct pocl_argument* al = &(cmd->command.run.arguments[i]);
     if (ARG_IS_LOCAL(meta->arg_info[i])) {
       local_mem_size += al->size;
-      abuf_size = alignOffset(abuf_size + 4, ptr_size);
+      abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
     } else
     if ((meta->arg_info[i].type == POCL_ARG_TYPE_POINTER)
      || (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE)
      || (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER)) {
-      abuf_size = alignOffset(abuf_size + ptr_size, ptr_size);
+      abuf_size = ALIGN_OFFSET(abuf_size + ptr_size, ptr_size);
     } else {
       // scalar argument
-      abuf_size = alignOffset(abuf_size + al->size, ptr_size);
+      abuf_size = ALIGN_OFFSET(abuf_size + al->size, ptr_size);
     }
   }
 
   // local buffers
   for (int i = 0; i < meta->num_locals; ++i) {
     local_mem_size += meta->local_sizes[i];
-    abuf_size = alignOffset(abuf_size + 4, ptr_size);
+    abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
   }
 
   // add local size
   if (local_mem_size != 0) {
-    abuf_size = alignOffset(abuf_size + 4, ptr_size);
+    abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
   }
 
   // check occupancy
@@ -525,22 +525,22 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
     if (ARG_IS_LOCAL(meta->arg_info[i])) {
       if (local_mem_offset == 0) {
         memcpy(host_args_ptr + host_args_offset, &local_mem_size, 4); // local_size
-        host_args_offset = alignOffset(host_args_offset + 4, ptr_size);
+        host_args_offset = ALIGN_OFFSET(host_args_offset + 4, ptr_size);
       }
       memcpy(host_args_ptr + host_args_offset, &local_mem_offset, 4); // arg offset
-      host_args_offset = alignOffset(host_args_offset + 4, ptr_size);
+      host_args_offset = ALIGN_OFFSET(host_args_offset + 4, ptr_size);
       local_mem_offset += al->size;
     } else
     if (meta->arg_info[i].type == POCL_ARG_TYPE_POINTER) {
       if (al->value == NULL) {
         memset(host_args_ptr + host_args_offset, 0, ptr_size); // NULL pointer value
-        host_args_offset = alignOffset(host_args_offset + ptr_size, ptr_size);
+        host_args_offset = ALIGN_OFFSET(host_args_offset + ptr_size, ptr_size);
       } else {
         cl_mem m = (*(cl_mem *)(al->value));
         vortex_buffer_data_t* buf_data = (vortex_buffer_data_t *) m->device_ptrs[cmd->device->global_mem_id].mem_ptr;
         uint64_t dev_mem_addr = buf_data->buf_address + al->offset;
         memcpy(host_args_ptr + host_args_offset, &buf_data->buf_address, ptr_size); // pointer value
-        host_args_offset = alignOffset(host_args_offset + ptr_size, ptr_size);
+        host_args_offset = ALIGN_OFFSET(host_args_offset + ptr_size, ptr_size);
       }
     } else
     if (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE) {
@@ -551,7 +551,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
     } else {
       // scalar argument
       memcpy(host_args_ptr + host_args_offset, al->value, al->size); // scalar value
-      host_args_offset = alignOffset(host_args_offset + al->size, ptr_size);
+      host_args_offset = ALIGN_OFFSET(host_args_offset + al->size, ptr_size);
     }
   }
 
@@ -559,10 +559,10 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   for (int i = 0; i < meta->num_locals; ++i) {
     if (local_mem_offset == 0) {
       memcpy(host_args_ptr + host_args_offset, &local_mem_size, 4); // local_size
-      host_args_offset = alignOffset(host_args_offset + 4, ptr_size);
+      host_args_offset = ALIGN_OFFSET(host_args_offset + 4, ptr_size);
     }
     memcpy(host_args_ptr + host_args_offset, &local_mem_offset, 4); // arg offset
-    host_args_offset = alignOffset(host_args_offset + 4, ptr_size);
+    host_args_offset = ALIGN_OFFSET(host_args_offset + 4, ptr_size);
     local_mem_offset += meta->local_sizes[i];
   }
 
