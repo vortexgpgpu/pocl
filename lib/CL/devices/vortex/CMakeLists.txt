@@ -26,14 +26,14 @@
 unset(CMAKE_CXX_STANDARD)
 unset(CMAKE_CXX_STANDARD_REQUIRED)
 set_source_files_properties(vortex_utils.cc vortex_utils.h PROPERTIES COMPILE_FLAGS "${LLVM_CXXFLAGS}")
-include_directories(${LLVM_INCLUDE_DIRS} ${VORTEX_PREFIX}/runtime/include ${CMAKE_CURRENT_SOURCE_DIR}/../../../llvmopencl)
+include_directories(${LLVM_INCLUDE_DIRS} ${VORTEX_PREFIX}/runtime/include ${VORTEX_PREFIX}/build/hw ${CMAKE_CURRENT_SOURCE_DIR}/../../../llvmopencl)
 set(CMAKE_CXX_STANDARD ${POCL_CMAKE_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_pocl_device_library("pocl-devices-vortex" pocl-vortex.c pocl-vortex.h vortex_utils.cc vortex_utils.h)
 
 if(ENABLE_LOADABLE_DRIVERS)
-  target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_PREFIX}/runtime/lib/libvortex.so ${PTHREAD_LIBRARY})
+  target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_PREFIX}/build/runtime/libvortex.so ${PTHREAD_LIBRARY})
 endif()
 
 install(FILES "kernel_main.c" "kernel_args.h"
