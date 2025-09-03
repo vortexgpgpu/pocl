@@ -604,6 +604,30 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
     POCL_ABORT("POCL_VORTEX_RUN\n");
   }
 
+  uint64_t cur_num_threads, cur_num_warps, cur_num_cores;
+  int caps_return1 =
+      vx_dev_caps(dd->vx_device, VX_CAPS_NUM_THREADS, &cur_num_threads);
+  int caps_return2 = vx_dev_caps(dd->vx_device, VX_CAPS_NUM_WARPS, &cur_num_warps);
+  int caps_return3 = vx_dev_caps(dd->vx_device, VX_CAPS_NUM_CORES, &cur_num_cores);
+
+  int gVortexBranchDivergenceOptLevel = 8;
+  const char *env_val = getenv("VORTEX_DIVERGENCE_OPT_LEVEL");
+  if (env_val != NULL) {
+    gVortexBranchDivergenceOptLevel = atoi(env_val);
+  }
+
+  char filename[256];
+  snprintf(filename, sizeof(filename), "perf_counter_%dC_%dW_%dT_O%d.txt",
+    +cur_num_cores, cur_num_warps, cur_num_threads, gVortexBranchDivergenceOptLevel);
+  FILE *outputFile = fopen(filename, "a");
+  if (!outputFile) {
+    perror("Failed to open file");
+    return 1;
+  }
+
+  vx_dump_perf(dd->vx_device, outputFile);
+  fclose(outputFile);
+
   // release arguments device buffer
   vx_mem_free(vx_kargs_buffer);
 }
