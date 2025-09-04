@@ -241,13 +241,13 @@ static void addKernelSelect(llvm::SmallVector<std::string, 8>& funcNames, llvm::
 int compile_vortex_program(char**kernel_names, int* num_kernels, char* sz_program_vxbin, void* llvm_module) {
   int err;
 
-  const char* llvm_install_path = getenv("LLVM_PREFIX");
+  const char* llvm_install_path = getenv("LLVM_VORTEX_BUILD");
   if (llvm_install_path) {
     if (!pocl_exists(llvm_install_path)) {
-      POCL_MSG_ERR("$LLVM_PREFIX: '%s' doesn't exist\n", llvm_install_path);
+      POCL_MSG_ERR("$LLVM_VORTEX_BUILD: '%s' doesn't exist\n", llvm_install_path);
       return -1;
     }
-    POCL_MSG_PRINT_INFO("using $LLVM_PREFIX=%s!\n", llvm_install_path);
+    POCL_MSG_PRINT_INFO("using $LLVM_VORTEX_BUILD=%s!\n", llvm_install_path);
   }
 
   std::string build_cflags = pocl_get_string_option("POCL_VORTEX_CFLAGS", "");
@@ -297,7 +297,7 @@ int compile_vortex_program(char**kernel_names, int* num_kernels, char* sz_progra
   {
     std::string clang_path(CLANG);
     if (llvm_install_path) {
-      clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
+      clang_path.replace(0, strlen(LLVM_VORTEX_BUILD), llvm_install_path);
     }
 
     char sz_kernel_main[POCL_MAX_PATHNAME_LENGTH];
@@ -316,7 +316,7 @@ int compile_vortex_program(char**kernel_names, int* num_kernels, char* sz_progra
   if (POCL_DEBUGGING_ON) {
     std::string objdump_path(LLVM_OBJDUMP);
     if (llvm_install_path) {
-      objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
+      objdump_path.replace(0, strlen(LLVM_VORTEX_BUILD), llvm_install_path);
     }
 
     std::stringstream ss_cmd, ss_out;

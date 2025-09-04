@@ -57,10 +57,10 @@ foreach(EXT ${VORTEX_DEVICE_EXTENSIONS})
 endforeach()
 separate_arguments(DEVICE_CL_FLAGS)
 
-set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_32}" "-march=${TARGET_MARCH_32}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=32" "-I${VORTEX_PREFIX}/kernel/include" "-I${VORTEX_PREFIX}/build/hw")
+set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_32}" "-march=${TARGET_MARCH_32}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=32" "-I${VORTEX_HOME}/kernel/include" "-I${VORTEX_BUILD}/hw")
 make_kernel_bc(KERNEL_BC_32 "${LLVM_TARGET_32}" "VX32-BCs" 0 0 0 ${KERNEL_SOURCES})
 
-set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_64}" "-march=${TARGET_MARCH_64}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=64" "-I${VORTEX_PREFIX}/kernel/include" "-I${VORTEX_PREFIX}/build/hw")
+set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_64}" "-march=${TARGET_MARCH_64}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=64" "-I${VORTEX_HOME}/kernel/include" "-I${VORTEX_BUILD}/hw")
 make_kernel_bc(KERNEL_BC_64 "${LLVM_TARGET_64}" "VX64-BCs" 0 0 0 ${KERNEL_SOURCES})
 
 # just debug
