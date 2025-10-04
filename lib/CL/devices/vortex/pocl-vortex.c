@@ -575,21 +575,26 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   // release argument host buffer
   free(host_kargs_base_ptr);
 
+  // release previous kernel buffer
+  if (dd->vx_kernel_buffer != NULL)
+  {
+    vx_mem_free(dd->vx_kernel_buffer);
+    dd->vx_kernel_buffer = NULL;
+  }
+
   // upload kernel to device
-  if (NULL == dd->vx_kernel_buffer) {
-    char sz_program_bc[POCL_MAX_PATHNAME_LENGTH];
-    char sz_program_vxbin[POCL_MAX_PATHNAME_LENGTH];
+  char sz_program_bc[POCL_MAX_PATHNAME_LENGTH];
+  char sz_program_vxbin[POCL_MAX_PATHNAME_LENGTH];
 
-    pocl_cache_program_bc_path(sz_program_bc, program, device_i);
-    remove_extension(sz_program_bc);
+  pocl_cache_program_bc_path(sz_program_bc, program, device_i);
+  remove_extension(sz_program_bc);
 
-    strcpy(sz_program_vxbin, sz_program_bc);
-    strncat(sz_program_vxbin, ".vxbin", POCL_MAX_PATHNAME_LENGTH - 1);
-
-    vx_err = vx_upload_kernel_file(dd->vx_device, sz_program_vxbin, &dd->vx_kernel_buffer);
-    if (vx_err != 0) {
-      POCL_ABORT("POCL_VORTEX_RUN\n");
-    }
+  strcpy(sz_program_vxbin, sz_program_bc);
+  strncat(sz_program_vxbin, ".vxbin", POCL_MAX_PATHNAME_LENGTH - 1);
+  
+  vx_err = vx_upload_kernel_file(dd->vx_device, sz_program_vxbin, &dd->vx_kernel_buffer);
+  if (vx_err != 0) {
+    POCL_ABORT("POCL_VORTEX_RUN\n");
   }
 
   // launch kernel execution
