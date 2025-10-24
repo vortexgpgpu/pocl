@@ -912,6 +912,10 @@ compile_and_link_program(int compile_program,
 
   if (link_program)
     {
+      #ifdef DUMP_LLVM_PASS_TIMINGS
+      llvm::TimePassesIsEnabled = true;
+      #endif
+      POCL_MEASURE_START(llvm_post_code_gen)
       for (device_i = 0; device_i < program->num_devices; device_i++)
         {
           cl_device_id device = program->devices[device_i];
@@ -925,6 +929,10 @@ compile_and_link_program(int compile_program,
               goto ERROR;
             }
         }
+      POCL_MEASURE_FINISH(llvm_post_code_gen)
+      #ifdef DUMP_LLVM_PASS_TIMINGS
+      llvm::reportAndResetTimings();
+       #endif
     }
 
   TP_BUILD_PROGRAM (program->context->id, program->id);

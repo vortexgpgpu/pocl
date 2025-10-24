@@ -296,9 +296,9 @@ int compile_vortex_program(char**kernel_names, int* num_kernels, char* sz_progra
 
   {
     std::string clang_path(CLANG);
-    if (llvm_install_path) {
-      clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
-    }
+    //if (llvm_install_path) {
+    //  clang_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
+    //}
 
     char sz_kernel_main[POCL_MAX_PATHNAME_LENGTH];
     pocl_get_srcdir_or_datadir (sz_kernel_main, "/lib/CL/devices", "", "/vortex/kernel_main.c");
@@ -315,9 +315,9 @@ int compile_vortex_program(char**kernel_names, int* num_kernels, char* sz_progra
 
   if (POCL_DEBUGGING_ON) {
     std::string objdump_path(LLVM_OBJDUMP);
-    if (llvm_install_path) {
-      objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
-    }
+    //if (llvm_install_path) {
+    //  objdump_path.replace(0, strlen(LLVM_PREFIX), llvm_install_path);
+    //}
 
     std::stringstream ss_cmd, ss_out;
     ss_cmd << objdump_path.c_str() << " -D " << sz_program_elf << " > program.dump";
