@@ -161,7 +161,6 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   }
 
   dev->vendor = "Vortex Group";
-  dev->long_name = "Vortex OpenGPU";
   dev->short_name = "Vortex";
   dev->vendor_id = 0;
   dev->type = CL_DEVICE_TYPE_GPU;
@@ -236,6 +235,15 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
     free(dd);
     return CL_DEVICE_NOT_FOUND;
   }
+  char* long_name = (char *)malloc(64 * sizeof(char));
+  if (long_name == NULL)
+  {
+    vx_dev_close(vx_device);
+    free(dd);
+    return CL_OUT_OF_HOST_MEMORY;
+  }
+  snprintf(long_name, 64 * sizeof(char), "Vortex OpenGPU W%luT%lu", num_warps, num_threads);
+  dev->long_name = long_name;
 
   uint64_t max_work_group_size = num_warps * num_threads;
 
@@ -283,8 +291,10 @@ cl_int pocl_vortex_uninit (unsigned j, cl_device_id dev) {
 
 int pocl_vortex_init_context (cl_device_id dev, cl_context context) {
   vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
-  if (NULL == dd)
-    return CL_SUCCESS;
+  if (dd == NULL){
+    pocl_vortex_init(0,dev,NULL);
+    dd = (vortex_device_data_t *)dev->data;
+  }
 
   dd->ctx_refcount++;
 
@@ -308,7 +318,6 @@ int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
   cl_device_id dev = program->devices[device_i];
   vortex_device_data_t *ddata = (vortex_device_data_t *)dev->data;
   vortex_program_data_t *pdata = NULL;
-
   POCL_LOCK (ddata->compile_lock);
 
   do {
@@ -578,6 +587,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   // release previous kernel buffer
   if (dd->vx_kernel_buffer != NULL)
   {
+    vx_dump_perf(dd->vx_device, stdout);
     vx_mem_free(dd->vx_kernel_buffer);
     dd->vx_kernel_buffer = NULL;
   }
@@ -755,7 +765,8 @@ void pocl_vortex_submit (_cl_command_node *node, cl_command_queue cq) {
 
 void pocl_vortex_flush (cl_device_id dev, cl_command_queue cq) {
   vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
-
+  if(dd == NULL)
+    return;
   POCL_LOCK (dd->cq_lock);
   vortex_command_scheduler (dd);
   POCL_UNLOCK (dd->cq_lock);

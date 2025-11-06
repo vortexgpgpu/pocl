@@ -41,7 +41,7 @@ foreach(FILE printf.c printf_base.c
   list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
 endforeach()
 
-foreach(FILE workitems.c printf.c barrier.c)
+foreach(FILE workitems.c printf.c barrier.c atomics.c)
   list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
   list(APPEND KERNEL_SOURCES "vortex/${FILE}")
 endforeach()
