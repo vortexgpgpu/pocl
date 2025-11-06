@@ -578,6 +578,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   // release previous kernel buffer
   if (dd->vx_kernel_buffer != NULL)
   {
+    vx_dump_perf(dd->vx_device, stdout);
     vx_mem_free(dd->vx_kernel_buffer);
     dd->vx_kernel_buffer = NULL;
   }
