@@ -119,6 +119,27 @@ int _Z14_cl_atomic_maxPU8CLglobalVii(volatile void *ptr, int val)
     return _vx_atomic_max_asm(ptr, val);
 }
 
+static inline unsigned int _vx_atomic_maxu_asm(volatile void *addr, unsigned int value)
+{
+    unsigned int old_value;
+    __asm__ volatile(
+        "amomaxu.w %0, %2, (%1)"
+        : "=r"(old_value)
+        : "r"(addr), "r"(value)
+        : "memory");
+    return old_value;
+}
+
+unsigned int _Z14_cl_atomic_maxPU7CLlocalVjj(volatile void *ptr, unsigned int val)
+{
+    return _vx_atomic_maxu_asm(ptr, val);
+}
+
+unsigned int _Z14_cl_atomic_maxPU8CLglobalVjj(volatile void *ptr, unsigned int val)
+{
+    return _vx_atomic_maxu_asm(ptr, val);
+}
+
 // atomic_min
 
 static inline int _vx_atomic_min_asm(volatile void *addr, int value)
@@ -140,6 +161,27 @@ int _Z14_cl_atomic_minPU7CLlocalVii(volatile void *ptr, int val)
 int _Z14_cl_atomic_minPU8CLglobalVii(volatile void *ptr, int val)
 {
     return _vx_atomic_min_asm(ptr, val);
+}
+
+static inline unsigned int _vx_atomic_minu_asm(volatile void *addr, unsigned int value)
+{
+    unsigned int old_value;
+    __asm__ volatile(
+        "amominu.w %0, %2, (%1)"
+        : "=r"(old_value)
+        : "r"(addr), "r"(value)
+        : "memory");
+    return old_value;
+}
+
+unsigned int _Z14_cl_atomic_minPU7CLlocalVjj(volatile void *ptr, unsigned int val)
+{
+    return _vx_atomic_minu_asm(ptr, val);
+}
+
+unsigned int _Z14_cl_atomic_minPU8CLglobalVjj(volatile void *ptr, unsigned int val)
+{
+    return _vx_atomic_minu_asm(ptr, val);
 }
 
 // atomic_xor
@@ -308,46 +350,4 @@ unsigned int _Z18_cl_atomic_cmpxchgPU7CLlocalVjjj(volatile void *ptr, unsigned i
 unsigned int _Z18_cl_atomic_cmpxchgPU8CLglobalVjjj(volatile void *ptr, unsigned int cmp_val, unsigned int new_val)
 {
     return _vx_atomic_cmpxchg_asm(ptr, (int)cmp_val, (int)new_val);
-}
-
-static inline unsigned int _vx_atomic_minu_asm(volatile void *addr, unsigned int value)
-{
-    unsigned int old_value;
-    __asm__ volatile(
-        "amominu.w %0, %2, (%1)"
-        : "=r"(old_value)
-        : "r"(addr), "r"(value)
-        : "memory");
-    return old_value;
-}
-
-unsigned int _Z14_cl_atomic_minPU7CLlocalVjj(volatile void *ptr, unsigned int val)
-{
-    return _vx_atomic_minu_asm(ptr, val);
-}
-
-unsigned int _Z14_cl_atomic_minPU8CLglobalVjj(volatile void *ptr, unsigned int val)
-{
-    return _vx_atomic_minu_asm(ptr, val);
-}
-
-static inline unsigned int _vx_atomic_maxu_asm(volatile void *addr, unsigned int value)
-{
-    unsigned int old_value;
-    __asm__ volatile(
-        "amomaxu.w %0, %2, (%1)"
-        : "=r"(old_value)
-        : "r"(addr), "r"(value)
-        : "memory");
-    return old_value;
-}
-
-unsigned int _Z14_cl_atomic_maxPU7CLlocalVjj(volatile void *ptr, unsigned int val)
-{
-    return _vx_atomic_maxu_asm(ptr, val);
-}
-
-unsigned int _Z14_cl_atomic_maxPU8CLglobalVjj(volatile void *ptr, unsigned int val)
-{
-    return _vx_atomic_maxu_asm(ptr, val);
 }
