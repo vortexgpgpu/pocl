@@ -117,7 +117,8 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
 
   ops->read = pocl_vortex_read;
   ops->write = pocl_vortex_write;
-
+  ops->copy = pocl_vortex_copy;
+  
   ops->get_mapping_ptr = pocl_driver_get_mapping_ptr;
   ops->free_mapping_ptr = pocl_driver_free_mapping_ptr;
 }
@@ -693,6 +694,27 @@ void pocl_vortex_free(cl_device_id dev, cl_mem mem_obj) {
   free(buf_data);
   p->mem_ptr = NULL;
   p->version = 0;
+}
+
+void pocl_vortex_copy(void *data,
+                      pocl_mem_identifier *dst_mem_id,
+                      cl_mem dst_buf,
+                      pocl_mem_identifier *src_mem_id,
+                      cl_mem src_buf,
+                      size_t dst_offset,
+                      size_t src_offset,
+                      size_t size)
+{
+  int vx_err;
+  vortex_buffer_data_t *src_buf_data = (vortex_buffer_data_t *)src_mem_id->mem_ptr;
+  vortex_buffer_data_t *dst_buf_data = (vortex_buffer_data_t *)dst_mem_id->mem_ptr;
+  vx_err = vx_copy_dev_to_dev(dst_buf_data->vx_buffer, dst_offset,
+                              src_buf_data->vx_buffer, src_offset,
+                              size);
+  if (vx_err != 0)
+  {
+    POCL_ABORT("POCL_VORTEX_COPY\n");
+  }
 }
 
 void pocl_vortex_write(void *data,
