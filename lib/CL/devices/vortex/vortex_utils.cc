@@ -146,11 +146,12 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
         allocated_local_mem = Builder.CreateCall(vx_local_alloc_func, {local_size}, "__local_mem");
       }
       // Load argument __offset
+      auto ArgOffset = llvm::ConstantInt::get(I32Ty, arg_offset);
       auto offset_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, OldArg.getName() + "_offset_ptr");
       auto offset = Builder.CreateLoad(I32Ty, offset_ptr, OldArg.getName() + "_offset");
       arg_offset = ALIGN_OFFSET(arg_offset + 4, BaseAlignment);
       // Apply pointer offset
-      Arg = Builder.CreateGEP(I8PtrTy, allocated_local_mem, offset, OldArg.getName() + "_byte_ptr");
+      Arg = Builder.CreateGEP(I8Ty, allocated_local_mem, offset, OldArg.getName() + "_byte_ptr");
     } else {
       auto offset_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, OldArg.getName() + "_offset_ptr");
       Arg = Builder.CreateLoad(ArgType, offset_ptr, OldArg.getName() + "_loaded");
