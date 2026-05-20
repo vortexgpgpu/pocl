@@ -1,51 +1,42 @@
-/* Vortex v3 KMU kernel trampoline.
+/* Vortex v3 KMU kernel-runtime support.
  *
- * The legacy model wrapped this with a vx_spawn_threads() software loop:
- * a single hardware thread bootstrapped main(), then iterated through every
- * (block, thread) coordinate setting TLS variables and dispatching to the
- * user kernel each time. v3 KMU handles that iteration in hardware — main()
- * is called once per (block, thread), with the per-coordinate state already
- * exposed in CSRs (VX_CSR_CTA_THREAD_ID_*, VX_CSR_CTA_BLOCK_ID_*, etc).
+ * Each OpenCL kernel is its own KMU entry point in the .vxbin: the
+ * compiler glue (compile_vortex_program) emits, per kernel, an entry stub
+ * + a "vortex.kernel" trampoline, and the runtime resolves each by name
+ * via vx_module_get_kernel. There is no kernel-id dispatch.
  *
- * This file is now a thin dispatch: read the kargs pointer from MSCRATCH,
- * extract OpenCL globals (work_dim, global_offset) into static state that
- * workitems.c references, then call into the POCL-generated kernel
- * wrapper. See pocl_vortex_v3_proposal.md §3.2 (Phase 2).
+ * This file holds the program-wide support those trampolines and the
+ * POCL-generated kernels share: the work-globals the KMU does not surface
+ * via CSRs, the per-CTA local-memory accessor, and the once-per-launch
+ * args prologue.
  */
 #include "kernel_args.h"
 #include <vx_intrinsics.h>
-#include <vx_print.h>
 #include <VX_types.h>
+#include <stddef.h>
 
-/* Globals consumed by workitems.c for OpenCL functions that the KMU does
- * not surface via CSRs (work_dim, global_offset). They are set once per
- * launch from the host-supplied kernel_args_t — same across all
+/* Globals consumed by workitems.c for OpenCL functions the KMU does not
+ * surface via CSRs (work_dim, global_offset). Set once per launch by
+ * __vx_kernel_setup from the host-supplied kernel_args_t — same across all
  * (block, thread) invocations. */
 int g_work_dim;
 struct g_global_offset3 { uint32_t x, y, z; };
 struct g_global_offset3 g_global_offset;
 
 /* KMU exposes the per-CTA local-memory base address through
- * VX_CSR_CTA_LMEM_ADDR (sw/kernel/include/vx_spawn2.h does the same as
- * `#define __local_mem() (void*)(csr_read(VX_CSR_CTA_LMEM_ADDR))`).
- * The legacy vx_spawn.h version took a per-call size parameter and did
- * software offsetting per-workgroup; KMU centralizes the address so the
- * size argument is no longer meaningful. POCL still passes one — ignored. */
+ * VX_CSR_CTA_LMEM_ADDR. The legacy vx_spawn.h version took a per-call size
+ * parameter and did software offsetting per-workgroup; KMU centralizes the
+ * address so the size argument is no longer meaningful. POCL still passes
+ * one — ignored. */
 void* vx_local_alloc(uint32_t size) {
   (void)size;
   return (void*)(uintptr_t)csr_read(VX_CSR_CTA_LMEM_ADDR);
 }
 
-typedef void (*vx_kernel_func_cb)(void *arg);
-void* __vx_get_kernel_callback(int kernel_id);
-
-/* KMU entry point. libvortex2.a's vx_start.S calls this symbol once per
- * (block, thread) coordinate after setting the per-invocation CSRs
- * (THREAD_ID, BLOCK_ID, BLOCK_DIM, GRID_DIM, CTA_LMEM_ADDR). The
- * vortex.kernel annotation marks it for the Vortex-specific compiler
- * pass; see sw/kernel/include/vx_spawn2.h `__kernel` macro. */
-__attribute__((annotate("vortex.kernel")))
-void kernel_main(void) {
+/* Once-per-launch args prologue, called by each kernel's generated
+ * trampoline. Publishes the work-globals and returns the pointer to the
+ * user kernel-argument block, which follows the kernel_args_t header. */
+void* __vx_kernel_setup(void) {
   kernel_args_t* kargs = (kernel_args_t*)csr_read(VX_CSR_MSCRATCH);
 
   g_work_dim = kargs->work_dim;
@@ -54,7 +45,11 @@ void kernel_main(void) {
   g_global_offset.z = kargs->global_offset[2];
 
   uint32_t aligned_kargs_size = ALIGN_OFFSET(sizeof(kernel_args_t), sizeof(size_t));
-  void* user_args = (void*)((uint8_t*)kargs + aligned_kargs_size);
-  vx_kernel_func_cb kernel_func = (vx_kernel_func_cb)__vx_get_kernel_callback(kargs->kernel_id);
-  kernel_func(user_args);
+  return (void*)((uint8_t*)kargs + aligned_kargs_size);
 }
+
+/* Dead link stub. vx_start.S's _start (the ELF ENTRY, always linked) ends
+ * with `jal kernel_main`. A multi-entry .vxbin never reaches _start — the
+ * KMU enters the per-kernel stubs listed in the VXSYMTAB footer — but the
+ * symbol must still resolve at link time. */
+void kernel_main(void) {}

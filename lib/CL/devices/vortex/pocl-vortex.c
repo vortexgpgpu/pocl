@@ -30,11 +30,14 @@
 
 #include "vortex_utils.h"
 #include "kernel_args.h"
-#include <vortex.h>
+// vortex2.h is the canonical async runtime API; the Vortex device driver
+// uses it exclusively (no legacy vortex.h entry points).
+#include <vortex2.h>
 
 typedef struct {
   vx_device_h vx_device;
-  vx_buffer_h vx_kernel_buffer;
+  // Queue for the vortex2 async path: buffer DMA + kernel launch.
+  vx_queue_h  vx_queue;
 
   /* List of commands ready to be executed */
   _cl_command_node *ready_list;
@@ -64,14 +67,29 @@ typedef struct {
 
 static void *pocl_vortex_driver_thread (void *arg);
 
+// Block until a vortex2 enqueue event completes, then release it.
+// POCL's buffer ops (read/write/copy) are synchronous from the caller's
+// view, so each enqueue is followed immediately by this wait. Returns 0
+// on success.
+static int vx_sync_event(vx_event_h ev) {
+  if (ev == NULL)
+    return 0;
+  int r = vx_event_wait_value(ev, 1, VX_TIMEOUT_INFINITE);
+  vx_event_release(ev);
+  return r;
+}
+
 typedef struct {
-  int num_kernels;
-  char* kernel_names;
+  /* The compiled .vxbin as a vortex2 module. Each OpenCL kernel is its own
+   * named entry point inside it, resolved per-kernel by pocl_vortex_create
+   * _kernel via vx_module_get_kernel. */
+  vx_module_h vx_module;
 } vortex_program_data_t;
 
 typedef struct {
   size_t refcount;
-  int kernel_id;
+  /* This kernel's entry point in the program module. */
+  vx_kernel_h vx_kernel;
 } vortex_kernel_data_t;
 
 typedef struct {
@@ -136,9 +154,13 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
   ops->broadcast = pocl_broadcast;
 
   ops->read = pocl_vortex_read;
+  ops->read_rect = pocl_vortex_read_rect;
   ops->write = pocl_vortex_write;
+  ops->write_rect = pocl_vortex_write_rect;
   ops->copy = pocl_vortex_copy;
-  
+  ops->copy_rect = pocl_vortex_copy_rect;
+  ops->memfill = pocl_vortex_memfill;
+
   ops->get_mapping_ptr = pocl_driver_get_mapping_ptr;
   ops->free_mapping_ptr = pocl_driver_free_mapping_ptr;
 }
@@ -243,48 +265,61 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
 
   vx_device_h vx_device;
 
-  vx_err = vx_dev_open(&vx_device);
+  vx_err = vx_device_open(0, &vx_device);
   if (vx_err != 0) {
     free(dd);
     return CL_DEVICE_NOT_FOUND;
   }
 
   uint64_t num_cores;
-  vx_err = vx_dev_caps(vx_device, VX_CAPS_NUM_CORES, &num_cores);
+  vx_err = vx_device_query(vx_device, VX_CAPS_NUM_CORES, &num_cores);
   if (vx_err != 0) {
-    vx_dev_close(vx_device);
+    vx_device_release(vx_device);
     free(dd);
     return CL_DEVICE_NOT_FOUND;
   }
 
   uint64_t global_mem_size;
-  vx_err = vx_dev_caps(vx_device, VX_CAPS_GLOBAL_MEM_SIZE, &global_mem_size);
+  vx_err = vx_device_query(vx_device, VX_CAPS_GLOBAL_MEM_SIZE, &global_mem_size);
   if (vx_err != 0) {
-    vx_dev_close(vx_device);
+    vx_device_release(vx_device);
     free(dd);
     return CL_DEVICE_NOT_FOUND;
   }
 
   uint64_t local_mem_size;
-  vx_err = vx_dev_caps(vx_device, VX_CAPS_LOCAL_MEM_SIZE, &local_mem_size);
+  vx_err = vx_device_query(vx_device, VX_CAPS_LOCAL_MEM_SIZE, &local_mem_size);
   if (vx_err != 0) {
-    vx_dev_close(vx_device);
+    vx_device_release(vx_device);
     free(dd);
     return CL_DEVICE_NOT_FOUND;
   }
 
   uint64_t num_warps;
-  vx_err = vx_dev_caps(vx_device, VX_CAPS_NUM_WARPS, &num_warps);
+  vx_err = vx_device_query(vx_device, VX_CAPS_NUM_WARPS, &num_warps);
   if (vx_err != 0) {
-    vx_dev_close(vx_device);
+    vx_device_release(vx_device);
     free(dd);
     return CL_DEVICE_NOT_FOUND;
   }
 
   uint64_t num_threads;
-  vx_err = vx_dev_caps(vx_device, VX_CAPS_NUM_THREADS, &num_threads);
+  vx_err = vx_device_query(vx_device, VX_CAPS_NUM_THREADS, &num_threads);
   if (vx_err != 0) {
-    vx_dev_close(vx_device);
+    vx_device_release(vx_device);
+    free(dd);
+    return CL_DEVICE_NOT_FOUND;
+  }
+
+  /* Async DMA queue for the vortex2 buffer path. */
+  vx_queue_h vx_queue;
+  vx_queue_info_t qinfo;
+  memset(&qinfo, 0, sizeof(qinfo));
+  qinfo.struct_size = sizeof(qinfo);
+  qinfo.priority    = VX_QUEUE_PRIORITY_NORMAL;
+  vx_err = vx_queue_create(vx_device, &qinfo, &vx_queue);
+  if (vx_err != 0) {
+    vx_device_release(vx_device);
     free(dd);
     return CL_DEVICE_NOT_FOUND;
   }
@@ -300,8 +335,8 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   dev->max_work_item_sizes[2] = max_work_group_size;
   dev->max_compute_units = num_cores;
 
-  dd->vx_kernel_buffer = NULL;
   dd->vx_device = vx_device;
+  dd->vx_queue  = vx_queue;
 
   dd->ctx_refcount = 0;
 
@@ -332,10 +367,12 @@ cl_int pocl_vortex_uninit (unsigned j, cl_device_id dev) {
   POCL_UNLOCK (dd->cq_lock);
   POCL_JOIN_THREAD (dd->worker_thread);
 
-  if (dd->vx_kernel_buffer != NULL) {
-    vx_mem_free(dd->vx_kernel_buffer);
-  }
-  vx_dev_close(dd->vx_device);
+  /* Perf counters dumped once at device teardown. The legacy launch path
+   * dumped them per-run when freeing the previous kernel buffer; with the
+   * module loaded once at build time there is no longer a per-run hook. */
+  vx_device_dump_perf(dd->vx_device, stdout);
+  vx_queue_release(dd->vx_queue);
+  vx_device_release(dd->vx_device);
 
   POCL_DESTROY_COND (dd->cq_cond);
   POCL_DESTROY_COND (dd->idle_cond);
@@ -382,7 +419,6 @@ int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
       break;
 
     pdata = (vortex_program_data_t *)calloc (1, sizeof (vortex_program_data_t));
-    pdata->kernel_names = NULL;
 
     char sz_program_bc[POCL_MAX_PATHNAME_LENGTH];
     char sz_program_vxbin[POCL_MAX_PATHNAME_LENGTH];
@@ -393,8 +429,16 @@ int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
     strcpy(sz_program_vxbin, sz_program_bc);
     strncat(sz_program_vxbin, ".vxbin", POCL_MAX_PATHNAME_LENGTH - 1);
 
-    result = compile_vortex_program(&pdata->kernel_names, &pdata->num_kernels,
-        sz_program_vxbin, program->llvm_irs[device_i]);
+    result = compile_vortex_program(sz_program_vxbin,
+                                    program->llvm_irs[device_i]);
+    if (result != 0)
+      break;
+
+    /* Load the freshly-compiled .vxbin as a vortex2 module up front. Each
+     * kernel is its own named entry point; pocl_vortex_create_kernel
+     * resolves them individually. */
+    result = vx_module_load_file(ddata->vx_device, sz_program_vxbin,
+                                 &pdata->vx_module);
     if (result != 0)
       break;
 
@@ -416,7 +460,10 @@ int pocl_vortex_free_program (cl_device_id dev, cl_program program,
 
   pocl_driver_free_program (dev, program, device_i);
 
-  POCL_MEM_FREE (pdata->kernel_names);
+  /* Per-kernel vx_kernel handles are released by pocl_vortex_free_kernel. */
+  if (pdata->vx_module != NULL)
+    vx_module_release (pdata->vx_module);
+
   POCL_MEM_FREE (pdata);
   program->data[device_i] = NULL;
 
@@ -438,19 +485,15 @@ int pocl_vortex_create_kernel (cl_device_id dev, cl_program program,
     vortex_program_data_t *pdata = (vortex_program_data_t *)program->data[device_i];
     assert(pdata != NULL);
 
-    const char* current = pdata->kernel_names;
-    int i = 0;
-    int found = 0;
-    for (; i < pdata->num_kernels; ++i) {
-      if (strcmp(current, kernel->name) == 0) {
-        found = 1;
-        break;
-      }
-      current += strlen(current) + 1;
+    /* Resolve this kernel's named entry point in the program module. */
+    vx_kernel_h vx_kernel = NULL;
+    if (vx_module_get_kernel(pdata->vx_module, kernel->name, &vx_kernel) != 0) {
+      POCL_MSG_ERR("vortex: kernel '%s' not found in module\n", kernel->name);
+      result = CL_INVALID_KERNEL_NAME;
+      break;
     }
-    assert(found);
-    kdata = (void *)calloc (1, sizeof (vortex_kernel_data_t));
-    kdata->kernel_id = i;
+    kdata = (vortex_kernel_data_t *)calloc (1, sizeof (vortex_kernel_data_t));
+    kdata->vx_kernel = vx_kernel;
     ++kdata->refcount;
 
   } while (0);
@@ -470,6 +513,8 @@ int pocl_vortex_free_kernel (cl_device_id dev, cl_program program,
 
   --kdata->refcount;
   if (kdata->refcount == 0) {
+    if (kdata->vx_kernel != NULL)
+      vx_kernel_release (kdata->vx_kernel);
     POCL_MEM_FREE (kdata);
     meta->data[device_i] = NULL;
   }
@@ -482,9 +527,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   struct pocl_argument *al;
   cl_uint device_i = cmd->program_device_i;
   cl_kernel kernel = cmd->command.run.kernel;
-  cl_program program = kernel->program;
   pocl_kernel_metadata_t *meta = kernel->meta;
-  vortex_program_data_t *pdata = (vortex_program_data_t *)program->data[device_i];
   vortex_kernel_data_t *kdata = (vortex_kernel_data_t *)meta->data[device_i];
   struct pocl_context *pc = &cmd->command.run.pc;
   int vx_err;
@@ -536,49 +579,22 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
     abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
   }
 
-  // check occupancy
-  if (group_size != 1) {
-    int available_localmem;
-    vx_err = vx_check_occupancy(dd->vx_device, group_size, &available_localmem);
-    if (vx_err != 0) {
-      POCL_ABORT("POCL_VORTEX_RUN\n");
-    }
-    if (local_mem_size > available_localmem) {
-      POCL_ABORT("out of local memory: needed=%d bytes, available=%d bytes\n",
-        local_mem_size, available_localmem);
-    }
-  }
-
   // allocate arguments host buffer
   size_t kargs_buffer_size = aligned_kernel_args_size + abuf_size;
   uint8_t* const host_kargs_base_ptr = malloc(kargs_buffer_size);
   assert(host_kargs_base_ptr);
 
-  // allocate kernel arguments buffer
-  vx_buffer_h vx_kargs_buffer;
-  vx_err = vx_mem_alloc(dd->vx_device, kargs_buffer_size, VX_MEM_READ, &vx_kargs_buffer);
-  if (vx_err != 0) {
-    POCL_ABORT("POCL_VORTEX_RUN\n");
-  }
-
-  uint64_t dev_kargs_base_addr;
-  vx_err = vx_mem_address(vx_kargs_buffer, &dev_kargs_base_addr);
-  if (vx_err != 0) {
-    POCL_ABORT("POCL_VORTEX_RUN\n");
-  }
-
   // write context data
-  // Phase 2 (pocl_vortex_v3_proposal.md): num_groups/local_size moved from
-  // kernel_args_t into the vx_start_g() parameters because the v3 KMU
-  // surfaces them through VX_CSR_CTA_{GRID_DIM,BLOCK_DIM}_*. work_dim and
-  // global_offset stay because the KMU does not expose them.
+  // num_groups/local_size are carried in vx_launch_info_t.grid_dim/block_dim
+  // rather than kernel_args_t because the KMU surfaces them through
+  // VX_CSR_CTA_{GRID_DIM,BLOCK_DIM}_*. work_dim and global_offset stay in
+  // kernel_args_t because the KMU does not expose them.
   {
     kernel_args_t* const kargs = (kernel_args_t*)host_kargs_base_ptr;
     kargs->work_dim = pc->work_dim;
     for (int i = 0; i < 3; ++i) {
       kargs->global_offset[i] = pc->global_offset[i];
     }
-    kargs->kernel_id = kdata->kernel_id;
   }
 
   // write arguments
@@ -647,68 +663,39 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
     local_mem_offset += meta->local_sizes[i];
   }
 
-  // upload kernel arguments buffer
-  vx_err = vx_copy_to_dev(vx_kargs_buffer, host_kargs_base_ptr, 0, kargs_buffer_size);
-  if (vx_err != 0) {
-    POCL_ABORT("POCL_VORTEX_RUN\n");
-  }
-
-  // release argument host buffer
-  free(host_kargs_base_ptr);
-
-  // release previous kernel buffer
-  if (dd->vx_kernel_buffer != NULL)
-  {
-    vx_dump_perf(dd->vx_device, stdout);
-    vx_mem_free(dd->vx_kernel_buffer);
-    dd->vx_kernel_buffer = NULL;
-  }
-
-  // upload kernel to device
-  char sz_program_bc[POCL_MAX_PATHNAME_LENGTH];
-  char sz_program_vxbin[POCL_MAX_PATHNAME_LENGTH];
-
-  pocl_cache_program_bc_path(sz_program_bc, program, device_i);
-  remove_extension(sz_program_bc);
-
-  strcpy(sz_program_vxbin, sz_program_bc);
-  strncat(sz_program_vxbin, ".vxbin", POCL_MAX_PATHNAME_LENGTH - 1);
-  
-  vx_err = vx_upload_kernel_file(dd->vx_device, sz_program_vxbin, &dd->vx_kernel_buffer);
-  if (vx_err != 0) {
-    POCL_ABORT("POCL_VORTEX_RUN\n");
-  }
-
   // launch kernel execution
-  /* Phase 2 (pocl_vortex_v3_proposal.md): vx_start_g instead of vx_start.
-   * The v3 KMU iterates over (block, thread) coordinates in hardware,
-   * driven by these grid_dim / block_dim arrays. The kernel-side code
-   * (kernel_main.c + lib/kernel/vortex/workitems.c) reads thread/block
-   * IDs from CSRs that the KMU sets per-invocation. local_mem_size is
-   * the third positional arg. pc->num_groups and pc->local_size are
-   * size_t[3] in POCL's pocl_context struct; copy into uint32_t[3] for
-   * vx_start_g's signature. */
-  uint32_t grid_dim_u32[3] = { (uint32_t)pc->num_groups[0],
-                               (uint32_t)pc->num_groups[1],
-                               (uint32_t)pc->num_groups[2] };
-  uint32_t block_dim_u32[3] = { (uint32_t)pc->local_size[0],
-                                (uint32_t)pc->local_size[1],
-                                (uint32_t)pc->local_size[2] };
-  vx_err = vx_start_g(dd->vx_device, dd->vx_kernel_buffer, vx_kargs_buffer,
-                      pc->work_dim, grid_dim_u32, block_dim_u32,
-                      local_mem_size);
+  /* The vortex2 runtime stages the host args blob into a device-side
+   * scratch slot and programs the KMU ARG/PC DCRs itself; the caller no
+   * longer allocates, uploads, or frees an args device buffer, nor uploads
+   * the kernel per-run (the module is loaded once in post_build_program).
+   * The KMU iterates over (block, thread) coordinates in hardware, driven
+   * by the grid_dim / block_dim arrays. pc->num_groups and pc->local_size
+   * are size_t[3] in POCL's pocl_context struct; copy into uint32_t[3] for
+   * vx_launch_info_t. */
+  vx_launch_info_t li;
+  memset(&li, 0, sizeof(li));
+  li.struct_size = sizeof(li);
+  li.kernel      = kdata->vx_kernel;
+  li.args_host   = host_kargs_base_ptr;
+  li.args_size   = kargs_buffer_size;
+  li.ndim        = pc->work_dim;
+  li.lmem_size   = local_mem_size;
+  for (int i = 0; i < 3; ++i) {
+    li.grid_dim[i]  = (uint32_t)pc->num_groups[i];
+    li.block_dim[i] = (uint32_t)pc->local_size[i];
+  }
+
+  vx_event_h ev = NULL;
+  vx_err = vx_enqueue_launch(dd->vx_queue, &li, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_RUN\n");
   }
 
-  // wait for the execution to complete
-  vx_err = vx_ready_wait(dd->vx_device, -1);
-  if (vx_err != 0) {
-    POCL_ABORT("POCL_VORTEX_RUN\n");
-  }
-
-  // release arguments device buffer
-  vx_mem_free(vx_kargs_buffer);
+  // release argument host buffer (held live until the launch completed
+  // above, since the runtime stages it at launch time)
+  free(host_kargs_base_ptr);
 }
 
 cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_ptr) {
@@ -738,20 +725,25 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_pt
     vortex_device_data_t* dd = (vortex_device_data_t *)dev->data;
 
     vx_buffer_h vx_buffer;
-    vx_err = vx_mem_alloc(dd->vx_device, mem_obj->size, vx_flags, &vx_buffer);
+    vx_err = vx_buffer_create(dd->vx_device, mem_obj->size, vx_flags, &vx_buffer);
     if (vx_err != 0) {
       return CL_MEM_OBJECT_ALLOCATION_FAILURE;
     }
 
     uint64_t buf_address;
-    vx_err = vx_mem_address(vx_buffer, &buf_address);
+    vx_err = vx_buffer_address(vx_buffer, &buf_address);
     if (vx_err != 0) {
       POCL_ABORT("POCL_VORTEX_RUN\n");
     }
 
     if (host_ptr && (flags & CL_MEM_COPY_HOST_PTR)) {
-      vx_err = vx_copy_to_dev(vx_buffer, host_ptr, 0, mem_obj->size);
+      vx_event_h ev = NULL;
+      vx_err = vx_enqueue_write(dd->vx_queue, vx_buffer, 0, host_ptr,
+                                mem_obj->size, 0, NULL, &ev);
+      if (vx_err == 0)
+        vx_err = vx_sync_event(ev);
       if (vx_err != 0) {
+        vx_buffer_release(vx_buffer);
         return CL_MEM_OBJECT_ALLOCATION_FAILURE;
       }
     }
@@ -791,7 +783,7 @@ void pocl_vortex_free(cl_device_id dev, cl_mem mem_obj) {
       pocl_release_mem_host_ptr(mem_obj);
     }
     if (buf_data && buf_data->vx_buffer) {
-      vx_mem_free(buf_data->vx_buffer);
+      vx_buffer_release(buf_data->vx_buffer);
     }
   }
   if (buf_data) free(buf_data);
@@ -810,11 +802,16 @@ void pocl_vortex_copy(void *data,
                       size_t size)
 {
   int vx_err;
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
   vortex_buffer_data_t *src_buf_data = (vortex_buffer_data_t *)src_mem_id->extra_ptr;
   vortex_buffer_data_t *dst_buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
-  vx_err = vx_copy_dev_to_dev(dst_buf_data->vx_buffer, dst_offset,
-                              src_buf_data->vx_buffer, src_offset,
-                              size);
+  vx_event_h ev = NULL;
+  vx_err = vx_enqueue_copy(dd->vx_queue,
+                           dst_buf_data->vx_buffer, dst_offset,
+                           src_buf_data->vx_buffer, src_offset,
+                           size, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
   if (vx_err != 0)
   {
     POCL_ABORT("POCL_VORTEX_COPY\n");
@@ -828,8 +825,13 @@ void pocl_vortex_write(void *data,
                        size_t offset,
                        size_t size) {
   int vx_err;
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
   vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
-  vx_err = vx_copy_to_dev(buf_data->vx_buffer, host_ptr, offset, size);
+  vx_event_h ev = NULL;
+  vx_err = vx_enqueue_write(dd->vx_queue, buf_data->vx_buffer, offset,
+                            host_ptr, size, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_WRITE\n");
   }
@@ -842,10 +844,149 @@ void pocl_vortex_read(void *data,
                       size_t offset,
                       size_t size) {
   int vx_err;
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
   vortex_buffer_data_t* buf_data = (vortex_buffer_data_t*)src_mem_id->extra_ptr;
-  vx_err = vx_copy_from_dev(host_ptr, buf_data->vx_buffer, offset, size);
+  vx_event_h ev = NULL;
+  vx_err = vx_enqueue_read(dd->vx_queue, host_ptr, buf_data->vx_buffer,
+                           offset, size, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_READ\n");
+  }
+}
+
+/* clEnqueue{Read,Write,Copy}BufferRect / clEnqueueFillBuffer. These map
+ * 1:1 onto the vortex2 rect/fill enqueues; the runtime owns the strided
+ * decomposition (vx_enqueue_*_rect) so POCL no longer slices the rect
+ * into N linear transfers itself. For buffer rect ops region[0] and the
+ * origin x components are byte counts, matching vx_rect_info_t. */
+void pocl_vortex_read_rect(void *data,
+                           void *__restrict__ dst_host_ptr,
+                           pocl_mem_identifier *src_mem_id,
+                           cl_mem src_buf,
+                           const size_t *buffer_origin,
+                           const size_t *host_origin,
+                           const size_t *region,
+                           size_t buffer_row_pitch,
+                           size_t buffer_slice_pitch,
+                           size_t host_row_pitch,
+                           size_t host_slice_pitch) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
+  vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)src_mem_id->extra_ptr;
+  vx_rect_info_t rect;
+  memset(&rect, 0, sizeof(rect));
+  rect.struct_size = sizeof(rect);
+  for (int i = 0; i < 3; ++i) {
+    rect.buffer_origin[i] = buffer_origin[i];
+    rect.host_origin[i]   = host_origin[i];
+    rect.region[i]        = region[i];
+  }
+  rect.buffer_row_pitch   = buffer_row_pitch;
+  rect.buffer_slice_pitch = buffer_slice_pitch;
+  rect.host_row_pitch     = host_row_pitch;
+  rect.host_slice_pitch   = host_slice_pitch;
+  vx_event_h ev = NULL;
+  int vx_err = vx_enqueue_read_rect(dd->vx_queue, dst_host_ptr,
+                                    buf_data->vx_buffer, &rect, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
+  if (vx_err != 0) {
+    POCL_ABORT("POCL_VORTEX_READ_RECT\n");
+  }
+}
+
+void pocl_vortex_write_rect(void *data,
+                            const void *__restrict__ src_host_ptr,
+                            pocl_mem_identifier *dst_mem_id,
+                            cl_mem dst_buf,
+                            const size_t *buffer_origin,
+                            const size_t *host_origin,
+                            const size_t *region,
+                            size_t buffer_row_pitch,
+                            size_t buffer_slice_pitch,
+                            size_t host_row_pitch,
+                            size_t host_slice_pitch) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
+  vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
+  vx_rect_info_t rect;
+  memset(&rect, 0, sizeof(rect));
+  rect.struct_size = sizeof(rect);
+  for (int i = 0; i < 3; ++i) {
+    rect.buffer_origin[i] = buffer_origin[i];
+    rect.host_origin[i]   = host_origin[i];
+    rect.region[i]        = region[i];
+  }
+  rect.buffer_row_pitch   = buffer_row_pitch;
+  rect.buffer_slice_pitch = buffer_slice_pitch;
+  rect.host_row_pitch     = host_row_pitch;
+  rect.host_slice_pitch   = host_slice_pitch;
+  vx_event_h ev = NULL;
+  int vx_err = vx_enqueue_write_rect(dd->vx_queue, buf_data->vx_buffer,
+                                     src_host_ptr, &rect, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
+  if (vx_err != 0) {
+    POCL_ABORT("POCL_VORTEX_WRITE_RECT\n");
+  }
+}
+
+void pocl_vortex_copy_rect(void *data,
+                           pocl_mem_identifier *dst_mem_id,
+                           cl_mem dst_buf,
+                           pocl_mem_identifier *src_mem_id,
+                           cl_mem src_buf,
+                           const size_t *dst_origin,
+                           const size_t *src_origin,
+                           const size_t *region,
+                           size_t dst_row_pitch,
+                           size_t dst_slice_pitch,
+                           size_t src_row_pitch,
+                           size_t src_slice_pitch) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
+  vortex_buffer_data_t *dst_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
+  vortex_buffer_data_t *src_data = (vortex_buffer_data_t *)src_mem_id->extra_ptr;
+  /* vx_rect_info_t carries the destination in buffer_* and the source in
+   * host_* for the copy case. */
+  vx_rect_info_t rect;
+  memset(&rect, 0, sizeof(rect));
+  rect.struct_size = sizeof(rect);
+  for (int i = 0; i < 3; ++i) {
+    rect.buffer_origin[i] = dst_origin[i];
+    rect.host_origin[i]   = src_origin[i];
+    rect.region[i]        = region[i];
+  }
+  rect.buffer_row_pitch   = dst_row_pitch;
+  rect.buffer_slice_pitch = dst_slice_pitch;
+  rect.host_row_pitch     = src_row_pitch;
+  rect.host_slice_pitch   = src_slice_pitch;
+  vx_event_h ev = NULL;
+  int vx_err = vx_enqueue_copy_rect(dd->vx_queue, dst_data->vx_buffer,
+                                    src_data->vx_buffer, &rect, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
+  if (vx_err != 0) {
+    POCL_ABORT("POCL_VORTEX_COPY_RECT\n");
+  }
+}
+
+void pocl_vortex_memfill(void *data,
+                         pocl_mem_identifier *dst_mem_id,
+                         cl_mem dst_buf,
+                         size_t size,
+                         size_t offset,
+                         const void *__restrict__ pattern,
+                         size_t pattern_size) {
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
+  vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
+  vx_event_h ev = NULL;
+  int vx_err = vx_enqueue_fill_buffer(dd->vx_queue, buf_data->vx_buffer,
+                                      offset, size, pattern, pattern_size,
+                                      0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
+  if (vx_err != 0) {
+    POCL_ABORT("POCL_VORTEX_MEMFILL\n");
   }
 }
 

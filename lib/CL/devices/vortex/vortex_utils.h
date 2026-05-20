@@ -9,7 +9,7 @@ extern "C" {
 
 void remove_extension(char* filename);
 
-int compile_vortex_program(char** kernel_names, int* num_kernels, char* sz_program_vxbin, void* llvm_module);
+int compile_vortex_program(char* sz_program_vxbin, void* llvm_module);
 
 #ifdef __cplusplus
 }

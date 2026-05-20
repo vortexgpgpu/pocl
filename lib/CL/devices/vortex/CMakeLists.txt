@@ -29,6 +29,9 @@ set_source_files_properties(vortex_utils.cc vortex_utils.h PROPERTIES COMPILE_FL
 if(NOT DEFINED VORTEX_BUILD_DIR)
     set(VORTEX_BUILD_DIR "${VORTEX_PREFIX}/build_test32")
 endif()
+# Vortex is built out-of-tree: public headers live under the source prefix
+# (VORTEX_PREFIX), build-generated headers and libvortex.so live under the
+# build directory (VORTEX_BUILD_DIR).
 include_directories(${LLVM_INCLUDE_DIRS} ${VORTEX_PREFIX}/sw/runtime/include ${VORTEX_BUILD_DIR}/hw ${VORTEX_BUILD_DIR}/sw ${CMAKE_CURRENT_SOURCE_DIR}/../../../llvmopencl)
 set(CMAKE_CXX_STANDARD ${POCL_CMAKE_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,7 +52,7 @@ target_compile_definitions(pocl-devices-vortex PRIVATE
 )
 
 if(ENABLE_LOADABLE_DRIVERS)
-  target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_PREFIX}/sw/runtime/libvortex.so ${PTHREAD_LIBRARY})
+  target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_BUILD_DIR}/sw/runtime/libvortex.so ${PTHREAD_LIBRARY})
 endif()
 
 install(FILES "kernel_main.c" "kernel_args.h"
