@@ -123,7 +123,7 @@ typedef uint32_t ulong;
    accidentally using them if the compiler does not disable these
    types, but only e.g. defines them with an incorrect size.*/
 
-#ifndef cl_khr_fp64
+#if !defined(cl_khr_fp64) && !defined(__CBUILD__)
 typedef struct error_undefined_type_double error_undefined_type_double;
 #define double error_undefined_type_double
 #endif

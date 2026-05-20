@@ -34,6 +34,14 @@ POname(clSetKernelExecInfo)(cl_kernel kernel,
 {
   POCL_RETURN_ERROR_COND ((!IS_CL_OBJECT_VALID (kernel)), CL_INVALID_KERNEL);
 
+  /* Translate the final-Khronos cl_ext_buffer_device_address registry
+   * value (0x5002) used by clients like chipStar into POCL's internal
+   * CL_KERNEL_EXEC_INFO_DEVICE_PTRS_EXT (0x11B8 from an earlier draft).
+   * Mirrors the CL_MEM_DEVICE_*_EXT flag translation in clCreateBuffer.c.
+   * See chipstar_on_vortex_proposal.md. */
+  if (param_name == 0x5002)
+    param_name = CL_KERNEL_EXEC_INFO_DEVICE_PTRS_EXT;
+
   switch (param_name)
     {
     case CL_KERNEL_EXEC_INFO_SVM_PTRS:

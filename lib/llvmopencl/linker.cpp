@@ -829,6 +829,12 @@ int link(llvm::Module *Program, const llvm::Module *Lib, std::string &Log,
            // case not supporting the OpenCL 1.2 printf.
            F->getName() != "printf" && F->getName() != pocl_sampler_handler &&
            !F->getName().starts_with("llvm.") &&
+           // Vortex device intrinsics: vx_vprintf, vx_barrier, vx_fence,
+           // etc. are device-only builtins defined in libvortex2.a and
+           // resolved at the final RISC-V link step by pocl-vortex's
+           // compile_vortex_program(); they are intentionally unresolved
+           // in the OpenCL BC link.
+           !F->getName().starts_with("vx_") &&
            F->getName() != BARRIER_FUNCTION_NAME &&
            F->getName() != "__pocl_local_mem_alloca" &&
            F->getName() != "__pocl_work_group_alloca")) {

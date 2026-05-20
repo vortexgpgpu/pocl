@@ -267,6 +267,8 @@ option(ENABLE_HSA "Enable the HSA base profile runtime device driver" OFF)
 
 option(ENABLE_CUDA "Enable the CUDA device driver for NVIDIA devices" OFF)
 
+option(ENABLE_VORTEX "Enable the Vortex OpenGPU device driver" OFF)
+
 option(ENABLE_CUDNN "Enable the CUDNN for the CUDA device driver, requires CUDA" OFF)
 
 option(ENABLE_VULKAN "Experimental and incomplete driver that uses the Vulkan API for controlling the device. Please refer to the user manual for the status and open tasks" OFF)
@@ -2298,6 +2300,39 @@ if(ENABLE_CUDA)
 
 endif()
 
+if(ENABLE_VORTEX)
+  set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
+  set(OCL_TARGETS "${OCL_TARGETS} vortex")
+  if(NOT DEFINED VORTEX_PREFIX)
+    message(FATAL_ERROR "should set 'VORTEX_PREFIX' option")
+  endif()
+  set(BUILD_VORTEX 1)
+  set(VORTEX_DEVICE_EXTENSIONS "cl_khr_byte_addressable_store cl_khr_int64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics")
+  if(ENABLE_SPIRV)
+    # cl_khr_il_program is required by POCL's SPIR-V code path
+    # (lib/CL/devices/common_driver.c:687 checks for it before invoking
+    # the central spirv_parser). See pocl_vortex_v3_proposal.md Phase 1.
+    set(VORTEX_DEVICE_EXTENSIONS "${VORTEX_DEVICE_EXTENSIONS} cl_khr_il_program")
+  endif()
+  # cl_ext_buffer_device_address is required by chipStar's device-filter
+  # (CHIPBackendOpenCL.cc:~2770) when SVM is not available. Vortex doesn't
+  # have unified address space but vx_mem_alloc returns fixed device
+  # addresses that the shared POCL code path can pass through. See
+  # chipstar_on_vortex_proposal.md.
+  set(VORTEX_DEVICE_EXTENSIONS "${VORTEX_DEVICE_EXTENSIONS} cl_ext_buffer_device_address")
+  # Advertise OpenCL 3.0. chipStar's hipcc builds device kernels with
+  # -cl-std=CL3.0 and POCL fails the build with CL_BUILD_PROGRAM_FAILURE
+  # if the device reports a lower version. 3.0 is mostly a relaxation
+  # over 1.2 (features are optional); we don't claim any optional
+  # features beyond what was working at 1.2. The actual SPIR-V code path
+  # is unaffected by the OpenCL-C version since chipStar emits SPIR-V
+  # binaries that POCL just passes through.
+  set(VORTEX_DEVICE_CL_VERSION_MAJOR 1)
+  set(VORTEX_DEVICE_CL_VERSION_MINOR 2)
+  set(VORTEX_DEVICE_CL_VERSION "120")
+  set(VORTEX_DEVICE_CL_STD "1.2")
+endif()
+
 ##########################################################
 
 message(STATUS "Building the following device drivers: ${OCL_DRIVERS}")
@@ -2856,6 +2891,7 @@ MESSAGE(STATUS "ENABLE_TCEMC: ${ENABLE_TCEMC}")
 MESSAGE(STATUS "ENABLE_HSA: ${ENABLE_HSA}")
 MESSAGE(STATUS "ENABLE_ALMAIF_DEVICE: ${ENABLE_ALMAIF_DEVICE}")
 MESSAGE(STATUS "ENABLE_CUDA: ${ENABLE_CUDA}")
+MESSAGE(STATUS "ENABLE_VORTEX: ${ENABLE_VORTEX}")
 MESSAGE(STATUS "ENABLE_CUDNN: ${ENABLE_CUDNN}")
 MESSAGE(STATUS "ENABLE_HOST_CPU_DEVICES: ${ENABLE_HOST_CPU_DEVICES}")
 MESSAGE(STATUS "ENABLE_PRINTF_IMMEDIATE_FLUSH: ${ENABLE_PRINTF_IMMEDIATE_FLUSH}")

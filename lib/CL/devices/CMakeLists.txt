@@ -184,6 +184,20 @@ if(ENABLE_CUDA)
   endif()
 endif()
 
+if(ENABLE_VORTEX)
+  add_subdirectory("vortex")
+  set(POCL_DEVICES_OBJS "${POCL_DEVICES_OBJS}"
+    "$<TARGET_OBJECTS:pocl-devices-vortex>")
+
+  if(NOT ENABLE_LOADABLE_DRIVERS)
+    # Use the full path to libvortex.so so the linker doesn't need a -L hint.
+    # libvortex.so itself is built by feature_hip's sw/runtime/* (driver-stub
+    # loader); driver-specific .so files (libvortex-simx.so etc.) are loaded
+    # at runtime by libvortex.so via dlopen.
+    list(APPEND POCL_DEVICES_LINK_LIST "${VORTEX_PREFIX}/sw/runtime/libvortex.so")
+  endif()
+endif()
+
 
 set(POCL_DEVICES_SOURCES
   devices.h  devices.c

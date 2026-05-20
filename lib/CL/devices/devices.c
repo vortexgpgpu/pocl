@@ -86,6 +86,10 @@
 #include "cuda/pocl-cuda.h"
 #endif
 
+#ifdef BUILD_VORTEX
+#include "vortex/pocl-vortex.h"
+#endif
+
 #if defined(BUILD_ALMAIF)
 #include "almaif/almaif.h"
 #endif
@@ -173,6 +177,9 @@ static init_device_ops pocl_devices_init_ops[] = {
 #ifdef BUILD_CUDA
   INIT_DEV (cuda),
 #endif
+#ifdef BUILD_VORTEX
+  INIT_DEV (vortex),
+#endif
 #ifdef BUILD_ALMAIF
   INIT_DEV (almaif),
 #endif
@@ -210,6 +217,9 @@ char pocl_device_types[POCL_NUM_DEVICE_TYPES][33] = {
 #endif
 #ifdef BUILD_CUDA
   "cuda",
+#endif
+#ifdef BUILD_VORTEX
+  "vortex",
 #endif
 #ifdef BUILD_ALMAIF
   "almaif",

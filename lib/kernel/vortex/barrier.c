@@ -1,0 +1,47 @@
+/* OpenCL work-group barrier, KMU edition.
+ *
+ * Legacy implementation read the spawn_thread TLS globals
+ * (__local_group_id / __warps_per_group) that vx_spawn_threads() set.
+ * Under v3 KMU dispatch those are never initialized, so vx_barrier()
+ * was called with a count of 0 and simx aborted ("barrier_arrive
+ * count=0"). The KMU exposes the same state via CSRs; mirror
+ * sw/kernel/include/vx_spawn2.h's __syncthreads().
+ *
+ * NB: POCL upstream 0b52bd97e ("disable optimization when building
+ * builtin library", Oct 2024 -> POCL 7.0) hardcoded -O0 in
+ * cmake/bitcode_rules.cmake, so vx_intrinsics.h's plain `inline void
+ * vx_barrier()` / `vx_fence()` no longer get inlined and end up as
+ * unresolved declarations in kernel-riscv*.bc. Emit the asm directly
+ * here -- the BC linker has no other way to resolve them since the
+ * intrinsics live in headers, not a .so.
+ */
+#include <VX_types.h>
+
+#define CLK_GLOBAL_MEM_FENCE  0x02
+#define RISCV_CUSTOM0         0x0B
+
+static __attribute__((always_inline)) inline void vx_fence_(void) {
+  __asm__ volatile ("fence iorw, iorw" ::: "memory");
+}
+
+static __attribute__((always_inline)) inline void
+vx_barrier_(int barrier_id, int num_warps) {
+  __asm__ volatile (".insn r %0, 4, 0, x0, %1, %2"
+                    :: "i"(RISCV_CUSTOM0), "r"(barrier_id), "r"(num_warps)
+                    : "memory");
+}
+
+static __attribute__((always_inline)) inline unsigned long
+csr_read_(int csr) {
+  unsigned long v;
+  __asm__ volatile ("csrr %0, %1" : "=r"(v) : "i"(csr));
+  return v;
+}
+
+void _Z7barrierj(int flags) {
+  if (flags & CLK_GLOBAL_MEM_FENCE) {
+    vx_fence_();
+  }
+  vx_barrier_((int)csr_read_(VX_CSR_CTA_ID),
+              (int)csr_read_(VX_CSR_CTA_SIZE));
+}

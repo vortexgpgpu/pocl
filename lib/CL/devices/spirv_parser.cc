@@ -381,8 +381,17 @@ public:
   bool isName() const { return Opcode_ == spv::Op::OpName; }
   bool isDecoration() const { return Opcode_ == spv::Op::OpDecorate; }
   bool isType() const {
-    return ((int32_t)Opcode_ >= (int32_t)spv::Op::OpTypeVoid) &&
-           ((int32_t)Opcode_ <= (int32_t)spv::Op::OpTypeForwardPointer);
+    if (((int32_t)Opcode_ >= (int32_t)spv::Op::OpTypeVoid) &&
+        ((int32_t)Opcode_ <= (int32_t)spv::Op::OpTypeForwardPointer))
+      return true;
+    // SPV_KHR_untyped_pointers (opcode 4417, outside the OpType* range).
+    // SPIRV-LLVM-Translator 20 emits OpTypeUntypedPointerKHR when the
+    // input is opaque-pointer LLVM IR (chipStar HIP path). Without this,
+    // decodeFunctionType() later dereferences a null entry for the
+    // kernel-arg type and segfaults.
+    if ((int32_t)Opcode_ == 4417 /* OpTypeUntypedPointerKHR */)
+      return true;
+    return false;
   }
   bool isConstant() const { return Opcode_ == spv::Op::OpConstant; }
   bool isBitcast() const { return Opcode_ == spv::Op::OpBitcast; }
@@ -463,6 +472,14 @@ public:
 
     if (Opcode_ == spv::Op::OpTypeForwardPointer) {
       return new SPIRVtypePointer(Word1_, Word2_, PointerSize, Word3_);
+    }
+
+    if ((int32_t)Opcode_ == 4417 /* OpTypeUntypedPointerKHR */) {
+      // Layout: Result <id>, Storage Class. No pointee type id (untyped).
+      // We materialise it as a pointer with pointee=0; downstream consumers
+      // already tolerate a missing pointee for raw device-address args
+      // (cl_ext_buffer_device_address path).
+      return new SPIRVtypePointer(Word1_, Word2_, PointerSize, 0);
     }
 
     if (Opcode_ == spv::Op::OpTypeVector) {
@@ -596,8 +613,20 @@ public:
       for (size_t i = 0; i < NumArgs; ++i) {
         int32_t TypeId = OrigStream_[i + 3];
         auto It = TypeMap.find(TypeId);
-        assert(It != TypeMap.end());
         Fi->ArgTypeInfo[i].TypeID = TypeId;
+        // In release builds the prior assert(It != TypeMap.end()) compiled
+        // away and the next line null-deref'd whenever a SPIR-V extension
+        // type slipped through (seen with OpTypeUntypedPointerKHR before
+        // isType()/decodeType() were taught about it). Treat the miss as
+        // an opaque pointer-shaped arg instead of crashing.
+        if (It == TypeMap.end() || It->second == nullptr) {
+          logWarn("SPIR-V Parser: function arg %zu has unknown type id %d; "
+                  "treating as opaque pointer\n", i, (int)TypeId);
+          Fi->ArgTypeInfo[i].Type = OCLType::Pointer;
+          Fi->ArgTypeInfo[i].Size = PointerSize;
+          Fi->ArgTypeInfo[i].Space = OCLSpace::Global;
+          continue;
+        }
         Fi->ArgTypeInfo[i].Type = It->second->ocltype();
         Fi->ArgTypeInfo[i].Size = It->second->size();
         Fi->ArgTypeInfo[i].Space = It->second->getAS();

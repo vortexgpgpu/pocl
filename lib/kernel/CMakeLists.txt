@@ -222,6 +222,10 @@ if(OCL_TARGETS MATCHES "cuda")
   add_subdirectory("cuda")
 endif()
 
+if(OCL_TARGETS MATCHES "vortex")
+  add_subdirectory("vortex")
+endif()
+
 #*********************************************************************
 
 # "Escape" a list before passing to an external command

@@ -108,6 +108,10 @@ static const char *pocl_version
                                      ", CUDA"
 #endif
 
+#ifdef BUILD_VORTEX
+                                     ", VORTEX"
+#endif
+
 #ifdef BUILD_HSA
                                      ", HSA"
 #endif
