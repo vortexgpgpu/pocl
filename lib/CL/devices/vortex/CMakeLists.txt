@@ -26,13 +26,12 @@
 unset(CMAKE_CXX_STANDARD)
 unset(CMAKE_CXX_STANDARD_REQUIRED)
 set_source_files_properties(vortex_utils.cc vortex_utils.h PROPERTIES COMPILE_FLAGS "${LLVM_CXXFLAGS}")
-if(NOT DEFINED VORTEX_BUILD_DIR)
-    set(VORTEX_BUILD_DIR "${VORTEX_PREFIX}/build_test32")
-endif()
-# Vortex is built out-of-tree: public headers live under the source prefix
-# (VORTEX_PREFIX), build-generated headers and libvortex.so live under the
-# build directory (VORTEX_BUILD_DIR).
-include_directories(${LLVM_INCLUDE_DIRS} ${VORTEX_PREFIX}/sw/runtime/include ${VORTEX_BUILD_DIR}/hw ${VORTEX_BUILD_DIR}/sw ${CMAKE_CURRENT_SOURCE_DIR}/../../../llvmopencl)
+
+# Vortex SDK is consumed through its install tree ($VORTEX_PATH) via
+# pkg-config; the PkgConfig::VORTEX IMPORTED target is created at the
+# top-level CMakeLists.txt under `if(ENABLE_VORTEX)` so the target is
+# visible across the source tree (this dir, lib/CL/, examples/).
+include_directories(${LLVM_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../../../llvmopencl)
 set(CMAKE_CXX_STANDARD ${POCL_CMAKE_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -51,8 +50,9 @@ target_compile_definitions(pocl-devices-vortex PRIVATE
     LLVM_OBJDUMP="${LLVM_OBJDUMP}"
 )
 
+target_link_libraries(pocl-devices-vortex PRIVATE PkgConfig::VORTEX)
 if(ENABLE_LOADABLE_DRIVERS)
-  target_link_libraries(pocl-devices-vortex PRIVATE ${VORTEX_BUILD_DIR}/sw/runtime/libvortex.so ${PTHREAD_LIBRARY})
+  target_link_libraries(pocl-devices-vortex PRIVATE ${PTHREAD_LIBRARY})
 endif()
 
 install(FILES "kernel_main.c" "kernel_args.h"

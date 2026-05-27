@@ -190,12 +190,12 @@ if(ENABLE_VORTEX)
     "$<TARGET_OBJECTS:pocl-devices-vortex>")
 
   if(NOT ENABLE_LOADABLE_DRIVERS)
-    # Use the full path to libvortex.so so the linker doesn't need a -L hint.
-    # libvortex.so is the Vortex dispatcher built out-of-tree under
-    # VORTEX_BUILD_DIR/sw/runtime; driver-specific .so files
-    # (libvortex-simx.so etc.) are loaded at runtime by libvortex.so via
-    # dlopen.
-    list(APPEND POCL_DEVICES_LINK_LIST "${VORTEX_BUILD_DIR}/sw/runtime/libvortex.so")
+    # libvortex.so is the backend-agnostic Vortex dispatcher; at run
+    # time it dlopens libvortex-<backend>.so siblings (simx/xrt/rtlsim/
+    # opae). pkg-config gives us its install location via vortex-runtime.pc.
+    # PkgConfig::VORTEX is defined by the IMPORTED_TARGET in
+    # vortex/CMakeLists.txt — reuse it here for the merged-driver link.
+    list(APPEND POCL_DEVICES_LINK_LIST PkgConfig::VORTEX)
   endif()
 endif()
 

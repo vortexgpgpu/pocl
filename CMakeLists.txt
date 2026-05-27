@@ -2303,9 +2303,14 @@ endif()
 if(ENABLE_VORTEX)
   set(OCL_DRIVERS "${OCL_DRIVERS} vortex")
   set(OCL_TARGETS "${OCL_TARGETS} vortex")
-  if(NOT DEFINED VORTEX_PREFIX)
-    message(FATAL_ERROR "should set 'VORTEX_PREFIX' option")
-  endif()
+  # The Vortex SDK is discovered via pkg-config (vortex-runtime.pc). Done at
+  # top level so the resulting PkgConfig::VORTEX IMPORTED target is
+  # visible everywhere — lib/CL/devices/vortex/ (driver link),
+  # lib/CL/CMakeLists.txt (merged-driver POCL_DEVICES_LINK_LIST), and
+  # examples/ (indirectly via libpocl). Set PKG_CONFIG_PATH to
+  # <vortex-install-root>/lib/pkgconfig before invoking cmake.
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(VORTEX REQUIRED IMPORTED_TARGET vortex-runtime)
   set(BUILD_VORTEX 1)
   set(VORTEX_DEVICE_EXTENSIONS "cl_khr_byte_addressable_store cl_khr_int64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics")
   if(ENABLE_SPIRV)

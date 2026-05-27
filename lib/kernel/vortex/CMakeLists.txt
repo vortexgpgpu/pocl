@@ -58,27 +58,27 @@ foreach(EXT ${VORTEX_DEVICE_EXTENSIONS})
 endforeach()
 separate_arguments(DEVICE_CL_FLAGS)
 
-if(NOT DEFINED VORTEX_BUILD_DIR_32)
-    set(VORTEX_BUILD_DIR_32 "${VORTEX_PREFIX}/build_test32")
-endif()
-if(NOT DEFINED VORTEX_BUILD_DIR_64)
-    set(VORTEX_BUILD_DIR_64 "${VORTEX_PREFIX}/build_test64")
-endif()
+# Device-side Vortex SDK is consumed through per-XLEN install trees.
+# Vortex builds are per-XLEN (one build dir per --xlen={32,64}), and
+# each `make install` populates its own install tree containing the
+# generated VX_types.h and the matching libvortex2.a. Point
+# VORTEX_PATH_32 / VORTEX_PATH_64 at those install trees; each
+# resolves to <path>/kernel/include for headers.
 
-# Build 32-bit kernel bitcode if the corresponding Vortex build dir exists.
-if(EXISTS "${VORTEX_BUILD_DIR_32}/hw")
-    set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_32}" "-march=${TARGET_MARCH_32}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=32" "-I${VORTEX_PREFIX}/sw/kernel/include" "-I${VORTEX_BUILD_DIR_32}/hw" "-I${VORTEX_BUILD_DIR_32}/sw")
+# Build 32-bit kernel bitcode if VORTEX_PATH_32 is set and valid.
+if(DEFINED VORTEX_PATH_32 AND EXISTS "${VORTEX_PATH_32}/kernel/include")
+    set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_32}" "-march=${TARGET_MARCH_32}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=32" "-I${VORTEX_PATH_32}/kernel/include")
     make_kernel_bc(KERNEL_BC_32 "${LLVM_TARGET_32}" "VX32-BCs" 0 0 0 ${KERNEL_SOURCES})
 else()
-    message(STATUS "Skipping Vortex riscv32 kernel build: ${VORTEX_BUILD_DIR_32}/hw not found")
+    message(STATUS "Skipping Vortex riscv32 kernel build: set -DVORTEX_PATH_32=<rv32-install-root> to enable")
 endif()
 
-# Build 64-bit kernel bitcode if the corresponding Vortex build dir exists.
-if(EXISTS "${VORTEX_BUILD_DIR_64}/hw")
-    set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_64}" "-march=${TARGET_MARCH_64}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=64" "-I${VORTEX_PREFIX}/sw/kernel/include" "-I${VORTEX_BUILD_DIR_64}/hw" "-I${VORTEX_BUILD_DIR_64}/sw")
+# Build 64-bit kernel bitcode if VORTEX_PATH_64 is set and valid.
+if(DEFINED VORTEX_PATH_64 AND EXISTS "${VORTEX_PATH_64}/kernel/include")
+    set(CLANG_FLAGS "-ffreestanding" "-target" "${LLVM_TARGET_64}" "-march=${TARGET_MARCH_64}" "-emit-llvm" "-DPOCL_DEVICE_ADDRESS_BITS=64" "-I${VORTEX_PATH_64}/kernel/include")
     make_kernel_bc(KERNEL_BC_64 "${LLVM_TARGET_64}" "VX64-BCs" 0 0 0 ${KERNEL_SOURCES})
 else()
-    message(STATUS "Skipping Vortex riscv64 kernel build: ${VORTEX_BUILD_DIR_64}/hw not found")
+    message(STATUS "Skipping Vortex riscv64 kernel build: set -DVORTEX_PATH_64=<rv64-install-root> to enable")
 endif()
 
 set(KERNEL_BC_INSTALL_LIST)
