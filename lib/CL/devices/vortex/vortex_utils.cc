@@ -49,7 +49,12 @@
 
 static int exec(const char* cmd, std::ostream& out) {
   char buffer[128];
-  auto pipe = popen(cmd, "r");
+  // Clear LD_PRELOAD inherited from parent — when chipstar/HIP preloads
+  // POCL's libOpenCL.so to bypass the system ICD loader, an inherited
+  // LD_PRELOAD into our forked clang causes LLVM to register CommandLine
+  // options twice (parent POCL's libLLVM + clang's own libLLVM) and abort.
+  std::string wrapped = std::string("env -u LD_PRELOAD ") + cmd;
+  auto pipe = popen(wrapped.c_str(), "r");
   if (!pipe) {
       //throw std::runtime_error("popen() failed!");
       return -1;
