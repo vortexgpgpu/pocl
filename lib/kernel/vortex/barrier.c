@@ -45,3 +45,28 @@ void _Z7barrierj(int flags) {
   vx_barrier_((int)csr_read_(VX_CSR_CTA_ID),
               (int)csr_read_(VX_CSR_CTA_SIZE));
 }
+
+/* OpenCL mem_fence / read_mem_fence / write_mem_fence.
+ *
+ * The frontend lowers mem_fence(flags) to _cl_mem_fence(uint) (and the
+ * read/write variants). POCL's generic lib/kernel/mem_fence.c is not part
+ * of the Vortex kernel library, so these symbols were unresolved
+ * (e.g. "Cannot find symbol _Z13_cl_mem_fencej in kernel library").
+ * A full RISC-V fence provides the required ordering for both local and
+ * global memory; emit it directly here for the same -O0 reason as the
+ * barrier above.
+ */
+void _Z13_cl_mem_fencej(unsigned int flags) {
+  (void)flags;
+  vx_fence_();
+}
+
+void _Z18_cl_read_mem_fencej(unsigned int flags) {
+  (void)flags;
+  vx_fence_();
+}
+
+void _Z19_cl_write_mem_fencej(unsigned int flags) {
+  (void)flags;
+  vx_fence_();
+}
