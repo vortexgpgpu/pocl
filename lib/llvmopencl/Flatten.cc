@@ -77,6 +77,13 @@ static bool flattenAll(Module &M) {
     if (F->isDeclaration() || F->getName() == "pocl_printf_alloc" ||
         F->getName() == "pocl_printf_alloc_stub" ||
         F->getName() == "pocl_flush_printf_buffer" ||
+        // Do not force-inline a `noduplicate` function (e.g. the Vortex OpenCL
+        // work-group barrier _Z7barrierj). Inlining it lets the target's SIMT
+        // divergence pass duplicate the bare vx_bar into both arms of a split
+        // before reconvergence, so a partially-masked warp makes two separate
+        // partial arrivals and the work-group barrier deadlocks. Keeping it a
+        // noduplicate call preserves the single, uniform convergence point.
+        F->hasFnAttribute(llvm::Attribute::NoDuplicate) ||
         AuxFuncs.find(F->getName().str()) != AuxFuncs.end())
       continue;
 

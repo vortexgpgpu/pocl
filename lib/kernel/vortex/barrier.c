@@ -38,6 +38,17 @@ csr_read_(int csr) {
   return v;
 }
 
+/* barrier() is a cross-warp convergence point: the optimizer must not duplicate
+ * it onto a thread-divergent path. At -O3 the loop optimizer otherwise peels a
+ * barrier-carrying loop and leaves a duplicated vx_bar guarded by a per-thread
+ * predicate (e.g. a get_local_id-derived mask), so the barrier waits on warps
+ * that never arrive and the work-group deadlocks (pathfinder/hotspot/dwt2d/
+ * b+tree). `convergent` is the intended marker but LLVM's attribute inference
+ * strips it at -O3 (the inline vx_bar asm is not itself convergent); `noduplicate`
+ * survives -O3 and is what actually forbids the peel/unroll duplication, and
+ * `noinline` keeps barrier() a single call the loop optimizer treats atomically.
+ * The Vortex hardware barrier itself is correct. */
+__attribute__((convergent, noduplicate, noinline))
 void _Z7barrierj(int flags) {
   if (flags & CLK_GLOBAL_MEM_FENCE) {
     vx_fence_();

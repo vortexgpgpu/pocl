@@ -205,7 +205,8 @@ static void processKernels(llvm::SmallVector<std::string, 8>& funcNames, llvm::M
   }
 }
 
-int compile_vortex_program(char* sz_program_vxbin, void* llvm_module) {
+int compile_vortex_program(char* sz_program_vxbin, void* llvm_module,
+                           unsigned module_slot) {
   int err;
 
   const char* llvm_install_path = getenv("LLVM_PREFIX");
@@ -227,6 +228,39 @@ int compile_vortex_program(char* sz_program_vxbin, void* llvm_module) {
   if(build_ldflags == ""){
     POCL_MSG_ERR("'POCL_VORTEX_LDFLAGS' need to be set\n");
     return -1;
+  }
+
+  /* Multi-program contexts (e.g. hybridsort builds bucketsort + mergesort as
+   * separate cl_programs) must not all link at the same STARTUP_ADDR, or their
+   * device code regions overlap when loaded together (mem_alloc reserve fails).
+   * Give program N its own base by shifting the linker's STARTUP_ADDR by
+   * N * a generous per-module stride. Slot 0 keeps the default base, so
+   * single-program apps link identically. gp/tp are PC-relative and sp is a
+   * fixed absolute (VX_MEM_STACK_BASE_ADDR), so no runtime relocation is
+   * needed -- the image is self-consistent at whatever base it links to. */
+  if (module_slot > 0) {
+    const std::string key = "STARTUP_ADDR=";
+    size_t p = build_ldflags.find(key);
+    if (p == std::string::npos) {
+      POCL_MSG_ERR("multi-program load needs '%s' in POCL_VORTEX_LDFLAGS\n",
+                   key.c_str());
+      return -1;
+    }
+    size_t v = p + key.size();
+    size_t e = build_ldflags.find_first_of(" ,\t", v);
+    if (e == std::string::npos) e = build_ldflags.size();
+    uint64_t base = strtoull(build_ldflags.substr(v, e - v).c_str(), nullptr, 0);
+    const uint64_t stride = 0x01000000ull;  /* 16 MB; kernel images are << this */
+    uint64_t addr = base + (uint64_t)module_slot * stride;
+    /* Stay below the page-table region (0xF0000000 on rv32). 112 modules is
+     * far beyond any real context; guard rather than silently overlap it. */
+    if (addr + stride > 0xF0000000ull) {
+      POCL_MSG_ERR("module slot %u exceeds code address space\n", module_slot);
+      return -1;
+    }
+    char buf[32];
+    snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)addr);
+    build_ldflags.replace(v, e - v, buf);
   }
 
   char sz_program_bc[POCL_MAX_PATHNAME_LENGTH + 1];

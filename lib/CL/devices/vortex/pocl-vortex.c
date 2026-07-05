@@ -63,6 +63,11 @@ typedef struct {
   int is_64bit;
 
   size_t ctx_refcount;
+
+  /* Monotonic per-device program index. Each built program links its device
+   * code at a distinct base (see compile_vortex_program) so multiple programs
+   * in one context (e.g. hybridsort) don't overlap. Guarded by compile_lock. */
+  unsigned module_slot;
 } vortex_device_data_t;
 
 static void *pocl_vortex_driver_thread (void *arg);
@@ -163,6 +168,13 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
 
   ops->get_mapping_ptr = pocl_driver_get_mapping_ptr;
   ops->free_mapping_ptr = pocl_driver_free_mapping_ptr;
+
+  /* clEnqueueMapBuffer/UnmapMemObject: Vortex has separate device memory, so
+   * map/unmap must DMA device<->host (the generic pocl_driver_map_mem does a
+   * host memcpy from the device address and segfaults). Without any handler,
+   * pocl_exec_command calls a NULL ops->map_mem and segfaults (e.g. hotspot). */
+  ops->map_mem = pocl_vortex_map_mem;
+  ops->unmap_mem = pocl_vortex_unmap_mem;
 }
 
 char * pocl_vortex_build_hash (cl_device_id dev)
@@ -385,8 +397,19 @@ cl_int pocl_vortex_uninit (unsigned j, cl_device_id dev) {
 
 int pocl_vortex_init_context (cl_device_id dev, cl_context context) {
   vortex_device_data_t *dd = (vortex_device_data_t *)dev->data;
-  if (NULL == dd)
-    return CL_SUCCESS;
+  if (NULL == dd) {
+    /* A previous free_context tore the device down when its last context
+     * closed (see pocl_vortex_free_context). Multi-program apps that release
+     * one context and create another (e.g. b+tree's two kernel wrappers,
+     * hybridsort) would then find dev->data == NULL and crash in the next
+     * build. Re-open the device lazily so each fresh context gets a live one. */
+    cl_int r = pocl_vortex_init(0, dev, NULL);
+    if (r != CL_SUCCESS)
+      return r;
+    dd = (vortex_device_data_t *)dev->data;
+    if (NULL == dd)
+      return CL_SUCCESS;
+  }
 
   dd->ctx_refcount++;
 
@@ -430,9 +453,13 @@ int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
     strncat(sz_program_vxbin, ".vxbin", POCL_MAX_PATHNAME_LENGTH - 1);
 
     result = compile_vortex_program(sz_program_vxbin,
-                                    program->llvm_irs[device_i]);
+                                    program->llvm_irs[device_i],
+                                    ddata->module_slot);
     if (result != 0)
       break;
+    /* Consume this slot only on a successful build so a failed compile
+     * doesn't leak a code region. */
+    ddata->module_slot++;
 
     /* Load the freshly-compiled .vxbin as a vortex2 module up front. Each
      * kernel is its own named entry point; pocl_vortex_create_kernel
@@ -711,9 +738,11 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_pt
   p->extra = 0;
   cl_mem_flags flags = mem_obj->flags;
 
-  if (flags & CL_MEM_USE_HOST_PTR) {
-    POCL_ABORT("POCL_VORTEX_MALLOC\n");
-  } else {
+  {
+    /* CL_MEM_USE_HOST_PTR: Vortex device memory is separate from host memory,
+     * so the host allocation cannot be aliased. Emulate it as a device buffer
+     * seeded from host_ptr (like COPY_HOST_PTR); POCL retains mem_host_ptr and
+     * syncs device->host on read/map. */
     int vx_flags = 0;
     if ((flags & CL_MEM_READ_WRITE) != 0)
       vx_flags = VX_MEM_READ_WRITE;
@@ -736,7 +765,7 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_pt
       POCL_ABORT("POCL_VORTEX_RUN\n");
     }
 
-    if (host_ptr && (flags & CL_MEM_COPY_HOST_PTR)) {
+    if (host_ptr && (flags & (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR))) {
       vx_event_h ev = NULL;
       vx_err = vx_enqueue_write(dd->vx_queue, vx_buffer, 0, host_ptr,
                                 mem_obj->size, 0, NULL, &ev);
@@ -776,9 +805,9 @@ void pocl_vortex_free(cl_device_id dev, cl_mem mem_obj) {
   cl_mem_flags flags = mem_obj->flags;
   vortex_buffer_data_t* buf_data = (vortex_buffer_data_t*)p->extra_ptr;
 
-  if (flags & CL_MEM_USE_HOST_PTR) {
-    POCL_ABORT("POCL_VORTEX_FREE\n");
-  } else {
+  {
+    /* USE_HOST_PTR buffers are backed by a device allocation (see alloc);
+     * POCL owns the caller's host_ptr, so only release the device buffer. */
     if (flags & CL_MEM_ALLOC_HOST_PTR) {
       pocl_release_mem_host_ptr(mem_obj);
     }
@@ -854,6 +883,39 @@ void pocl_vortex_read(void *data,
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_READ\n");
   }
+}
+
+/* clEnqueueMapBuffer: DMA device->host into the mapping's host staging buffer
+ * (allocated by get_mapping_ptr). WRITE_INVALIDATE maps skip the read-in. */
+cl_int pocl_vortex_map_mem(void *data, pocl_mem_identifier *src_mem_id,
+                           cl_mem src_buf, mem_mapping_t *map) {
+  assert(map->host_ptr);
+  if (map->map_flags & CL_MAP_WRITE_INVALIDATE_REGION)
+    return CL_SUCCESS;
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
+  vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)src_mem_id->extra_ptr;
+  vx_event_h ev = NULL;
+  int vx_err = vx_enqueue_read(dd->vx_queue, map->host_ptr, buf_data->vx_buffer,
+                               map->offset, map->size, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
+  return (vx_err == 0) ? CL_SUCCESS : CL_MAP_FAILURE;
+}
+
+/* clEnqueueUnmapMemObject: DMA host->device unless the mapping was read-only. */
+cl_int pocl_vortex_unmap_mem(void *data, pocl_mem_identifier *dst_mem_id,
+                             cl_mem dst_buf, mem_mapping_t *map) {
+  assert(map->host_ptr);
+  if (map->map_flags == CL_MAP_READ)
+    return CL_SUCCESS;
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
+  vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
+  vx_event_h ev = NULL;
+  int vx_err = vx_enqueue_write(dd->vx_queue, buf_data->vx_buffer, map->offset,
+                                map->host_ptr, map->size, 0, NULL, &ev);
+  if (vx_err == 0)
+    vx_err = vx_sync_event(ev);
+  return (vx_err == 0) ? CL_SUCCESS : CL_MAP_FAILURE;
 }
 
 /* clEnqueue{Read,Write,Copy}BufferRect / clEnqueueFillBuffer. These map
