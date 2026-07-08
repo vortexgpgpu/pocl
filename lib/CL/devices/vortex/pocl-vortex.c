@@ -188,6 +188,35 @@ static int vx_ilog2_pot(uint32_t v) {
   return l;
 }
 
+/* ---- Batched CP submission (Phase 3) --------------------------------------
+ * The prism runtime exposes vx_enqueue_commands(): submit an ordered list of CP
+ * commands (DCR-register writes + a kernel launch) as ONE CP ring batch — a
+ * single doorbell and one completion — the compute analog of the graphics
+ * CMD_DRAW batch. Binding TEX stages + dispatching then costs one host<->device
+ * round trip instead of one per DCR plus one for the launch. The PoCL build
+ * headers predate this entry point, so mirror its (stable) ABI here, guarded;
+ * it resolves against the loaded libvortex like the rest of the vortex2 ABI. */
+#ifndef VX_COMMAND_LAUNCH
+typedef enum {
+  VX_COMMAND_LAUNCH    = 0,
+  VX_COMMAND_DCR_WRITE = 1,
+} vx_command_type_e;
+typedef struct {
+  vx_command_type_e type;
+  union {
+    const vx_launch_info_t* launch;
+    struct { uint32_t addr; uint32_t value; } dcr;
+  } data;
+} vx_command_t;
+extern vx_result_t vx_enqueue_commands(vx_queue_h q, const vx_command_t* commands,
+                                       uint32_t count, uint32_t n_wait_events,
+                                       const vx_event_h* wait_events,
+                                       vx_event_h* out_event);
+#endif
+
+/* Max TEX-bind DCRs foldable into one launch batch: 7 per stage x 2 stages. */
+#define VX_TEX_MAX_BIND_DCRS (VX_TEX_STAGE_COUNT * 7u)
+
 static cl_bool vortex_available = CL_TRUE;
 
 static const char *vortex_native_device_aux_funcs[] = {NULL};
@@ -660,15 +689,21 @@ int pocl_vortex_free_kernel (cl_device_id dev, cl_program program,
   return CL_SUCCESS;
 }
 
-/* Tier-A TEX binder (see call site in pocl_vortex_run). Programs the FF stage
- * DCRs for each FF-eligible image arg and patches its cached descriptor's
- * {_tex_stage,_tex_sampler}; resets the others to unbound. All ops ride the
- * device queue ahead of the launch (FIFO-ordered), so no per-op sync is needed
- * — this mirrors the graphics driver's DCR-batch style. No-op without TEX. */
-static void vx_tex_bind_images(vortex_device_data_t* dd, _cl_command_node* cmd,
-                               pocl_kernel_metadata_t* meta, uint32_t ptr_size) {
+/* Tier-A TEX binder (see call site in pocl_vortex_run). For each FF-eligible
+ * image arg it (a) collects the stage-programming DCR writes into dcr_addr/
+ * dcr_val — the caller folds them into the launch's CP batch (one doorbell) —
+ * and (b) patches the image's cached descriptor {_tex_stage,_tex_sampler},
+ * resetting the others to unbound. Returns the number of DCR writes collected
+ * (0 without TEX, so the launch stays a plain vx_enqueue_launch). The descriptor
+ * patch is a small synchronous write that must land before the launch reads it;
+ * folding it into the batch too awaits the runtime's batch-safe mem-write path. */
+static uint32_t vx_tex_bind_images(vortex_device_data_t* dd, _cl_command_node* cmd,
+                                   pocl_kernel_metadata_t* meta, uint32_t ptr_size,
+                                   uint32_t* dcr_addr, uint32_t* dcr_val) {
   if (!dd->has_tex)
-    return;
+    return 0;
+  uint32_t nd = 0;
+  #define VX_TEX_EMIT(A, V) do { dcr_addr[nd] = (A); dcr_val[nd] = (V); ++nd; } while (0)
 
   unsigned mem_id = cmd->device->global_mem_id;
 
@@ -715,16 +750,13 @@ static void vx_tex_bind_images(vortex_device_data_t* dd, _cl_command_node* cmd,
         && (m->flags & CL_MEM_WRITE_ONLY) == 0
         && (bd->buf_address & 63u) == 0) {
       uint32_t stage = next_stage++;
-      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_STAGE,  stage, 0, NULL, NULL);
-      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_LOGDIM,
-                           ((uint32_t)lh << 16) | (uint32_t)lw, 0, NULL, NULL);
-      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_FORMAT, vx_fmt, 0, NULL, NULL);
-      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_FILTER, smp_filter, 0, NULL, NULL);
-      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_WRAP,
-                           (smp_wrap << 16) | smp_wrap, 0, NULL, NULL);
-      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_ADDR,
-                           (uint32_t)(bd->buf_address >> 6), 0, NULL, NULL);
-      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_MIPOFF0, 0, 0, NULL, NULL);
+      VX_TEX_EMIT(VX_DCR_TEX_STAGE,  stage);
+      VX_TEX_EMIT(VX_DCR_TEX_LOGDIM, ((uint32_t)lh << 16) | (uint32_t)lw);
+      VX_TEX_EMIT(VX_DCR_TEX_FORMAT, vx_fmt);
+      VX_TEX_EMIT(VX_DCR_TEX_FILTER, smp_filter);
+      VX_TEX_EMIT(VX_DCR_TEX_WRAP,   (smp_wrap << 16) | smp_wrap);
+      VX_TEX_EMIT(VX_DCR_TEX_ADDR,   (uint32_t)(bd->buf_address >> 6));
+      VX_TEX_EMIT(VX_DCR_TEX_MIPOFF0, 0);
       patch[0] = (int32_t)stage;
       patch[1] = (int32_t)smp_bits;
       if (getenv("POCL_VORTEX_TEX_DEBUG"))
@@ -751,6 +783,8 @@ static void vx_tex_bind_images(vortex_device_data_t* dd, _cl_command_node* cmd,
         vx_sync_event(ev);
     }
   }
+  #undef VX_TEX_EMIT
+  return nd;
 }
 
 void pocl_vortex_run (void *data, _cl_command_node *cmd) {
@@ -830,12 +864,16 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
 
   /* Tier-A binding pass: route FF-eligible image reads through the hardware TEX
    * unit. Pick one FF-representable sampler (the common kernel has exactly one),
-   * then for every image arg either bind it to a free TEX stage (emitting the
+   * then for every image arg either bind it to a free TEX stage (collecting the
    * stage DCRs and patching its cached descriptor with {stage, sampler}) or
    * reset it to unbound. Resetting every launch prevents a stale stage index —
    * whose DCR may now hold a different texture — from surviving into this one.
-   * All DCR writes + descriptor patches ride dd->vx_queue ahead of the launch. */
-  vx_tex_bind_images(dd, cmd, meta, ptr_size);
+   * The collected DCRs are submitted together with the launch as one CP batch
+   * (Phase 3, below). */
+  uint32_t tex_dcr_addr[VX_TEX_MAX_BIND_DCRS];
+  uint32_t tex_dcr_val[VX_TEX_MAX_BIND_DCRS];
+  uint32_t tex_n_dcr = vx_tex_bind_images(dd, cmd, meta, ptr_size,
+                                          tex_dcr_addr, tex_dcr_val);
 
   // write arguments
 
@@ -940,7 +978,26 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   }
 
   vx_event_h ev = NULL;
-  vx_err = vx_enqueue_launch(dd->vx_queue, &li, 0, NULL, &ev);
+  if (tex_n_dcr != 0) {
+    /* Phase 3: fold the TEX-stage-bind DCR writes and the kernel launch into one
+     * CP ring batch — a single doorbell / completion — instead of one enqueue
+     * per DCR plus one for the launch. The CP retires them in order (binds
+     * before dispatch). Non-TEX launches keep the plain single-launch path. */
+    vx_command_t cmds[VX_TEX_MAX_BIND_DCRS + 1];
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < tex_n_dcr; ++i) {
+      cmds[n].type = VX_COMMAND_DCR_WRITE;
+      cmds[n].data.dcr.addr = tex_dcr_addr[i];
+      cmds[n].data.dcr.value = tex_dcr_val[i];
+      ++n;
+    }
+    cmds[n].type = VX_COMMAND_LAUNCH;
+    cmds[n].data.launch = &li;
+    ++n;
+    vx_err = vx_enqueue_commands(dd->vx_queue, cmds, n, 0, NULL, &ev);
+  } else {
+    vx_err = vx_enqueue_launch(dd->vx_queue, &li, 0, NULL, &ev);
+  }
   if (vx_err == 0)
     vx_err = vx_sync_event(ev);
   if (vx_err != 0) {
