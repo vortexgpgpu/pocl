@@ -500,6 +500,20 @@ int pocl_llvm_build_program(cl_program program,
       cl_ext += "-__opencl_c_images,";
       cl_ext += "-__opencl_c_read_write_images,";
       cl_ext += "-__opencl_c_3d_image_writes,";
+    } else {
+      /* "-cl-ext=-all" (below) disables the images feature that is otherwise
+       * implicit for OpenCL C < 3.0, so an image-capable device must re-enable
+       * it explicitly or the read/write_image builtins are never declared.
+       * The bundled opencl-c-base.h only self-defines __opencl_c_images for
+       * OpenCL C 2.0, so for a 1.2 device we must also -D the feature macros
+       * (this mirrors how the CL 3.0 feature loop above emits -D<feature>=1),
+       * otherwise the "#if defined(__opencl_c_images)" guard in opencl-c.h
+       * elides the image builtin declarations. read_write_images is left
+       * disabled as it is a separate, opt-in capability. */
+      ss << "-D__opencl_c_images=1 ";
+      ss << "-D__opencl_c_3d_image_writes=1 ";
+      cl_ext += "+__opencl_c_images,";
+      cl_ext += "+__opencl_c_3d_image_writes,";
     }
   }
   if (!cl_ext.empty()) {

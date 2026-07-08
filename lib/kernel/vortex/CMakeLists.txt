@@ -47,6 +47,19 @@ foreach(FILE workitems.c printf.c barrier.c atomics.c)
   list(APPEND KERNEL_SOURCES "vortex/${FILE}")
 endforeach()
 
+# OpenCL image builtins (software). read_image/write_image use Vortex-specific
+# scalar implementations (vortex/*.cl): the generic pocl versions rely on OpenCL
+# vector arithmetic, which the no-vector Vortex backend (+xvortex) cannot select.
+# The get_image_* queries are scalar and reuse the generic sources. Sampling runs
+# in software over the dev_image_t descriptor; no fixed-function TEX hardware is
+# required. See the pocl_image_support proposal.
+foreach(FILE vortex/read_image.cl vortex/write_image.cl
+             get_image_width.cl get_image_height.cl get_image_depth.cl
+             get_image_dim.cl get_image_array_size.cl
+             get_image_channel_data_type.cl get_image_channel_order.cl)
+  list(APPEND KERNEL_SOURCES "${FILE}")
+endforeach()
+
 set(KERNEL_CL_FLAGS "-Xclang" "-cl-std=CL${VORTEX_DEVICE_CL_STD}" "-D__OPENCL_C_VERSION__=${VORTEX_DEVICE_CL_VERSION}" "-Xclang" "-cl-ext=all" ${KERNEL_CL_FLAGS})
 
 set(LLC_FLAGS "")

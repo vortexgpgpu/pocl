@@ -47,6 +47,16 @@ typedef struct dev_image_t {
   INTTYPE _data_type;
   INTTYPE _num_channels;
   INTTYPE _elem_size;
+  /* Vortex fixed-function TEX binding (trailing extension; only the Vortex
+   * driver/kernels use these). _tex_stage is the bound TEX stage (0/1) for this
+   * image on the current launch, or -1 when it is not FF-bound (software
+   * sampling). _tex_sampler is the dev_sampler_t bit pattern the stage was bound
+   * for; a read_image* takes the FF path only when its runtime sampler matches,
+   * so an unbound sampler (e.g. a constant in-kernel sampler) safely falls back.
+   * Both are patched per launch by the Vortex driver; other drivers leave them
+   * untouched (they never read them). */
+  INTTYPE _tex_stage;
+  INTTYPE _tex_sampler;
 } dev_image_t;
 
 #endif

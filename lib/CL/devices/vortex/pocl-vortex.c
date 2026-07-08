@@ -62,6 +62,12 @@ typedef struct {
 
   int is_64bit;
 
+  /* Fixed-function TEX unit present (VX_ISA_EXT_TEX). When set, image objects
+   * are allocated as physical/pinned (the TEX unit reads through tcache,
+   * bypassing the per-core MMU) so FF-eligible reads can be routed through the
+   * hardware sampler (Tier A). When clear, every image samples in software. */
+  int has_tex;
+
   size_t ctx_refcount;
 
   /* Monotonic per-device program index. Each built program links its device
@@ -101,7 +107,86 @@ typedef struct {
   vx_device_h vx_device;
   vx_buffer_h vx_buffer;
   uint64_t buf_address;
+  /* For image mem objects: a device buffer holding the (lifetime-constant)
+   * dev_image_t descriptor, built + uploaded once at allocation and referenced
+   * by every launch — so binding an image adds no per-launch host<->device
+   * round trip. NULL / 0 for plain buffers. */
+  vx_buffer_h img_desc_buffer;
+  uint64_t    img_desc_address;
 } vortex_buffer_data_t;
+
+/* ---- Fixed-function TEX (Tier-A image sampling) ABI ------------------------
+ * These are the device-side contract (VX_types.toml [dcr_tex]/[tex_const] in the
+ * Vortex RTL/SimX tree). Hardcoded rather than pulled from VX_types.h because the
+ * PoCL runtime is built against one Vortex install but the DCR writes are decoded
+ * by whichever libvortex/SimX the process loads; these values are stable ABI.
+ */
+#define VX_DCR_TEX_STAGE   0x040u  /* stage-select (latches the target bank)     */
+#define VX_DCR_TEX_ADDR    0x041u  /* texture base >> 6 (64-byte blocks)         */
+#define VX_DCR_TEX_LOGDIM  0x042u  /* (log2h << 16) | log2w                      */
+#define VX_DCR_TEX_FORMAT  0x043u  /* VX_TEX_FORMAT_*                            */
+#define VX_DCR_TEX_FILTER  0x044u  /* POINT=0 / BILINEAR=1 (| MIP_LINEAR=2)      */
+#define VX_DCR_TEX_WRAP    0x045u  /* (wrap_v << 16) | wrap_u                    */
+#define VX_DCR_TEX_MIPOFF0 0x046u  /* per-LOD byte offset; LOD0 = 0 (base)       */
+
+#define VX_TEX_FMT_A8R8G8B8 0u     /* only FF format the OpenCL mapping uses now  */
+#define VX_TEX_STAGE_COUNT  2u
+
+#define VX_TEXF_POINT     0u
+#define VX_TEXF_BILINEAR  1u
+#define VX_TEXW_CLAMP     0u       /* CLK_ADDRESS_CLAMP_TO_EDGE / NONE           */
+#define VX_TEXW_REPEAT    1u
+#define VX_TEXW_MIRROR    2u
+
+/* Bit layout of the dev_sampler_t scalar (pocl_fill_dev_sampler_t): bit0 =
+ * normalized-coords, bits[3:1] = address mode (CLK_ADDRESS_*), bits[5:4] =
+ * filter (CLK_FILTER_*). These mirror the CLK_* values the kernel decodes. */
+#define CLK_ADDR_NONE            0x00u
+#define CLK_ADDR_CLAMP_TO_EDGE   0x02u
+#define CLK_ADDR_CLAMP           0x04u   /* clamp-to-border: not FF, -> software */
+#define CLK_ADDR_REPEAT          0x06u
+#define CLK_ADDR_MIRRORED_REPEAT 0x08u
+#define CLK_FILT_NEAREST         0x10u
+#define CLK_FILT_LINEAR          0x20u
+
+/* Map an OpenCL image format to an FF-decodable VX_TEX_FORMAT. Returns 1 and
+ * sets *vx_fmt when Tier-A can decode it, else 0 (software sampling). Phase 1
+ * covers the hot 8-bit-UNORM BGRA/RGBA case; the FF unit always emits A8R8G8B8
+ * and the kernel swizzles per channel order. Other formats stay software. */
+static int vx_tex_map_format(const cl_image_format* fmt, uint32_t* vx_fmt) {
+  if (fmt->image_channel_data_type != CL_UNORM_INT8)
+    return 0;
+  if (fmt->image_channel_order != CL_RGBA && fmt->image_channel_order != CL_BGRA)
+    return 0;
+  *vx_fmt = VX_TEX_FMT_A8R8G8B8;
+  return 1;
+}
+
+/* Translate the dev_sampler_t bits into FF filter/wrap. Returns 1 when the
+ * sampler is FF-representable (nearest/linear × clamp-to-edge/repeat/mirror),
+ * else 0 -> software (e.g. clamp-to-border, which the FF unit cannot do). */
+static int vx_tex_map_sampler(uint32_t smp, uint32_t* filter, uint32_t* wrap) {
+  switch (smp & 0x30u) {
+  case CLK_FILT_NEAREST: *filter = VX_TEXF_POINT;    break;
+  case CLK_FILT_LINEAR:  *filter = VX_TEXF_BILINEAR; break;
+  default: return 0;
+  }
+  switch (smp & 0x0eu) {
+  case CLK_ADDR_NONE:
+  case CLK_ADDR_CLAMP_TO_EDGE:   *wrap = VX_TEXW_CLAMP;  break;
+  case CLK_ADDR_REPEAT:          *wrap = VX_TEXW_REPEAT; break;
+  case CLK_ADDR_MIRRORED_REPEAT: *wrap = VX_TEXW_MIRROR; break;
+  default: return 0; /* CLK_ADDRESS_CLAMP (border) is not FF-representable */
+  }
+  return 1;
+}
+
+/* Integer log2 for POT dims; returns -1 if not a power of two. */
+static int vx_ilog2_pot(uint32_t v) {
+  if (v == 0 || (v & (v - 1)) != 0) return -1;
+  int l = 0; while (v > 1) { v >>= 1; ++l; }
+  return l;
+}
 
 static cl_bool vortex_available = CL_TRUE;
 
@@ -175,6 +260,20 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
    * pocl_exec_command calls a NULL ops->map_mem and segfaults (e.g. hotspot). */
   ops->map_mem = pocl_vortex_map_mem;
   ops->unmap_mem = pocl_vortex_unmap_mem;
+
+  /* Image transfers. Vortex device memory is not host-addressable, so the
+   * generic basic/driver rect image ops (which memcpy through the device
+   * address as a host pointer) cannot be reused. These wrappers reuse the
+   * Vortex rect DMA path (pocl_vortex_read/write/copy_rect) instead, and
+   * fill_image stages the pattern through a host buffer. Sampling itself runs
+   * in software via the read_image.cl builtins compiled into the Vortex kernel
+   * library; see the pocl_image_support proposal. */
+  ops->read_image_rect  = pocl_vortex_read_image_rect;
+  ops->write_image_rect = pocl_vortex_write_image_rect;
+  ops->copy_image_rect  = pocl_vortex_copy_image_rect;
+  ops->map_image        = pocl_vortex_map_image;
+  ops->unmap_image      = pocl_vortex_unmap_image;
+  ops->fill_image       = pocl_vortex_fill_image;
 }
 
 char * pocl_vortex_build_hash (cl_device_id dev)
@@ -273,7 +372,13 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   dev->kernellib_subdir = "vortex";
   dev->device_aux_functions = vortex_native_device_aux_funcs;
 
-  dev->image_support = CL_FALSE;
+  /* Image support is served in software: the read/write_image + get_image_*
+   * builtins are compiled into the Vortex kernel library, and the six image
+   * transfer ops are wired in pocl_vortex_init_device_ops. The image caps
+   * (max_*_image_args, image2d/3d limits, supported_image_formats table) are
+   * already populated by pocl_init_default_device_infos() above; enabling the
+   * flag exposes them. */
+  dev->image_support = CL_TRUE;
 
   vx_device_h vx_device;
 
@@ -353,6 +458,12 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   dd->ctx_refcount = 0;
 
   dd->is_64bit = is_64bit;
+
+  /* Fixed-function TEX capability (Tier-A image sampling). Best-effort: on any
+   * query error, leave FF disabled and sample everything in software. */
+  uint64_t isa_flags = 0;
+  dd->has_tex = (vx_device_query(vx_device, VX_CAPS_ISA_FLAGS, &isa_flags) == 0)
+                && (isa_flags & VX_ISA_EXT_TEX) ? 1 : 0;
 
   POCL_INIT_LOCK(dd->compile_lock);
   POCL_INIT_LOCK(dd->cq_lock);
@@ -549,6 +660,99 @@ int pocl_vortex_free_kernel (cl_device_id dev, cl_program program,
   return CL_SUCCESS;
 }
 
+/* Tier-A TEX binder (see call site in pocl_vortex_run). Programs the FF stage
+ * DCRs for each FF-eligible image arg and patches its cached descriptor's
+ * {_tex_stage,_tex_sampler}; resets the others to unbound. All ops ride the
+ * device queue ahead of the launch (FIFO-ordered), so no per-op sync is needed
+ * — this mirrors the graphics driver's DCR-batch style. No-op without TEX. */
+static void vx_tex_bind_images(vortex_device_data_t* dd, _cl_command_node* cmd,
+                               pocl_kernel_metadata_t* meta, uint32_t ptr_size) {
+  if (!dd->has_tex)
+    return;
+
+  unsigned mem_id = cmd->device->global_mem_id;
+
+  /* One FF-representable sampler drives the binding (the common image kernel has
+   * exactly one). Images sampled with any other sampler fail the kernel-side
+   * match and sample in software — safe, never wrong. */
+  int have_smp = 0;
+  uint32_t smp_bits = 0, smp_filter = 0, smp_wrap = 0;
+  for (int i = 0; i < meta->num_args; ++i) {
+    if (meta->arg_info[i].type != POCL_ARG_TYPE_SAMPLER)
+      continue;
+    dev_sampler_t ds = 0;
+    pocl_fill_dev_sampler_t(&ds, &cmd->command.run.arguments[i]);
+    uint32_t bits = (uint32_t)ds, f, w;
+    if (vx_tex_map_sampler(bits, &f, &w)) {
+      have_smp = 1; smp_bits = bits; smp_filter = f; smp_wrap = w;
+      break;
+    }
+  }
+
+  const uint32_t patch_off = ptr_size + 12u * 4u; /* {_tex_stage,_tex_sampler} */
+  uint32_t next_stage = 0;
+  for (int i = 0; i < meta->num_args; ++i) {
+    if (meta->arg_info[i].type != POCL_ARG_TYPE_IMAGE)
+      continue;
+    cl_mem m = *(cl_mem*)(cmd->command.run.arguments[i].value);
+    vortex_buffer_data_t* bd =
+        (vortex_buffer_data_t*)m->device_ptrs[mem_id].extra_ptr;
+
+    int32_t patch[2] = { -1, 0 }; /* unbound by default */
+
+    uint32_t vx_fmt = 0;
+    cl_image_format fmt = { m->image_channel_order, m->image_channel_data_type };
+    int lw = vx_ilog2_pot((uint32_t)m->image_width);
+    int lh = vx_ilog2_pot((uint32_t)m->image_height);
+    if (have_smp && bd && next_stage < VX_TEX_STAGE_COUNT
+        && m->type == CL_MEM_OBJECT_IMAGE2D
+        && lw >= 0 && lh >= 0
+        /* FF addressing assumes tightly-packed rows. image_elem_size is
+         * bytes-per-channel, so the pixel stride is channels * elem_size. */
+        && m->image_row_pitch
+             == (size_t)m->image_width * m->image_channels * m->image_elem_size
+        && vx_tex_map_format(&fmt, &vx_fmt)
+        && (m->flags & CL_MEM_WRITE_ONLY) == 0
+        && (bd->buf_address & 63u) == 0) {
+      uint32_t stage = next_stage++;
+      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_STAGE,  stage, 0, NULL, NULL);
+      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_LOGDIM,
+                           ((uint32_t)lh << 16) | (uint32_t)lw, 0, NULL, NULL);
+      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_FORMAT, vx_fmt, 0, NULL, NULL);
+      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_FILTER, smp_filter, 0, NULL, NULL);
+      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_WRAP,
+                           (smp_wrap << 16) | smp_wrap, 0, NULL, NULL);
+      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_ADDR,
+                           (uint32_t)(bd->buf_address >> 6), 0, NULL, NULL);
+      vx_enqueue_dcr_write(dd->vx_queue, VX_DCR_TEX_MIPOFF0, 0, 0, NULL, NULL);
+      patch[0] = (int32_t)stage;
+      patch[1] = (int32_t)smp_bits;
+      if (getenv("POCL_VORTEX_TEX_DEBUG"))
+        fprintf(stderr, "[vortex-tex] bound image arg %d -> stage %u "
+                "(logdim=%dx%d fmt=%u filt=%u wrap=%u smp=0x%x addr=0x%lx)\n",
+                i, stage, lw, lh, vx_fmt, smp_filter, smp_wrap, smp_bits,
+                (unsigned long)bd->buf_address);
+    } else if (getenv("POCL_VORTEX_TEX_DEBUG")) {
+      fprintf(stderr, "[vortex-tex] image arg %d NOT FF-bound "
+              "(have_smp=%d stage_avail=%d 2d=%d pot=%d,%d pitch=%zu/%zu "
+              "fmt_ok=%d wo=%d aligned=%d)\n",
+              i, have_smp, next_stage < VX_TEX_STAGE_COUNT,
+              m->type == CL_MEM_OBJECT_IMAGE2D, lw, lh,
+              (size_t)m->image_row_pitch,
+              (size_t)m->image_width * m->image_channels * m->image_elem_size,
+              vx_tex_map_format(&fmt, &vx_fmt), (m->flags & CL_MEM_WRITE_ONLY) != 0,
+              bd ? (int)((bd->buf_address & 63u) == 0) : -1);
+    }
+
+    if (bd && bd->img_desc_buffer) {
+      vx_event_h ev = NULL;
+      if (vx_enqueue_write(dd->vx_queue, bd->img_desc_buffer, patch_off,
+                           patch, sizeof(patch), 0, NULL, &ev) == 0)
+        vx_sync_event(ev);
+    }
+  }
+}
+
 void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   vortex_device_data_t *dd;
   struct pocl_argument *al;
@@ -624,6 +828,15 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
     }
   }
 
+  /* Tier-A binding pass: route FF-eligible image reads through the hardware TEX
+   * unit. Pick one FF-representable sampler (the common kernel has exactly one),
+   * then for every image arg either bind it to a free TEX stage (emitting the
+   * stage DCRs and patching its cached descriptor with {stage, sampler}) or
+   * reset it to unbound. Resetting every launch prevents a stale stage index —
+   * whose DCR may now hold a different texture — from surviving into this one.
+   * All DCR writes + descriptor patches ride dd->vx_queue ahead of the launch. */
+  vx_tex_bind_images(dd, cmd, meta, ptr_size);
+
   // write arguments
 
   uint8_t* const host_args_ptr = host_kargs_base_ptr + aligned_kernel_args_size;
@@ -668,10 +881,24 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
       }
     } else
     if (meta->arg_info[i].type == POCL_ARG_TYPE_IMAGE) {
-        POCL_ABORT("POCL_VORTEX_RUN\n");
+      /* Pass the device address of the image's cached dev_image_t descriptor,
+       * built once at allocation (pocl_vortex_alloc_mem_obj). No per-launch
+       * descriptor build/upload/sync — the read_image.cl builtins reinterpret
+       * the arg as a global dev_image_t*. */
+      cl_mem m = *(cl_mem *)(al->value);
+      vortex_buffer_data_t* buf_data =
+          (vortex_buffer_data_t *)m->device_ptrs[cmd->device->global_mem_id].extra_ptr;
+      memcpy(host_args_ptr + host_args_offset, &buf_data->img_desc_address, ptr_size);
+      host_args_offset = ALIGN_OFFSET(host_args_offset + ptr_size, ptr_size);
     } else
     if (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER) {
-        POCL_ABORT("POCL_VORTEX_RUN\n");
+      /* The CLK_* sampler bitfield, passed as a pointer-sized scalar; the
+       * kernel recovers it via __builtin_astype(sampler, uintptr_t). */
+      dev_sampler_t ds = 0;
+      pocl_fill_dev_sampler_t(&ds, al);
+      uint64_t sv = (uint64_t)ds;
+      memcpy(host_args_ptr + host_args_offset, &sv, ptr_size);
+      host_args_offset = ALIGN_OFFSET(host_args_offset + ptr_size, ptr_size);
     } else {
       // scalar argument
       memcpy(host_args_ptr + host_args_offset, al->value, al->size); // scalar value
@@ -739,6 +966,8 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_pt
   cl_mem_flags flags = mem_obj->flags;
 
   {
+    vortex_device_data_t* dd = (vortex_device_data_t *)dev->data;
+
     /* CL_MEM_USE_HOST_PTR: Vortex device memory is separate from host memory,
      * so the host allocation cannot be aliased. Emulate it as a device buffer
      * seeded from host_ptr (like COPY_HOST_PTR); POCL retains mem_host_ptr and
@@ -751,7 +980,12 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_pt
     if ((flags & CL_MEM_WRITE_ONLY) != 0)
       vx_flags = VX_MEM_WRITE;
 
-    vortex_device_data_t* dd = (vortex_device_data_t *)dev->data;
+    /* Image storage must be physically pinned for the FF TEX unit, which reads
+     * through tcache and bypasses the per-core MMU. Pin every image when the
+     * device has TEX; the eligibility check in run() decides per launch whether
+     * to actually route a given read through the hardware sampler. */
+    if (mem_obj->is_image && dd->has_tex)
+      vx_flags |= VX_MEM_PHYS;
 
     vx_buffer_h vx_buffer;
     vx_err = vx_buffer_create(dd->vx_device, mem_obj->size, vx_flags, &vx_buffer);
@@ -786,6 +1020,60 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_pt
     buf_data->vx_device = dd->vx_device;
     buf_data->vx_buffer = vx_buffer;
     buf_data->buf_address = buf_address;
+    buf_data->img_desc_buffer = NULL;
+    buf_data->img_desc_address = 0;
+
+    /* Image objects: build the dev_image_t descriptor once, here, and upload it
+     * to its own small device buffer. The descriptor is constant for the image's
+     * lifetime (dims/format/pitch and the pixel-buffer address never change when
+     * the contents change), so every launch just references this cached device
+     * address — no per-launch descriptor upload or sync. Serialized in
+     * device-native layout: a ptr_size pointer (_data) followed by 12 int32
+     * fields, because the host dev_image_t uses a 64-bit void* that would not
+     * match a 32-bit device. */
+    if (mem_obj->is_image) {
+      uint32_t ptr_size = dd->is_64bit ? 8 : 4;
+      uint8_t desc[8 + 14 * 4];
+      uint32_t doff = 0;
+      uint64_t data_addr = buf_address;                 // _data = pixel buffer addr
+      memcpy(desc + doff, &data_addr, ptr_size);
+      doff += ptr_size;
+      /* 12 dev_image_t fields + 2 trailing FF-TEX fields (_tex_stage,
+       * _tex_sampler). The FF fields default to "unbound" here and are patched
+       * per launch by pocl_vortex_run when the image is FF-eligible. */
+      const int32_t fields[14] = {
+        (int32_t)mem_obj->image_width, (int32_t)mem_obj->image_height,
+        (int32_t)mem_obj->image_depth, (int32_t)mem_obj->image_array_size,
+        (int32_t)mem_obj->image_row_pitch, (int32_t)mem_obj->image_slice_pitch,
+        (int32_t)mem_obj->num_mip_levels, (int32_t)mem_obj->num_samples,
+        (int32_t)mem_obj->image_channel_order, (int32_t)mem_obj->image_channel_data_type,
+        (int32_t)mem_obj->image_channels, (int32_t)mem_obj->image_elem_size,
+        -1 /* _tex_stage: unbound */, 0 /* _tex_sampler */
+      };
+      memcpy(desc + doff, fields, sizeof(fields));
+      doff += (uint32_t)sizeof(fields);
+
+      vx_buffer_h desc_buf;
+      if (vx_buffer_create(dd->vx_device, doff, VX_MEM_READ, &desc_buf) != 0) {
+        vx_buffer_release(vx_buffer);
+        free(buf_data);
+        return CL_MEM_OBJECT_ALLOCATION_FAILURE;
+      }
+      uint64_t desc_addr = 0;
+      vx_buffer_address(desc_buf, &desc_addr);
+      vx_event_h dev_ev = NULL;
+      vx_err = vx_enqueue_write(dd->vx_queue, desc_buf, 0, desc, doff, 0, NULL, &dev_ev);
+      if (vx_err == 0)
+        vx_err = vx_sync_event(dev_ev);
+      if (vx_err != 0) {
+        vx_buffer_release(desc_buf);
+        vx_buffer_release(vx_buffer);
+        free(buf_data);
+        return CL_MEM_OBJECT_ALLOCATION_FAILURE;
+      }
+      buf_data->img_desc_buffer = desc_buf;
+      buf_data->img_desc_address = desc_addr;
+    }
 
     /* Store the real device address in mem_ptr so POCL's CL_MEM_DEVICE_ADDRESS_EXT
      * flow (lib/CL/clCreateBuffer.c around line 258) returns the actual
@@ -813,6 +1101,9 @@ void pocl_vortex_free(cl_device_id dev, cl_mem mem_obj) {
     }
     if (buf_data && buf_data->vx_buffer) {
       vx_buffer_release(buf_data->vx_buffer);
+    }
+    if (buf_data && buf_data->img_desc_buffer) {
+      vx_buffer_release(buf_data->img_desc_buffer);
     }
   }
   if (buf_data) free(buf_data);
@@ -1050,6 +1341,116 @@ void pocl_vortex_memfill(void *data,
   if (vx_err != 0) {
     POCL_ABORT("POCL_VORTEX_MEMFILL\n");
   }
+}
+
+/* Image transfer ops. Modeled on the basic driver's wrappers, but delegating to
+ * the Vortex rect DMA path (pocl_vortex_{read,write,copy}_rect) because Vortex
+ * device memory is not host-addressable. The image x-origin and x-region are
+ * converted to byte counts (× pixel size), matching what the vortex2 rect
+ * enqueues expect (their row 0 / x axis is measured in bytes). */
+
+cl_int pocl_vortex_copy_image_rect(void *data, cl_mem src_image, cl_mem dst_image,
+                                   pocl_mem_identifier *src_mem_id,
+                                   pocl_mem_identifier *dst_mem_id,
+                                   const size_t *src_origin,
+                                   const size_t *dst_origin,
+                                   const size_t *region) {
+  size_t px = src_image->image_elem_size * src_image->image_channels;
+  const size_t adj_src_origin[3] = { src_origin[0] * px, src_origin[1], src_origin[2] };
+  const size_t adj_dst_origin[3] = { dst_origin[0] * px, dst_origin[1], dst_origin[2] };
+  const size_t adj_region[3] = { region[0] * px, region[1], region[2] };
+  pocl_vortex_copy_rect(data, dst_mem_id, dst_image, src_mem_id, src_image,
+                        adj_dst_origin, adj_src_origin, adj_region,
+                        dst_image->image_row_pitch, dst_image->image_slice_pitch,
+                        src_image->image_row_pitch, src_image->image_slice_pitch);
+  return CL_SUCCESS;
+}
+
+cl_int pocl_vortex_write_image_rect(void *data, cl_mem dst_image,
+                                    pocl_mem_identifier *dst_mem_id,
+                                    const void *__restrict__ src_host_ptr,
+                                    pocl_mem_identifier *src_mem_id,
+                                    const size_t *origin, const size_t *region,
+                                    size_t src_row_pitch, size_t src_slice_pitch,
+                                    size_t src_offset) {
+  const void *__restrict__ ptr = src_host_ptr ? src_host_ptr : src_mem_id->mem_ptr;
+  ptr = (const char *)ptr + src_offset;
+  const size_t zero_origin[3] = { 0, 0, 0 };
+  size_t px = dst_image->image_elem_size * dst_image->image_channels;
+  if (src_row_pitch == 0)
+    src_row_pitch = px * region[0];
+  if (src_slice_pitch == 0)
+    src_slice_pitch = src_row_pitch * region[1];
+  const size_t adj_origin[3] = { origin[0] * px, origin[1], origin[2] };
+  const size_t adj_region[3] = { region[0] * px, region[1], region[2] };
+  pocl_vortex_write_rect(data, ptr, dst_mem_id, dst_image, adj_origin, zero_origin,
+                         adj_region, dst_image->image_row_pitch,
+                         dst_image->image_slice_pitch, src_row_pitch, src_slice_pitch);
+  return CL_SUCCESS;
+}
+
+cl_int pocl_vortex_read_image_rect(void *data, cl_mem src_image,
+                                   pocl_mem_identifier *src_mem_id,
+                                   void *__restrict__ dst_host_ptr,
+                                   pocl_mem_identifier *dst_mem_id,
+                                   const size_t *origin, const size_t *region,
+                                   size_t dst_row_pitch, size_t dst_slice_pitch,
+                                   size_t dst_offset) {
+  void *__restrict__ ptr = dst_host_ptr ? dst_host_ptr : dst_mem_id->mem_ptr;
+  ptr = (char *)ptr + dst_offset;
+  const size_t zero_origin[3] = { 0, 0, 0 };
+  size_t px = src_image->image_elem_size * src_image->image_channels;
+  if (dst_row_pitch == 0)
+    dst_row_pitch = px * region[0];
+  if (dst_slice_pitch == 0)
+    dst_slice_pitch = dst_row_pitch * region[1];
+  const size_t adj_origin[3] = { origin[0] * px, origin[1], origin[2] };
+  const size_t adj_region[3] = { region[0] * px, region[1], region[2] };
+  pocl_vortex_read_rect(data, ptr, src_mem_id, src_image, adj_origin, zero_origin,
+                        adj_region, src_image->image_row_pitch,
+                        src_image->image_slice_pitch, dst_row_pitch, dst_slice_pitch);
+  return CL_SUCCESS;
+}
+
+cl_int pocl_vortex_map_image(void *data, pocl_mem_identifier *mem_id,
+                             cl_mem src_image, mem_mapping_t *map) {
+  assert(map->host_ptr != NULL);
+  if (map->map_flags & CL_MAP_WRITE_INVALIDATE_REGION)
+    return CL_SUCCESS;
+  if (map->host_ptr != ((char *)mem_id->mem_ptr + map->offset))
+    pocl_vortex_read_image_rect(data, src_image, mem_id, map->host_ptr, NULL,
+                                map->origin, map->region, map->row_pitch,
+                                map->slice_pitch, 0);
+  return CL_SUCCESS;
+}
+
+cl_int pocl_vortex_unmap_image(void *data, pocl_mem_identifier *mem_id,
+                               cl_mem dst_image, mem_mapping_t *map) {
+  if (map->map_flags == CL_MAP_READ)
+    return CL_SUCCESS;
+  if (map->host_ptr != ((char *)mem_id->mem_ptr + map->offset))
+    pocl_vortex_write_image_rect(data, dst_image, mem_id, map->host_ptr, NULL,
+                                 map->origin, map->region, map->row_pitch,
+                                 map->slice_pitch, 0);
+  return CL_SUCCESS;
+}
+
+cl_int pocl_vortex_fill_image(void *data, cl_mem image,
+                              pocl_mem_identifier *mem_id, const size_t *origin,
+                              const size_t *region, cl_uint4 orig_pixel,
+                              pixel_t fill_pixel, size_t pixel_size) {
+  /* Replicate the fill pixel across the region in a host staging buffer, then
+   * DMA it into the device image via the rect path (device memory can't be
+   * memset in place from the host). */
+  size_t count = region[0] * region[1] * region[2];
+  char *staging = (char *)malloc(count * pixel_size);
+  assert(staging);
+  for (size_t i = 0; i < count; ++i)
+    memcpy(staging + i * pixel_size, fill_pixel, pixel_size);
+  pocl_vortex_write_image_rect(data, image, mem_id, staging, NULL, origin, region,
+                               0, 0, 0);
+  free(staging);
+  return CL_SUCCESS;
 }
 
 /* Worker thread: drains ready_list off the caller's stack so command
