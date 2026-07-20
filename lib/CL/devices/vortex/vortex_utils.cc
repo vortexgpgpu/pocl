@@ -205,6 +205,43 @@ static void processKernels(llvm::SmallVector<std::string, 8>& funcNames, llvm::M
   }
 }
 
+/* Does this program need the RISC-V 'A' extension? The OpenCL atomic builtins reach
+ * the device either as LLVM atomic instructions or as the kernel library's inline
+ * amo*.w/lr/sc assembly (lib/kernel/vortex/atomics.c). Neither can execute on a
+ * device configured without 'A' -- and neither is rejected by the toolchain, since
+ * inline asm bypasses -march. Without this check the program builds and the device
+ * aborts mid-kernel on an illegal instruction. The caller (pocl_vortex_post_build_
+ * program) owns the policy; this only reports what the program needs. */
+int vortex_module_uses_atomics(void* llvm_module) {
+  llvm::Module *module = reinterpret_cast<llvm::Module *>(llvm_module);
+  if (module == nullptr)
+    return 0;
+  for (auto& function : module->functions()) {
+    for (auto& bb : function) {
+      for (auto& inst : bb) {
+        if (llvm::isa<llvm::AtomicRMWInst>(inst)
+         || llvm::isa<llvm::AtomicCmpXchgInst>(inst))
+          return 1;
+        auto* call = llvm::dyn_cast<llvm::CallBase>(&inst);
+        if (call == nullptr)
+          continue;
+        if (auto* asm_ = llvm::dyn_cast<llvm::InlineAsm>(call->getCalledOperand())) {
+          const std::string& body = asm_->getAsmString();
+          if (body.find("amo") != std::string::npos
+           || body.find("lr.") != std::string::npos
+           || body.find("sc.") != std::string::npos)
+            return 1;
+        }
+        llvm::Function* callee = call->getCalledFunction();
+        if (callee != nullptr
+         && callee->getName().find("_cl_atomic_") != llvm::StringRef::npos)
+          return 1;
+      }
+    }
+  }
+  return 0;
+}
+
 int compile_vortex_program(char* sz_program_vxbin, void* llvm_module,
                            unsigned module_slot) {
   int err;

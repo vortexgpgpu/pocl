@@ -62,11 +62,24 @@ typedef struct {
 
   int is_64bit;
 
+  /* VX_CAPS_ISA_FLAGS as reported by the device (MISA std bits | arch | Vortex
+   * extension bits). Queried once at init, validated against what this driver
+   * compiles and emits (vortex_check_isa), and consulted afterwards instead of
+   * assuming any unit is present. */
+  uint64_t isa_flags;
+
   /* Fixed-function TEX unit present (VX_ISA_EXT_TEX). When set, image objects
    * are allocated as physical/pinned (the TEX unit reads through tcache,
    * bypassing the per-core MMU) so FF-eligible reads can be routed through the
    * hardware sampler (Tier A). When clear, every image samples in software. */
   int has_tex;
+
+  /* Device extension / OpenCL-C feature strings reported through CL_DEVICE_EXTENSIONS
+   * and CL_DEVICE_OPENCL_C_FEATURES. Derived from isa_flags at init (not from the
+   * build-time VORTEX_DEVICE_EXTENSIONS constant, which cannot know what the device
+   * implements), owned by the driver, freed at uninit. */
+  char *extensions;
+  char *features;
 
   size_t ctx_refcount;
 
@@ -193,10 +206,13 @@ static int vx_ilog2_pot(uint32_t v) {
  * commands (DCR-register writes + a kernel launch) as ONE CP ring batch — a
  * single doorbell and one completion — the compute analog of the graphics
  * CMD_DRAW batch. Binding TEX stages + dispatching then costs one host<->device
- * round trip instead of one per DCR plus one for the launch. The PoCL build
- * headers predate this entry point, so mirror its (stable) ABI here, guarded;
- * it resolves against the loaded libvortex like the rest of the vortex2 ABI. */
-#ifndef VX_COMMAND_LAUNCH
+ * round trip instead of one per DCR plus one for the launch. SDK headers that
+ * predate this entry point declare none of it, so mirror its (stable) ABI here;
+ * it resolves against the loaded libvortex like the rest of the vortex2 ABI.
+ * VORTEX_HAS_ENQUEUE_COMMANDS is set by CMake after probing the SDK header --
+ * the declaration is an enum + struct + prototype, none of which a preprocessor
+ * guard in this file can test for. */
+#ifndef VORTEX_HAS_ENQUEUE_COMMANDS
 typedef enum {
   VX_COMMAND_LAUNCH    = 0,
   VX_COMMAND_DCR_WRITE = 1,
@@ -221,8 +237,327 @@ static cl_bool vortex_available = CL_TRUE;
 
 static const char *vortex_native_device_aux_funcs[] = {NULL};
 
+/* ---- Device capability gate ------------------------------------------------
+ * This driver is not ISA-agnostic: it compiles kernels for a fixed RISC-V target,
+ * links a kernel library that emits raw AMO instructions (lib/kernel/vortex/
+ * atomics.c) and hard floating point, and optionally routes image sampling through
+ * the fixed-function TEX unit. None of that may be assumed -- Vortex is configurable
+ * and ships with 'A', 'C', 'D', LMEM and every fixed-function unit individually
+ * switchable. So VX_CAPS_ISA_FLAGS is queried once at init and every dependent
+ * decision is keyed off it, in two tiers:
+ *
+ *   fatal    -- the device cannot run *any* kernel this driver would emit: an XLEN
+ *               mismatch, a missing base extension (I/M/F, plus D under the RV64
+ *               lp64d ABI), or a pervasive extension that the configured build flags
+ *               tell clang to spray through all code ('C', Zicond). Device init
+ *               fails with a diagnostic rather than letting kernels trap at dispatch.
+ *   gated    -- the device runs kernels, just not those using the missing feature:
+ *               'A' (atomics), LMEM (__local), TEX (FF image sampling). The feature
+ *               is switched off and un-advertised, so an OpenCL app querying
+ *               CL_DEVICE_EXTENSIONS / _OPENCL_C_FEATURES / _LOCAL_MEM_SIZE sees what
+ *               the hardware actually implements instead of a hardcoded claim.
+ *
+ * The non-fatal tier matters: the stock Vortex config has 'A' disabled (atomics are
+ * an opt-in -DVX_CFG_EXT_A_ENABLE build), and OpenCL programs that never touch an
+ * atomic run fine on it.
+ */
+
+/* MISA 'M' (bit 12). vortex2.h declares the std bits this driver needs except M. */
+#ifndef VX_ISA_STD_M
+#define VX_ISA_STD_M (1ull << 12)
+#endif
+
+/* Device XLEN encoded in VX_CAPS_ISA_FLAGS[31:30] (MISA MXL); VX_ISA_ARCH()
+ * expands it to 32 / 64. */
+#define VORTEX_ISA_XLEN(flags) ((unsigned)VX_ISA_ARCH (flags))
+
+typedef struct {
+  uint64_t bit;
+  const char *name;
+  /* Non-NULL: the device is refused without it. Text says what breaks. */
+  const char *required_by;
+} vortex_isa_feature_t;
+
+/* Every ISA bit the driver requires, keys a feature off, or reports. The optional
+ * fixed-function units (RASTER/OM/TCU/DXA/RTU) are decoded for the capability log
+ * only; the OpenCL path issues none of their instructions. */
+static const vortex_isa_feature_t vortex_isa_features[] = {
+  { VX_ISA_STD_I, "I", "base integer ISA" },
+  { VX_ISA_STD_M, "M", "kernel code emits mul/div throughout (index math)" },
+  { VX_ISA_STD_F, "F", "single-precision float; the ilp32f/lp64d ABI passes "
+                       "floats in FP registers" },
+  /* D is fatal on RV64 only (the lp64d ABI passes doubles in FPRs); on RV32 the ABI
+   * is ilp32f and 'D' only gates double-precision codegen. Special-cased below. */
+  { VX_ISA_STD_D, "D", NULL },
+  /* Gated, not fatal: see vortex_build_extensions / dev->local_mem_size / has_tex. */
+  { VX_ISA_STD_A, "A", NULL },
+  { VX_ISA_STD_C, "C", NULL },
+  { VX_ISA_EXT_LMEM, "LMEM", NULL },
+  { VX_ISA_EXT_TEX, "TEX", NULL },
+#ifdef VX_ISA_EXT_RASTER
+  { VX_ISA_EXT_RASTER, "RASTER", NULL },
+#endif
+#ifdef VX_ISA_EXT_OM
+  { VX_ISA_EXT_OM, "OM", NULL },
+#endif
+#ifdef VX_ISA_EXT_TCU
+  { VX_ISA_EXT_TCU, "TCU", NULL },
+#endif
+#ifdef VX_ISA_EXT_DXA
+  { VX_ISA_EXT_DXA, "DXA", NULL },
+#endif
+#ifdef VX_ISA_EXT_RTU
+  { VX_ISA_EXT_RTU, "RTU", NULL },
+#endif
+};
+
+/* Fatal tier: does the device implement what every kernel this driver emits needs?
+ * Returns CL_SUCCESS, or CL_INVALID_DEVICE naming the missing capability. Reported on
+ * stderr as well as through POCL_MSG_ERR: rejecting the device must be visible without
+ * POCL_DEBUG, or it just looks like "no OpenCL device". */
+static cl_int
+vortex_isa_check (uint64_t isa_flags, int is_64bit)
+{
+  unsigned want_xlen = is_64bit ? 64u : 32u;
+  unsigned have_xlen = VORTEX_ISA_XLEN (isa_flags);
+  size_t i;
+  int missing = 0;
+
+  if (have_xlen != want_xlen)
+    {
+      POCL_MSG_ERR ("Vortex: device is RV%u, POCL_VORTEX_XLEN selects RV%u.\n",
+                    have_xlen, want_xlen);
+      fprintf (stderr,
+               "pocl-vortex: device is RV%u but POCL_VORTEX_XLEN=%u -- ISA mismatch, "
+               "device disabled.\n", have_xlen, want_xlen);
+      return CL_INVALID_DEVICE;
+    }
+
+  for (i = 0; i < sizeof (vortex_isa_features) / sizeof (vortex_isa_features[0]); ++i)
+    {
+      const vortex_isa_feature_t *f = &vortex_isa_features[i];
+      const char *why = f->required_by;
+
+      if (why == NULL && is_64bit && f->bit == VX_ISA_STD_D)
+        why = "the lp64d ABI passes doubles in FP registers";
+      if (why == NULL || (isa_flags & f->bit))
+        continue;
+
+      POCL_MSG_ERR ("Vortex: device lacks required ISA extension '%s' (%s).\n",
+                    f->name, why);
+      fprintf (stderr,
+               "pocl-vortex: device lacks required ISA extension '%s' (%s) -- "
+               "kernels would trap; device disabled.\n", f->name, why);
+      missing = 1;
+    }
+
+  return missing ? CL_INVALID_DEVICE : CL_SUCCESS;
+}
+
+/* CL_DEVICE_EXTENSIONS, derived from the device ISA. VORTEX_DEVICE_EXTENSIONS is a
+ * build-time constant that cannot know what the device implements, so the
+ * device-dependent claims in it are filtered here:
+ *   cl_khr_int64                 -- 64-bit scalars need an RV64 device
+ *   cl_khr_int64_*_atomics       -- 64-bit AMOs need 'A' on an RV64 device
+ *   cl_khr_*_int32_*_atomics     -- 32-bit AMOs need 'A'
+ * The rest of the list is device-independent (cl_khr_byte_addressable_store) or
+ * gated by the build config (cl_khr_il_program, cl_ext_buffer_device_address).
+ * Caller owns the returned string. */
+static char *
+vortex_build_extensions (uint64_t isa_flags, int is_64bit)
+{
+  /* Room for the build-time list plus every runtime-gated token. */
+  size_t cap = strlen (VORTEX_DEVICE_EXTENSIONS) + 128;
+  char *exts = (char *)calloc (cap, 1);
+  int has_atomics = (isa_flags & VX_ISA_STD_A) != 0;
+  const char *tok;
+  char *save = NULL;
+  char *build_exts;
+
+  if (exts == NULL)
+    return NULL;
+
+  build_exts = strdup (VORTEX_DEVICE_EXTENSIONS);
+  if (build_exts == NULL)
+    {
+      free (exts);
+      return NULL;
+    }
+
+  for (tok = strtok_r (build_exts, " ", &save); tok != NULL;
+       tok = strtok_r (NULL, " ", &save))
+    {
+      /* Drop the device-dependent claims the build-time list makes unconditionally. */
+      if (strcmp (tok, "cl_khr_int64") == 0 && !is_64bit)
+        continue;
+      if (strstr (tok, "atomics") != NULL && !has_atomics)
+        continue;
+      /* 64-bit AMOs additionally need an RV64 device. NOTE: the Vortex kernel library
+       * implements the 32-bit AMO builtins only (lib/kernel/vortex/atomics.c), so even
+       * on a device that clears this gate a kernel calling atom_add(long*) fails to
+       * link -- loudly, at build time, rather than silently mis-executing. */
+      if ((strcmp (tok, "cl_khr_int64_base_atomics") == 0
+           || strcmp (tok, "cl_khr_int64_extended_atomics") == 0)
+          && !is_64bit)
+        continue;
+      if (exts[0] != '\0')
+        strncat (exts, " ", cap - strlen (exts) - 1);
+      strncat (exts, tok, cap - strlen (exts) - 1);
+    }
+
+  /* cl_khr_fp64 is not advertised even when the device implements 'D': the Vortex
+   * kernel library provides no double-precision builtins, so it would be a claim the
+   * toolchain cannot honor. The 'D' bit only gates codegen (pocl_vortex_init_build). */
+
+  free (build_exts);
+  return exts;
+}
+
+/* CL_DEVICE_OPENCL_C_FEATURES, derived from the same ISA flags: an app that queries
+ * features rather than extensions must see the same truth. Only features the device
+ * and the Vortex kernel library can both back are listed -- notably no
+ * __opencl_c_fp64 (no double builtins) and no __opencl_c_atomic_* without 'A'.
+ * Caller owns the returned string. */
+static char *
+vortex_build_features (uint64_t isa_flags, int is_64bit, int image_support)
+{
+  char buf[512];
+  buf[0] = '\0';
+
+  if (image_support)
+    strncat (buf, " __opencl_c_images", sizeof (buf) - strlen (buf) - 1);
+  if (is_64bit)
+    strncat (buf, " __opencl_c_int64", sizeof (buf) - strlen (buf) - 1);
+  if (isa_flags & VX_ISA_STD_A)
+    strncat (buf, " __opencl_c_atomic_order_relaxed __opencl_c_atomic_scope_device",
+             sizeof (buf) - strlen (buf) - 1);
+
+  return strdup (buf[0] == ' ' ? buf + 1 : buf);
+}
+
+/* Log the decoded ISA once, so a capability-driven behavior change (software vs FF
+ * image sampling, a dropped extension) is explainable from the device's own report. */
+static void
+vortex_log_isa (uint64_t isa_flags)
+{
+  char buf[256];
+  size_t i;
+  int n;
+
+  n = snprintf (buf, sizeof (buf), "RV%u", VORTEX_ISA_XLEN (isa_flags));
+  for (i = 0; i < sizeof (vortex_isa_features) / sizeof (vortex_isa_features[0]); ++i)
+    {
+      const vortex_isa_feature_t *f = &vortex_isa_features[i];
+      if ((isa_flags & f->bit) && n > 0 && (size_t)n < sizeof (buf) - 1)
+        n += snprintf (buf + n, sizeof (buf) - (size_t)n, " %s", f->name);
+    }
+  POCL_MSG_PRINT_INFO ("Vortex device ISA: %s (flags 0x%llx)\n", buf,
+                       (unsigned long long)isa_flags);
+}
+
+/* Release everything acquired so far on a failed init. */
+static cl_int
+vortex_init_fail (vx_device_h vx_device, vortex_device_data_t *dd, cl_int err)
+{
+  if (vx_device != NULL)
+    vx_device_release (vx_device);
+  if (dd != NULL)
+    {
+      POCL_MEM_FREE (dd->extensions);
+      POCL_MEM_FREE (dd->features);
+      free (dd);
+    }
+  return err;
+}
+
+/* The final device compile (compile_vortex_program) drives clang with the user's
+ * POCL_VORTEX_CFLAGS, whose -march decides which instructions actually land in the
+ * .vxbin. Check that march against the device ISA at init, so an ISA the hardware
+ * cannot execute is rejected up front rather than trapping at the first dispatch.
+ * Recognized: the std letters (imafdc) plus the Vortex/RISC-V target features this
+ * flow uses (+zicond). Anything unrecognized is left alone -- this is a guard, not
+ * an march parser. */
+static cl_int
+vortex_check_build_flags (uint64_t isa_flags, int is_64bit)
+{
+  const char *cflags = pocl_get_string_option ("POCL_VORTEX_CFLAGS", "");
+  const char *march = strstr (cflags, "-march=rv");
+  const char *p;
+  unsigned want_xlen;
+
+  /* Not set yet: compile_vortex_program errors out on its own at build time. */
+  if (march == NULL)
+    return CL_SUCCESS;
+
+  march += strlen ("-march=rv");
+  want_xlen = (strncmp (march, "64", 2) == 0) ? 64u : 32u;
+  if (want_xlen != (is_64bit ? 64u : 32u))
+    {
+      fprintf (stderr,
+               "pocl-vortex: POCL_VORTEX_CFLAGS builds RV%u but the device is RV%u "
+               "-- device disabled.\n", want_xlen, is_64bit ? 64u : 32u);
+      return CL_INVALID_DEVICE;
+    }
+
+  for (p = march + 2; *p && *p != ' ' && *p != '_'; ++p)
+    {
+      uint64_t bit = 0;
+      /* 'c' is pervasive: with it in -march, clang compresses instructions all over
+       * the kernel, so a device without 'C' traps immediately. 'a' and 'd' are only
+       * emitted where a kernel actually uses an atomic or a double -- a mismatch
+       * there is a per-kernel build failure, not a reason to refuse the device
+       * (the stock Vortex config ships without 'A'). */
+      int pervasive = 0;
+      switch (*p)
+        {
+        case 'i': bit = VX_ISA_STD_I; pervasive = 1; break;
+        case 'm': bit = VX_ISA_STD_M; pervasive = 1; break;
+        case 'f': bit = VX_ISA_STD_F; pervasive = 1; break;
+        case 'c': bit = VX_ISA_STD_C; pervasive = 1; break;
+        case 'a': bit = VX_ISA_STD_A; break;
+        case 'd': bit = VX_ISA_STD_D; break;
+        default: continue; /* 'g', vendor suffixes: not our business */
+        }
+      if (isa_flags & bit)
+        continue;
+      if (pervasive)
+        {
+          fprintf (stderr,
+                   "pocl-vortex: POCL_VORTEX_CFLAGS requests -march=...%c... but the "
+                   "device does not implement RISC-V '%c' -- device disabled.\n",
+                   *p, *p);
+          return CL_INVALID_DEVICE;
+        }
+      POCL_MSG_WARN ("Vortex: -march requests '%c' which the device lacks; kernels "
+                     "using it will fail to build.\n", *p);
+    }
+
+  /* Zicond is pervasive as well: clang selects czero.eqz/nez for any select. */
+  if (strstr (cflags, "+zicond") != NULL && !(isa_flags & VX_ISA_EXT_ZICOND))
+    {
+      fprintf (stderr,
+               "pocl-vortex: POCL_VORTEX_CFLAGS enables +zicond but the device does "
+               "not implement Zicond -- device disabled.\n");
+      return CL_INVALID_DEVICE;
+    }
+
+  return CL_SUCCESS;
+}
+
+/* Target features for the IR/kernel-library build stage. Derived from the device ISA
+ * rather than hardcoded: a device without 'A' must not have clang lower atomics to
+ * AMOs, and one without 'D' must not get native double-precision instructions. */
 char* pocl_vortex_init_build(void *data) {
-    return strdup("-target-feature +m -target-feature +a -target-feature +f -target-feature +d");
+  vortex_device_data_t *dd = (vortex_device_data_t *)data;
+  uint64_t isa_flags = (dd != NULL) ? dd->isa_flags : 0;
+  char flags[256];
+
+  /* M and F are mandatory (vortex_isa_check), so they are always present here. */
+  snprintf (flags, sizeof (flags),
+            "-target-feature +m -target-feature +f%s%s",
+            (isa_flags & VX_ISA_STD_A) ? " -target-feature +a" : "",
+            (isa_flags & VX_ISA_STD_D) ? " -target-feature +d" : "");
+  return strdup (flags);
 }
 
 void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
@@ -333,15 +668,58 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
 
   assert (dev->data == NULL);
 
-  pocl_init_default_device_infos(dev, VORTEX_DEVICE_EXTENSIONS);
-
-  SETUP_DEVICE_CL_VERSION (dev, VORTEX_DEVICE_CL_VERSION_MAJOR,
-                           VORTEX_DEVICE_CL_VERSION_MINOR);
-
   dd = (vortex_device_data_t *)calloc(1, sizeof(vortex_device_data_t));
   if (dd == NULL){
     return CL_OUT_OF_HOST_MEMORY;
   }
+
+  /* The device must be opened and its ISA validated before the device infos are
+   * populated: the reported extension string (and the fp configs POCL derives from
+   * it) depend on what the hardware actually implements. */
+  vx_device_h vx_device;
+  vx_err = vx_device_open(0, &vx_device);
+  if (vx_err != 0) {
+    return vortex_init_fail(NULL, dd, CL_DEVICE_NOT_FOUND);
+  }
+
+  uint64_t isa_flags = 0;
+  vx_err = vx_device_query(vx_device, VX_CAPS_ISA_FLAGS, &isa_flags);
+  if (vx_err != 0) {
+    POCL_MSG_ERR("Vortex: VX_CAPS_ISA_FLAGS query failed (%d).\n", vx_err);
+    fprintf(stderr, "pocl-vortex: cannot read the device ISA capabilities -- "
+                    "device disabled.\n");
+    return vortex_init_fail(vx_device, dd, CL_DEVICE_NOT_FOUND);
+  }
+  dd->isa_flags = isa_flags;
+
+  cl_int caps_err = vortex_isa_check(isa_flags, is_64bit);
+  if (caps_err == CL_SUCCESS)
+    caps_err = vortex_check_build_flags(isa_flags, is_64bit);
+  if (caps_err != CL_SUCCESS) {
+    return vortex_init_fail(vx_device, dd, caps_err);
+  }
+
+  vortex_log_isa(isa_flags);
+
+  if (!(isa_flags & VX_ISA_STD_A)) {
+    /* Not fatal (the stock Vortex config has no 'A'), but the OpenCL 1.2 core atomic
+     * builtins cannot be served: they are inline amo*.w (lib/kernel/vortex/atomics.c).
+     * Un-advertised below; a kernel that calls one fails to build. */
+    POCL_MSG_WARN("Vortex: device has no 'A' extension; OpenCL atomics are "
+                  "unavailable (rebuild the device with -DVX_CFG_EXT_A_ENABLE).\n");
+  }
+
+  dd->extensions = vortex_build_extensions(isa_flags, is_64bit);
+  dd->features = vortex_build_features(isa_flags, is_64bit, /*image_support=*/1);
+  if (dd->extensions == NULL || dd->features == NULL) {
+    return vortex_init_fail(vx_device, dd, CL_OUT_OF_HOST_MEMORY);
+  }
+
+  pocl_init_default_device_infos(dev, dd->extensions);
+  dev->features = dd->features;
+
+  SETUP_DEVICE_CL_VERSION (dev, VORTEX_DEVICE_CL_VERSION_MAJOR,
+                           VORTEX_DEVICE_CL_VERSION_MINOR);
 
   dev->vendor = "Vortex Group";
   dev->long_name = "Vortex OpenGPU";
@@ -409,52 +787,34 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
    * flag exposes them. */
   dev->image_support = CL_TRUE;
 
-  vx_device_h vx_device;
-
-  vx_err = vx_device_open(0, &vx_device);
-  if (vx_err != 0) {
-    free(dd);
-    return CL_DEVICE_NOT_FOUND;
-  }
-
   uint64_t num_cores;
   vx_err = vx_device_query(vx_device, VX_CAPS_NUM_CORES, &num_cores);
   if (vx_err != 0) {
-    vx_device_release(vx_device);
-    free(dd);
-    return CL_DEVICE_NOT_FOUND;
+    return vortex_init_fail(vx_device, dd, CL_DEVICE_NOT_FOUND);
   }
 
   uint64_t global_mem_size;
   vx_err = vx_device_query(vx_device, VX_CAPS_GLOBAL_MEM_SIZE, &global_mem_size);
   if (vx_err != 0) {
-    vx_device_release(vx_device);
-    free(dd);
-    return CL_DEVICE_NOT_FOUND;
+    return vortex_init_fail(vx_device, dd, CL_DEVICE_NOT_FOUND);
   }
 
   uint64_t local_mem_size;
   vx_err = vx_device_query(vx_device, VX_CAPS_LOCAL_MEM_SIZE, &local_mem_size);
   if (vx_err != 0) {
-    vx_device_release(vx_device);
-    free(dd);
-    return CL_DEVICE_NOT_FOUND;
+    return vortex_init_fail(vx_device, dd, CL_DEVICE_NOT_FOUND);
   }
 
   uint64_t num_warps;
   vx_err = vx_device_query(vx_device, VX_CAPS_NUM_WARPS, &num_warps);
   if (vx_err != 0) {
-    vx_device_release(vx_device);
-    free(dd);
-    return CL_DEVICE_NOT_FOUND;
+    return vortex_init_fail(vx_device, dd, CL_DEVICE_NOT_FOUND);
   }
 
   uint64_t num_threads;
   vx_err = vx_device_query(vx_device, VX_CAPS_NUM_THREADS, &num_threads);
   if (vx_err != 0) {
-    vx_device_release(vx_device);
-    free(dd);
-    return CL_DEVICE_NOT_FOUND;
+    return vortex_init_fail(vx_device, dd, CL_DEVICE_NOT_FOUND);
   }
 
   /* Async DMA queue for the vortex2 buffer path. */
@@ -465,16 +825,25 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   qinfo.priority    = VX_QUEUE_PRIORITY_NORMAL;
   vx_err = vx_queue_create(vx_device, &qinfo, &vx_queue);
   if (vx_err != 0) {
-    vx_device_release(vx_device);
-    free(dd);
-    return CL_DEVICE_NOT_FOUND;
+    return vortex_init_fail(vx_device, dd, CL_DEVICE_NOT_FOUND);
   }
 
   uint64_t max_work_group_size = num_warps * num_threads;
 
   dev->global_mem_size = global_mem_size;
   dev->max_mem_alloc_size = global_mem_size;
-  dev->local_mem_size = local_mem_size;
+  /* VX_CAPS_LOCAL_MEM_SIZE is decoded from the config word whether or not the
+   * scratchpad is built, so report a size only when the device actually has one.
+   * Kernels with __local args then fail at enqueue instead of addressing nothing. */
+  if (isa_flags & VX_ISA_EXT_LMEM) {
+    dev->local_mem_size = local_mem_size;
+    dev->local_mem_type = CL_LOCAL;
+  } else {
+    POCL_MSG_WARN("Vortex: device has no local memory (LMEM disabled); kernels "
+                  "using __local will not run.\n");
+    dev->local_mem_size = 0;
+    dev->local_mem_type = CL_GLOBAL;
+  }
   dev->max_work_group_size    = max_work_group_size;
   dev->max_work_item_sizes[0] = max_work_group_size;
   dev->max_work_item_sizes[1] = max_work_group_size;
@@ -488,11 +857,9 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
 
   dd->is_64bit = is_64bit;
 
-  /* Fixed-function TEX capability (Tier-A image sampling). Best-effort: on any
-   * query error, leave FF disabled and sample everything in software. */
-  uint64_t isa_flags = 0;
-  dd->has_tex = (vx_device_query(vx_device, VX_CAPS_ISA_FLAGS, &isa_flags) == 0)
-                && (isa_flags & VX_ISA_EXT_TEX) ? 1 : 0;
+  /* Fixed-function TEX unit (Tier-A image sampling). Optional: when absent, every
+   * image samples in software, so this gates the feature rather than the device. */
+  dd->has_tex = (isa_flags & VX_ISA_EXT_TEX) ? 1 : 0;
 
   POCL_INIT_LOCK(dd->compile_lock);
   POCL_INIT_LOCK(dd->cq_lock);
@@ -530,6 +897,11 @@ cl_int pocl_vortex_uninit (unsigned j, cl_device_id dev) {
   POCL_DESTROY_COND (dd->idle_cond);
   POCL_DESTROY_LOCK (dd->compile_lock);
   POCL_DESTROY_LOCK (dd->cq_lock);
+  /* dev->extensions/features point into dd (built from the device ISA at init). */
+  dev->extensions = NULL;
+  dev->features = NULL;
+  POCL_MEM_FREE(dd->extensions);
+  POCL_MEM_FREE(dd->features);
   POCL_MEM_FREE(dd);
   dev->data = NULL;
   return CL_SUCCESS;
@@ -580,6 +952,22 @@ int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
     result = pocl_llvm_run_passes_on_program (program, device_i);
     if (result != 0)
       break;
+
+    /* Capability gate (see vortex_isa_check): a device without 'A' cannot execute the
+     * AMOs that the OpenCL atomic builtins compile to, and neither -march nor the
+     * assembler rejects them (the kernel library reaches them through inline asm).
+     * Fail the build with the reason in the build log rather than letting the device
+     * abort mid-kernel on an illegal instruction. */
+    if (!(ddata->isa_flags & VX_ISA_STD_A)
+        && vortex_module_uses_atomics (program->llvm_irs[device_i])) {
+      const char *msg = "error: the program uses OpenCL atomics, but the Vortex "
+                        "device does not implement the RISC-V 'A' extension "
+                        "(rebuild the device with -DVX_CFG_EXT_A_ENABLE).\n";
+      pocl_append_to_buildlog (program, device_i, strdup (msg), strlen (msg));
+      POCL_MSG_ERR ("Vortex: %s", msg);
+      result = CL_BUILD_PROGRAM_FAILURE;
+      break;
+    }
 
     pdata = (vortex_program_data_t *)calloc (1, sizeof (vortex_program_data_t));
 

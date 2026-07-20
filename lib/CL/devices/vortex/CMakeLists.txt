@@ -40,7 +40,23 @@ if(NOT LLVM_OBJDUMP)
     set(LLVM_OBJDUMP "${LLVM_PREFIX}/bin/llvm-objdump")
 endif()
 
+# vx_enqueue_commands() (batched CP submission) exists only in newer Vortex SDKs.
+# pocl-vortex.c mirrors its ABI when the SDK header predates it, so probe the
+# header rather than guessing: the entry point is declared alongside an enum, which
+# no preprocessor guard in the C source can detect.
+include(CheckCSourceCompiles)
+set(CMAKE_REQUIRED_INCLUDES ${VORTEX_INCLUDE_DIRS})
+check_c_source_compiles("
+#include <vortex2.h>
+int main() { (void)vx_enqueue_commands; return 0; }
+" VORTEX_HAS_ENQUEUE_COMMANDS)
+unset(CMAKE_REQUIRED_INCLUDES)
+
 add_pocl_device_library("pocl-devices-vortex" pocl-vortex.c pocl-vortex.h vortex_utils.cc vortex_utils.h)
+
+if(VORTEX_HAS_ENQUEUE_COMMANDS)
+  target_compile_definitions(pocl-devices-vortex PRIVATE VORTEX_HAS_ENQUEUE_COMMANDS=1)
+endif()
 
 # vortex_utils.cc references LLVM_PREFIX and LLVM_OBJDUMP as preprocessor
 # macros; expose them via compile definitions instead of patching upstream

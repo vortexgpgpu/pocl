@@ -16,6 +16,11 @@ void remove_extension(char* filename);
 int compile_vortex_program(char* sz_program_vxbin, void* llvm_module,
                            unsigned module_slot);
 
+/* Non-zero if the program needs the RISC-V 'A' extension (LLVM atomics, or the
+ * kernel library's inline amo/lr/sc asm, which -march cannot reject). The device
+ * capability check lives in pocl_vortex_post_build_program. */
+int vortex_module_uses_atomics(void* llvm_module);
+
 #ifdef __cplusplus
 }
 #endif
