@@ -21,6 +21,10 @@ int compile_vortex_program(char* sz_program_vxbin, void* llvm_module,
  * capability check lives in pocl_vortex_post_build_program. */
 int vortex_module_uses_atomics(void* llvm_module);
 
+/* Debug aid: llvm::verifyModule wrapper; returns non-zero and logs when the
+ * module is invalid. tag names the call site in the log. */
+int vortex_verify_module(void* llvm_module, const char* tag);
+
 #ifdef __cplusplus
 }
 #endif

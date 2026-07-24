@@ -231,9 +231,8 @@ static void vx_int_coord(global dev_image_t* img, int smp, float u, float v,
   *ox = x; *oy = y;
 }
 
-int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image2d_t image, sampler_t sampler, int2 coord) {
-  global dev_image_t* img = __builtin_astype(image, global dev_image_t*);
-  int x,y; vx_int_coord(img,(int)__builtin_astype(sampler, uintptr_t),(float)coord.x,(float)coord.y,&x,&y);
+static int4 vx_read_imagei_2d(global dev_image_t* img, int smp, float u, float v) {
+  int x,y; vx_int_coord(img,smp,u,v,&x,&y);
   int order=img->_order, ctype=img->_data_type;
   int nchan=vx_num_chan(order), esize=vx_elem_size(ctype);
   int r=0,g=0,b=0,a=1;
@@ -246,9 +245,8 @@ int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image2d_t image, sampler_t sampler, 
   }
   return (int4)(r,g,b,a);
 }
-uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image2d_t image, sampler_t sampler, int2 coord) {
-  global dev_image_t* img = __builtin_astype(image, global dev_image_t*);
-  int x,y; vx_int_coord(img,(int)__builtin_astype(sampler, uintptr_t),(float)coord.x,(float)coord.y,&x,&y);
+static uint4 vx_read_imageui_2d(global dev_image_t* img, int smp, float u, float v) {
+  int x,y; vx_int_coord(img,smp,u,v,&x,&y);
   int order=img->_order, ctype=img->_data_type;
   int nchan=vx_num_chan(order), esize=vx_elem_size(ctype);
   uint r=0,g=0,b=0,a=1;
@@ -260,4 +258,388 @@ uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image2d_t image, sampler_t sampler
     if(nchan>3) a=vx_chan_to_ui(p,ctype,3);
   }
   return (uint4)(r,g,b,a);
+}
+
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image2d_t image, sampler_t sampler, int2 coord) {
+  global dev_image_t* img = __builtin_astype(image, global dev_image_t*);
+  return vx_read_imagei_2d(img,(int)__builtin_astype(sampler, uintptr_t),(float)coord.x,(float)coord.y);
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image2d_t image, int2 coord) {
+  global dev_image_t* img = __builtin_astype(image, global dev_image_t*);
+  // sampler-less reads: unnormalized, clamp-to-edge, nearest
+  return vx_read_imagei_2d(img, CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_NONE
+                                | CLK_FILTER_NEAREST,(float)coord.x,(float)coord.y);
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image2d_t image, sampler_t sampler, int2 coord) {
+  global dev_image_t* img = __builtin_astype(image, global dev_image_t*);
+  return vx_read_imageui_2d(img,(int)__builtin_astype(sampler, uintptr_t),(float)coord.x,(float)coord.y);
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image2d_t image, int2 coord) {
+  global dev_image_t* img = __builtin_astype(image, global dev_image_t*);
+  // sampler-less reads: unnormalized, clamp-to-edge, nearest
+  return vx_read_imageui_2d(img, CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_NONE
+                                 | CLK_FILTER_NEAREST,(float)coord.x,(float)coord.y);
+}
+
+// ================= generalized shapes: 1D / 1D array / 1D buffer / ===========
+// ================= 2D array / 3D (software path only; FF TEX is 2D) ==========
+
+// Texel base pointer at (x,y,z) — z indexes slices (3D depth or array layer).
+_CL_READNONE static global const char* vx_texel_ptr3(global dev_image_t* img,
+                                                     int x, int y, int z,
+                                                     int nchan, int esize) {
+  return (global const char*)(size_t)img->_data
+       + (size_t)z * img->_slice_pitch
+       + (size_t)y * img->_row_pitch + (size_t)x * nchan * esize;
+}
+
+static void vx_load_rgba_f3(global dev_image_t* img, int x, int y, int z,
+                            float* r, float* g, float* b, float* a) {
+  int order = img->_order, ctype = img->_data_type;
+  int nchan = vx_num_chan(order), esize = vx_elem_size(ctype);
+  global const char* p = vx_texel_ptr3(img, x, y, z, nchan, esize);
+  float c0 = vx_chan_to_f(p, ctype, 0);
+  float c1 = nchan > 1 ? vx_chan_to_f(p, ctype, 1) : 0.0f;
+  float c2 = nchan > 2 ? vx_chan_to_f(p, ctype, 2) : 0.0f;
+  float c3 = nchan > 3 ? vx_chan_to_f(p, ctype, 3) : 0.0f;
+  switch (order) {
+  case CLK_A:         *r = 0; *g = 0; *b = 0; *a = c0; return;
+  case CLK_R:         *r = c0; *g = 0; *b = 0; *a = 1; return;
+  case CLK_INTENSITY: *r = c0; *g = c0; *b = c0; *a = c0; return;
+  case CLK_LUMINANCE: *r = c0; *g = c0; *b = c0; *a = 1; return;
+  case CLK_RG:        *r = c0; *g = c1; *b = 0; *a = 1; return;
+  case CLK_RA:        *r = c0; *g = 0; *b = 0; *a = c1; return;
+  case CLK_RGB:       *r = c0; *g = c1; *b = c2; *a = 1; return;
+  case CLK_BGRA:      *r = c2; *g = c1; *b = c0; *a = c3; return;
+  case CLK_ARGB:      *r = c1; *g = c2; *b = c3; *a = c0; return;
+  default:            *r = c0; *g = c1; *b = c2; *a = c3; return; // RGBA
+  }
+}
+
+// Array-layer selection: clamp(rint(coord), 0, n-1); never normalized.
+_CL_READNONE static int vx_layer(float c, int n) {
+  int l = (int)rint(c);
+  return l < 0 ? 0 : (l >= n ? n - 1 : l);
+}
+
+// ---- float reads -------------------------------------------------------------
+
+// 1D filtering along x within row (y,z) fixed.
+static float4 vx_read_imagef_row(global dev_image_t* img, int smp, float u,
+                                 int y, int z) {
+  int w = img->_width;
+  int addr = smp & 0x0e, filt = smp & 0x30, norm = smp & 1;
+  float fx = (norm == CLK_NORMALIZED_COORDS_TRUE) ? u * w : u;
+  if (filt == CLK_FILTER_LINEAR) {
+    float sx = fx - 0.5f;
+    int x0 = (int)floor(sx);
+    float ax = sx - x0;
+    int xi0 = vx_wrap(x0, w, addr), xi1 = vx_wrap(x0 + 1, w, addr);
+    float r0=0,g0=0,b0=0,a0=0, r1=0,g1=0,b1=0,a1=0;
+    if (xi0>=0) vx_load_rgba_f3(img,xi0,y,z,&r0,&g0,&b0,&a0);
+    if (xi1>=0) vx_load_rgba_f3(img,xi1,y,z,&r1,&g1,&b1,&a1);
+    return (float4)(r0*(1-ax)+r1*ax, g0*(1-ax)+g1*ax,
+                    b0*(1-ax)+b1*ax, a0*(1-ax)+a1*ax);
+  }
+  int x = vx_wrap((int)floor(fx), w, addr);
+  float r=0,g=0,b=0,a=0;
+  if (x>=0) vx_load_rgba_f3(img,x,y,z,&r,&g,&b,&a);
+  return (float4)(r,g,b,a);
+}
+
+// 2D filtering within slice z (3D slice or array layer).
+static float4 vx_read_imagef_slice(global dev_image_t* img, int smp,
+                                   float u, float v, int z) {
+  int w = img->_width, h = img->_height;
+  int addr = smp & 0x0e, filt = smp & 0x30, norm = smp & 1;
+  float fx = u, fy = v;
+  if (norm == CLK_NORMALIZED_COORDS_TRUE) { fx = u * w; fy = v * h; }
+  if (filt == CLK_FILTER_LINEAR) {
+    float sx = fx - 0.5f, sy = fy - 0.5f;
+    int x0 = (int)floor(sx), y0 = (int)floor(sy);
+    float ax = sx - x0, ay = sy - y0;
+    int xi0 = vx_wrap(x0, w, addr), xi1 = vx_wrap(x0 + 1, w, addr);
+    int yi0 = vx_wrap(y0, h, addr), yi1 = vx_wrap(y0 + 1, h, addr);
+    float r00=0,g00=0,b00=0,a00=0, r10=0,g10=0,b10=0,a10=0;
+    float r01=0,g01=0,b01=0,a01=0, r11=0,g11=0,b11=0,a11=0;
+    if (xi0>=0&&yi0>=0) vx_load_rgba_f3(img,xi0,yi0,z,&r00,&g00,&b00,&a00);
+    if (xi1>=0&&yi0>=0) vx_load_rgba_f3(img,xi1,yi0,z,&r10,&g10,&b10,&a10);
+    if (xi0>=0&&yi1>=0) vx_load_rgba_f3(img,xi0,yi1,z,&r01,&g01,&b01,&a01);
+    if (xi1>=0&&yi1>=0) vx_load_rgba_f3(img,xi1,yi1,z,&r11,&g11,&b11,&a11);
+    float w00=(1-ax)*(1-ay), w10=ax*(1-ay), w01=(1-ax)*ay, w11=ax*ay;
+    return (float4)(r00*w00+r10*w10+r01*w01+r11*w11,
+                    g00*w00+g10*w10+g01*w01+g11*w11,
+                    b00*w00+b10*w10+b01*w01+b11*w11,
+                    a00*w00+a10*w10+a01*w01+a11*w11);
+  }
+  int x = vx_wrap((int)floor(fx), w, addr);
+  int y = vx_wrap((int)floor(fy), h, addr);
+  float r=0,g=0,b=0,a=0;
+  if (x>=0 && y>=0) vx_load_rgba_f3(img,x,y,z,&r,&g,&b,&a);
+  return (float4)(r,g,b,a);
+}
+
+// Full 3D (trilinear when CLK_FILTER_LINEAR).
+static float4 vx_read_imagef_3d(global dev_image_t* img, int smp,
+                                float u, float v, float t) {
+  int w = img->_width, h = img->_height, d = img->_depth;
+  int addr = smp & 0x0e, filt = smp & 0x30, norm = smp & 1;
+  float fz = (norm == CLK_NORMALIZED_COORDS_TRUE) ? t * d : t;
+  if (filt == CLK_FILTER_LINEAR) {
+    float sz = fz - 0.5f;
+    int z0 = (int)floor(sz);
+    float az = sz - z0;
+    int zi0 = vx_wrap(z0, d, addr), zi1 = vx_wrap(z0 + 1, d, addr);
+    float4 s0 = (float4)(0), s1 = (float4)(0);
+    if (zi0 >= 0) s0 = vx_read_imagef_slice(img, smp, u, v, zi0);
+    if (zi1 >= 0) s1 = vx_read_imagef_slice(img, smp, u, v, zi1);
+    return s0 * (1 - az) + s1 * az;
+  }
+  int z = vx_wrap((int)floor(fz), d, addr);
+  if (z < 0) return (float4)(0);
+  return vx_read_imagef_slice(img, smp, u, v, z);
+}
+
+// ---- integer reads (nearest only, per spec) -----------------------------------
+
+_CL_READNONE static int vx_int_coord1(int size, int smp, float c) {
+  int addr = smp & 0x0e, norm = smp & 1;
+  float fc = (norm == CLK_NORMALIZED_COORDS_TRUE) ? c * size : c;
+  return vx_wrap((int)floor(fc), size, addr);
+}
+
+static int4 vx_read_imagei_at(global dev_image_t* img, int x, int y, int z) {
+  int order=img->_order, ctype=img->_data_type;
+  int nchan=vx_num_chan(order), esize=vx_elem_size(ctype);
+  int r=0,g=0,b=0,a=1;
+  if (x>=0 && y>=0 && z>=0) {
+    global const char* p = vx_texel_ptr3(img,x,y,z,nchan,esize);
+    r=vx_chan_to_i(p,ctype,0);
+    if(nchan>1) g=vx_chan_to_i(p,ctype,1);
+    if(nchan>2) b=vx_chan_to_i(p,ctype,2);
+    if(nchan>3) a=vx_chan_to_i(p,ctype,3);
+  }
+  return (int4)(r,g,b,a);
+}
+static uint4 vx_read_imageui_at(global dev_image_t* img, int x, int y, int z) {
+  int order=img->_order, ctype=img->_data_type;
+  int nchan=vx_num_chan(order), esize=vx_elem_size(ctype);
+  uint r=0,g=0,b=0,a=1;
+  if (x>=0 && y>=0 && z>=0) {
+    global const char* p = vx_texel_ptr3(img,x,y,z,nchan,esize);
+    r=vx_chan_to_ui(p,ctype,0);
+    if(nchan>1) g=vx_chan_to_ui(p,ctype,1);
+    if(nchan>2) b=vx_chan_to_ui(p,ctype,2);
+    if(nchan>3) a=vx_chan_to_ui(p,ctype,3);
+  }
+  return (uint4)(r,g,b,a);
+}
+
+#define VX_SMP_DEFAULT (CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_NONE | CLK_FILTER_NEAREST)
+#define VX_IMG(image) __builtin_astype(image, global dev_image_t*)
+#define VX_SMPI(sampler) ((int)__builtin_astype(sampler, uintptr_t))
+
+// ---- image1d_t ---------------------------------------------------------------
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image1d_t image, sampler_t sampler, int coord) {
+  return vx_read_imagef_row(VX_IMG(image), VX_SMPI(sampler), (float)coord, 0, 0);
+}
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image1d_t image, sampler_t sampler, float coord) {
+  return vx_read_imagef_row(VX_IMG(image), VX_SMPI(sampler), coord, 0, 0);
+}
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image1d_t image, int coord) {
+  return vx_read_imagef_row(VX_IMG(image), VX_SMP_DEFAULT, (float)coord, 0, 0);
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image1d_t image, sampler_t sampler, int coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMPI(sampler), (float)coord), 0, 0);
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image1d_t image, sampler_t sampler, float coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMPI(sampler), coord), 0, 0);
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image1d_t image, int coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord), 0, 0);
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image1d_t image, sampler_t sampler, int coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMPI(sampler), (float)coord), 0, 0);
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image1d_t image, sampler_t sampler, float coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMPI(sampler), coord), 0, 0);
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image1d_t image, int coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord), 0, 0);
+}
+
+// ---- image1d_buffer_t (samplerless only) --------------------------------------
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image1d_buffer_t image, int coord) {
+  return vx_read_imagef_row(VX_IMG(image), VX_SMP_DEFAULT, (float)coord, 0, 0);
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image1d_buffer_t image, int coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord), 0, 0);
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image1d_buffer_t image, int coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord), 0, 0);
+}
+
+// ---- image1d_array_t (coord.y = layer) -----------------------------------------
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image1d_array_t image, sampler_t sampler, int2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagef_row(img, VX_SMPI(sampler), (float)coord.x, 0,
+                            vx_layer((float)coord.y, img->_image_array_size));
+}
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image1d_array_t image, sampler_t sampler, float2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagef_row(img, VX_SMPI(sampler), coord.x, 0,
+                            vx_layer(coord.y, img->_image_array_size));
+}
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image1d_array_t image, int2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagef_row(img, VX_SMP_DEFAULT, (float)coord.x, 0,
+                            vx_layer((float)coord.y, img->_image_array_size));
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image1d_array_t image, sampler_t sampler, int2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMPI(sampler), (float)coord.x),
+                           0, vx_layer((float)coord.y, img->_image_array_size));
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image1d_array_t image, sampler_t sampler, float2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMPI(sampler), coord.x),
+                           0, vx_layer(coord.y, img->_image_array_size));
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image1d_array_t image, int2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord.x),
+                           0, vx_layer((float)coord.y, img->_image_array_size));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image1d_array_t image, sampler_t sampler, int2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMPI(sampler), (float)coord.x),
+                            0, vx_layer((float)coord.y, img->_image_array_size));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image1d_array_t image, sampler_t sampler, float2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMPI(sampler), coord.x),
+                            0, vx_layer(coord.y, img->_image_array_size));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image1d_array_t image, int2 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord.x),
+                            0, vx_layer((float)coord.y, img->_image_array_size));
+}
+
+// ---- image2d_array_t (coord.z = layer) ------------------------------------------
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image2d_array_t image, sampler_t sampler, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagef_slice(img, VX_SMPI(sampler), (float)coord.x, (float)coord.y,
+                              vx_layer((float)coord.z, img->_image_array_size));
+}
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image2d_array_t image, sampler_t sampler, float4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagef_slice(img, VX_SMPI(sampler), coord.x, coord.y,
+                              vx_layer(coord.z, img->_image_array_size));
+}
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image2d_array_t image, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagef_slice(img, VX_SMP_DEFAULT, (float)coord.x, (float)coord.y,
+                              vx_layer((float)coord.z, img->_image_array_size));
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image2d_array_t image, sampler_t sampler, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  int smp = VX_SMPI(sampler);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, smp, (float)coord.x),
+                           vx_int_coord1(img->_height, smp, (float)coord.y),
+                           vx_layer((float)coord.z, img->_image_array_size));
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image2d_array_t image, sampler_t sampler, float4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  int smp = VX_SMPI(sampler);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, smp, coord.x),
+                           vx_int_coord1(img->_height, smp, coord.y),
+                           vx_layer(coord.z, img->_image_array_size));
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image2d_array_t image, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord.x),
+                           vx_int_coord1(img->_height, VX_SMP_DEFAULT, (float)coord.y),
+                           vx_layer((float)coord.z, img->_image_array_size));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image2d_array_t image, sampler_t sampler, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  int smp = VX_SMPI(sampler);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, smp, (float)coord.x),
+                            vx_int_coord1(img->_height, smp, (float)coord.y),
+                            vx_layer((float)coord.z, img->_image_array_size));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image2d_array_t image, sampler_t sampler, float4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  int smp = VX_SMPI(sampler);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, smp, coord.x),
+                            vx_int_coord1(img->_height, smp, coord.y),
+                            vx_layer(coord.z, img->_image_array_size));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image2d_array_t image, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord.x),
+                            vx_int_coord1(img->_height, VX_SMP_DEFAULT, (float)coord.y),
+                            vx_layer((float)coord.z, img->_image_array_size));
+}
+
+// ---- image3d_t ------------------------------------------------------------------
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image3d_t image, sampler_t sampler, int4 coord) {
+  return vx_read_imagef_3d(VX_IMG(image), VX_SMPI(sampler),
+                           (float)coord.x, (float)coord.y, (float)coord.z);
+}
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image3d_t image, sampler_t sampler, float4 coord) {
+  return vx_read_imagef_3d(VX_IMG(image), VX_SMPI(sampler), coord.x, coord.y, coord.z);
+}
+float4 _CL_OVERLOADABLE read_imagef(IMG_RO_AQ image3d_t image, int4 coord) {
+  return vx_read_imagef_3d(VX_IMG(image), VX_SMP_DEFAULT,
+                           (float)coord.x, (float)coord.y, (float)coord.z);
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image3d_t image, sampler_t sampler, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  int smp = VX_SMPI(sampler);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, smp, (float)coord.x),
+                           vx_int_coord1(img->_height, smp, (float)coord.y),
+                           vx_int_coord1(img->_depth, smp, (float)coord.z));
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image3d_t image, sampler_t sampler, float4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  int smp = VX_SMPI(sampler);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, smp, coord.x),
+                           vx_int_coord1(img->_height, smp, coord.y),
+                           vx_int_coord1(img->_depth, smp, coord.z));
+}
+int4 _CL_OVERLOADABLE read_imagei(IMG_RO_AQ image3d_t image, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imagei_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord.x),
+                           vx_int_coord1(img->_height, VX_SMP_DEFAULT, (float)coord.y),
+                           vx_int_coord1(img->_depth, VX_SMP_DEFAULT, (float)coord.z));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image3d_t image, sampler_t sampler, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  int smp = VX_SMPI(sampler);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, smp, (float)coord.x),
+                            vx_int_coord1(img->_height, smp, (float)coord.y),
+                            vx_int_coord1(img->_depth, smp, (float)coord.z));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image3d_t image, sampler_t sampler, float4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  int smp = VX_SMPI(sampler);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, smp, coord.x),
+                            vx_int_coord1(img->_height, smp, coord.y),
+                            vx_int_coord1(img->_depth, smp, coord.z));
+}
+uint4 _CL_OVERLOADABLE read_imageui(IMG_RO_AQ image3d_t image, int4 coord) {
+  global dev_image_t* img = VX_IMG(image);
+  return vx_read_imageui_at(img, vx_int_coord1(img->_width, VX_SMP_DEFAULT, (float)coord.x),
+                            vx_int_coord1(img->_height, VX_SMP_DEFAULT, (float)coord.y),
+                            vx_int_coord1(img->_depth, VX_SMP_DEFAULT, (float)coord.z));
 }

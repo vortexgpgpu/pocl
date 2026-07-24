@@ -19,3 +19,10 @@ typedef struct {
 } kernel_args_t;
 
 #define ALIGN_OFFSET(offset, alignment) (((offset) + (alignment) - 1) & ~((alignment) - 1))
+
+/* Start every __local allocation on a boundary that suits any OpenCL type the
+ * kernel may store there. The widest is long16/double16 at 16 * 8 = 128 bytes,
+ * and the driver cannot know the pointee type of a __local pointer argument.
+ * 128 also matches the local-memory bank stride, so the padding costs nothing
+ * in bank-conflict terms. */
+#define VX_LOCAL_ALIGN 128

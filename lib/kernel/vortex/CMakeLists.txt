@@ -47,6 +47,16 @@ foreach(FILE workitems.c printf.c barrier.c atomics.c)
   list(APPEND KERNEL_SOURCES "vortex/${FILE}")
 endforeach()
 
+# libm entry points clang lowers to calls (no Vortex instruction backs them),
+# so they must resolve inside the kernel bitcode library.
+list(APPEND KERNEL_SOURCES "vortex/vxlibm.c")
+
+# wait_group_events must be a real work-group barrier here: a Vortex work-group
+# spans multiple hardware warps, so the generic empty stub (sound only for the
+# work-item-loop model) lets non-copying warps read the data early.
+list(REMOVE_ITEM KERNEL_SOURCES "wait_group_events.cl")
+list(APPEND KERNEL_SOURCES "vortex/wait_group_events.cl")
+
 # OpenCL image builtins (software). read_image/write_image use Vortex-specific
 # scalar implementations (vortex/*.cl): the generic pocl versions rely on OpenCL
 # vector arithmetic, which the no-vector Vortex backend (+xvortex) cannot select.

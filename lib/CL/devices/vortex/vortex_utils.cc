@@ -121,6 +121,13 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
   auto NewFunc = llvm::Function::Create(NewFuncType, function->getLinkage(), function->getName() + "_vortex");
   module->getFunctionList().insert(function->getIterator(), NewFunc);
   NewFunc->takeName(function);
+  /* Mark the wrapper as a Vortex kernel entry. The backend keys two things
+   * off this attribute: the kernel calling convention (no callee-saved
+   * spills — the KMU trampoline never reads them back), and the divergence
+   * pipeline's device-module detection, which must never size-skip a module
+   * containing SIMT kernels (a skipped divergent branch executes as a
+   * scalar warp branch and silently drops lanes). */
+  NewFunc->addFnAttr("vortex-kernel");
 
   auto EntryBlock = llvm::BasicBlock::Create(Context, "entry", NewFunc);
   llvm::IRBuilder<> Builder(EntryBlock);
@@ -193,12 +200,37 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
 }
 
 static void processKernels(llvm::SmallVector<std::string, 8>& funcNames, llvm::Module *module) {
-  llvm::SmallVector<llvm::Function *, 8> functionsToErase;
+  /* Snapshot first: createArgumentsBuffer/CloneFunction insert functions
+   * while we scan. */
+  llvm::SmallVector<llvm::Function *, 8> kernels;
   for (auto& function : module->functions()) {
+    if (function.isDeclaration())
+      continue;
     if (!pocl::isKernelToProcess(function))
       continue;
-    if (createArgumentsBuffer(&function, module, funcNames))
-      functionsToErase.push_back(&function);
+    kernels.push_back(&function);
+  }
+
+  llvm::SmallVector<llvm::Function *, 8> functionsToErase;
+  for (auto function : kernels) {
+    /* A kernel may also be called as a plain function by other kernels
+     * (CL 1.2 allows it). The wrapper transform below moves the body out
+     * and erases the original — that would leave those call sites dangling
+     * (use-after-free at bitcode write). Give in-module callers their own
+     * private copy of the body first. */
+    if (!function->use_empty()) {
+      llvm::ValueToValueMapTy VMap;
+      llvm::Function *Inner = llvm::CloneFunction(function, VMap);
+      Inner->setName(function->getName() + ".callee");
+      Inner->setLinkage(llvm::GlobalValue::InternalLinkage);
+      /* Never treat the copy as a kernel entry again. */
+      auto &Ctx = module->getContext();
+      Inner->setMetadata("pocl_generated",
+                         llvm::MDNode::get(Ctx, llvm::MDString::get(Ctx, "1")));
+      function->replaceAllUsesWith(Inner);
+    }
+    if (createArgumentsBuffer(function, module, funcNames))
+      functionsToErase.push_back(function);
   }
   for (auto function : functionsToErase) {
     function->eraseFromParent();
@@ -212,6 +244,19 @@ static void processKernels(llvm::SmallVector<std::string, 8>& funcNames, llvm::M
  * inline asm bypasses -march. Without this check the program builds and the device
  * aborts mid-kernel on an illegal instruction. The caller (pocl_vortex_post_build_
  * program) owns the policy; this only reports what the program needs. */
+int vortex_verify_module(void* llvm_module, const char* tag) {
+  llvm::Module *module = reinterpret_cast<llvm::Module *>(llvm_module);
+  if (module == nullptr)
+    return 0;
+  std::string verrs;
+  llvm::raw_string_ostream vos(verrs);
+  if (llvm::verifyModule(*module, &vos)) {
+    POCL_MSG_ERR("vortex: invalid module at %s:\n%s\n", tag, vos.str().c_str());
+    return 1;
+  }
+  return 0;
+}
+
 int vortex_module_uses_atomics(void* llvm_module) {
   llvm::Module *module = reinterpret_cast<llvm::Module *>(llvm_module);
   if (module == nullptr)
@@ -316,8 +361,14 @@ int compile_vortex_program(char* sz_program_vxbin, void* llvm_module,
     return err;
 
   auto module = (llvm::Module *)llvm_module;
+  if (vortex_verify_module(module, "compile_vortex_program entry"))
+    return -1;
   llvm::SmallVector<std::string, 8> kernelNames;
   processKernels(kernelNames, module);
+  /* processKernels rebuilds every kernel into an argument-buffer wrapper and
+   * clones in-module callees; verify the result before it reaches codegen. */
+  if (vortex_verify_module(module, "after processKernels"))
+    return -1;
 
   // Emit the per-kernel KMU entry stubs + trampolines into a generated C
   // file, compiled alongside the kernel bitcode below.

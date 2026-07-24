@@ -61,6 +61,14 @@ static inline __attribute__((always_inline)) uint32_t kmu_grid_dim(uint32_t dim)
 
 /* --- OpenCL builtins --- */
 
+/* Valid dimindx values are 0 .. get_work_dim()-1; the spec fixes the result
+ * for anything else (sizes/counts return 1, ids/offsets return 0). The CSR
+ * helpers above only decode 0..2 and fold every other index onto X, so the
+ * range check has to happen here. */
+static inline __attribute__((always_inline)) int dim_out_of_range(uint32_t dimindx) {
+  return dimindx >= (uint32_t)g_work_dim;
+}
+
 uint32_t _CL_OVERLOADABLE
 get_work_dim (void) {
   return g_work_dim;
@@ -68,16 +76,19 @@ get_work_dim (void) {
 
 SizeT _CL_OVERLOADABLE
 get_num_groups(uint32_t dimindx) {
+  if (dim_out_of_range(dimindx)) return 1;
   return kmu_grid_dim(dimindx);
 }
 
 SizeT _CL_OVERLOADABLE
 get_local_size(uint32_t dimindx) {
+  if (dim_out_of_range(dimindx)) return 1;
   return kmu_block_dim(dimindx);
 }
 
 SizeT _CL_OVERLOADABLE
 get_global_offset(uint32_t dimindx) {
+  if (dim_out_of_range(dimindx)) return 0;
   switch (dimindx) {
     default: return g_global_offset.x;
     case 1:  return g_global_offset.y;
@@ -87,21 +98,25 @@ get_global_offset(uint32_t dimindx) {
 
 SizeT _CL_OVERLOADABLE
 get_group_id(uint32_t dimindx) {
+  if (dim_out_of_range(dimindx)) return 0;
   return kmu_block_id(dimindx);
 }
 
 SizeT _CL_OVERLOADABLE
 get_local_id(uint32_t dimindx) {
+  if (dim_out_of_range(dimindx)) return 0;
   return kmu_thread_id(dimindx);
 }
 
 SizeT _CL_OVERLOADABLE
 get_global_size(uint32_t dimindx) {
+  if (dim_out_of_range(dimindx)) return 1;
   return (SizeT)kmu_block_dim(dimindx) * (SizeT)kmu_grid_dim(dimindx);
 }
 
 SizeT _CL_OVERLOADABLE
 get_global_id(uint32_t dimindx) {
+  if (dim_out_of_range(dimindx)) return 0;
   SizeT base = (SizeT)kmu_block_id(dimindx) * (SizeT)kmu_block_dim(dimindx)
              + (SizeT)kmu_thread_id(dimindx);
   switch (dimindx) {

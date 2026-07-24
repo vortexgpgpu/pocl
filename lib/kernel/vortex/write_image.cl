@@ -116,3 +116,89 @@ void _CL_OVERLOADABLE write_imageui(IMG_WO_AQ image2d_t image, int2 coord, uint4
   if(nchan>2) vx_store_chan_ui(p,ctype,2,color.z);
   if(nchan>3) vx_store_chan_ui(p,ctype,3,color.w);
 }
+
+// ============ generalized shapes: 1D / 1D array / 1D buffer / 2D array =========
+// (3D writes need cl_khr_3d_image_writes, which the device does not advertise.)
+
+static global char* vx_wbase3(global dev_image_t* img, int x, int y, int z,
+                              int* nchan) {
+  int order=img->_order, ctype=img->_data_type;
+  int nc=vx_wnum_chan(order), es=vx_welem_size(ctype);
+  *nchan=nc;
+  return (global char*)(size_t)img->_data + (size_t)z*img->_slice_pitch
+       + (size_t)y*img->_row_pitch + (size_t)x*nc*es;
+}
+
+static void vx_write_f_at(global dev_image_t* img, int x, int y, int z, float4 color) {
+  int nchan; global char* p = vx_wbase3(img, x, y, z, &nchan);
+  int ctype=img->_data_type, order=img->_order;
+  float c0,c1,c2,c3;
+  if (order==CLK_BGRA) { c0=color.z; c1=color.y; c2=color.x; c3=color.w; }
+  else if (order==CLK_ARGB) { c0=color.w; c1=color.x; c2=color.y; c3=color.z; }
+  else if (order==CLK_A) { c0=color.w; c1=c2=c3=0; }
+  else { c0=color.x; c1=color.y; c2=color.z; c3=color.w; }
+  vx_store_chan_f(p,ctype,0,c0);
+  if(nchan>1) vx_store_chan_f(p,ctype,1,c1);
+  if(nchan>2) vx_store_chan_f(p,ctype,2,c2);
+  if(nchan>3) vx_store_chan_f(p,ctype,3,c3);
+}
+static void vx_write_i_at(global dev_image_t* img, int x, int y, int z, int4 color) {
+  int nchan; global char* p = vx_wbase3(img, x, y, z, &nchan);
+  int ctype=img->_data_type;
+  vx_store_chan_i(p,ctype,0,color.x);
+  if(nchan>1) vx_store_chan_i(p,ctype,1,color.y);
+  if(nchan>2) vx_store_chan_i(p,ctype,2,color.z);
+  if(nchan>3) vx_store_chan_i(p,ctype,3,color.w);
+}
+static void vx_write_ui_at(global dev_image_t* img, int x, int y, int z, uint4 color) {
+  int nchan; global char* p = vx_wbase3(img, x, y, z, &nchan);
+  int ctype=img->_data_type;
+  vx_store_chan_ui(p,ctype,0,color.x);
+  if(nchan>1) vx_store_chan_ui(p,ctype,1,color.y);
+  if(nchan>2) vx_store_chan_ui(p,ctype,2,color.z);
+  if(nchan>3) vx_store_chan_ui(p,ctype,3,color.w);
+}
+
+#define VX_WIMG(image) __builtin_astype(image, global dev_image_t*)
+
+// image1d_t / image1d_buffer_t
+void _CL_OVERLOADABLE write_imagef(IMG_WO_AQ image1d_t image, int coord, float4 color) {
+  vx_write_f_at(VX_WIMG(image), coord, 0, 0, color);
+}
+void _CL_OVERLOADABLE write_imagei(IMG_WO_AQ image1d_t image, int coord, int4 color) {
+  vx_write_i_at(VX_WIMG(image), coord, 0, 0, color);
+}
+void _CL_OVERLOADABLE write_imageui(IMG_WO_AQ image1d_t image, int coord, uint4 color) {
+  vx_write_ui_at(VX_WIMG(image), coord, 0, 0, color);
+}
+void _CL_OVERLOADABLE write_imagef(IMG_WO_AQ image1d_buffer_t image, int coord, float4 color) {
+  vx_write_f_at(VX_WIMG(image), coord, 0, 0, color);
+}
+void _CL_OVERLOADABLE write_imagei(IMG_WO_AQ image1d_buffer_t image, int coord, int4 color) {
+  vx_write_i_at(VX_WIMG(image), coord, 0, 0, color);
+}
+void _CL_OVERLOADABLE write_imageui(IMG_WO_AQ image1d_buffer_t image, int coord, uint4 color) {
+  vx_write_ui_at(VX_WIMG(image), coord, 0, 0, color);
+}
+
+// image1d_array_t (coord.y = layer)
+void _CL_OVERLOADABLE write_imagef(IMG_WO_AQ image1d_array_t image, int2 coord, float4 color) {
+  vx_write_f_at(VX_WIMG(image), coord.x, 0, coord.y, color);
+}
+void _CL_OVERLOADABLE write_imagei(IMG_WO_AQ image1d_array_t image, int2 coord, int4 color) {
+  vx_write_i_at(VX_WIMG(image), coord.x, 0, coord.y, color);
+}
+void _CL_OVERLOADABLE write_imageui(IMG_WO_AQ image1d_array_t image, int2 coord, uint4 color) {
+  vx_write_ui_at(VX_WIMG(image), coord.x, 0, coord.y, color);
+}
+
+// image2d_array_t (coord.z = layer)
+void _CL_OVERLOADABLE write_imagef(IMG_WO_AQ image2d_array_t image, int4 coord, float4 color) {
+  vx_write_f_at(VX_WIMG(image), coord.x, coord.y, coord.z, color);
+}
+void _CL_OVERLOADABLE write_imagei(IMG_WO_AQ image2d_array_t image, int4 coord, int4 color) {
+  vx_write_i_at(VX_WIMG(image), coord.x, coord.y, coord.z, color);
+}
+void _CL_OVERLOADABLE write_imageui(IMG_WO_AQ image2d_array_t image, int4 coord, uint4 color) {
+  vx_write_ui_at(VX_WIMG(image), coord.x, coord.y, coord.z, color);
+}

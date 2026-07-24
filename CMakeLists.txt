@@ -2312,7 +2312,11 @@ if(ENABLE_VORTEX)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(VORTEX REQUIRED IMPORTED_TARGET vortex-runtime)
   set(BUILD_VORTEX 1)
-  set(VORTEX_DEVICE_EXTENSIONS "cl_khr_byte_addressable_store cl_khr_int64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics")
+  # The int32 atomics extensions are mandatory-to-advertise on CL 1.1+
+  # devices (they are core functionality; the strings remain for backward
+  # compatibility). The runtime drops every *atomics* token when the device
+  # lacks the RISC-V 'A' extension (vortex_build_extensions).
+  set(VORTEX_DEVICE_EXTENSIONS "cl_khr_byte_addressable_store cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics")
   if(ENABLE_SPIRV)
     # cl_khr_il_program is required by POCL's SPIR-V code path
     # (lib/CL/devices/common_driver.c:687 checks for it before invoking

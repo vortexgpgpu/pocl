@@ -34,6 +34,10 @@
 // uses it exclusively (no legacy vortex.h entry points).
 #include <vortex2.h>
 
+/* Number of 16MB program code regions between the default STARTUP_ADDR and
+ * the reserved region at 0xF0000000 (see compile_vortex_program). */
+#define VORTEX_NUM_MODULE_SLOTS 112
+
 typedef struct {
   vx_device_h vx_device;
   // Queue for the vortex2 async path: buffer DMA + kernel launch.
@@ -74,19 +78,14 @@ typedef struct {
    * hardware sampler (Tier A). When clear, every image samples in software. */
   int has_tex;
 
-  /* Device extension / OpenCL-C feature strings reported through CL_DEVICE_EXTENSIONS
-   * and CL_DEVICE_OPENCL_C_FEATURES. Derived from isa_flags at init (not from the
-   * build-time VORTEX_DEVICE_EXTENSIONS constant, which cannot know what the device
-   * implements), owned by the driver, freed at uninit. */
-  char *extensions;
-  char *features;
-
   size_t ctx_refcount;
 
-  /* Monotonic per-device program index. Each built program links its device
+  /* Per-device code-region slot pool. Each live program links its device
    * code at a distinct base (see compile_vortex_program) so multiple programs
-   * in one context (e.g. hybridsort) don't overlap. Guarded by compile_lock. */
-  unsigned module_slot;
+   * in one context (e.g. hybridsort) don't overlap; a slot is returned when
+   * its program is freed, so long-lived processes (CTS) don't exhaust the
+   * code address space. Guarded by compile_lock. */
+  uint8_t module_slot_used[VORTEX_NUM_MODULE_SLOTS];
 } vortex_device_data_t;
 
 static void *pocl_vortex_driver_thread (void *arg);
@@ -108,6 +107,9 @@ typedef struct {
    * named entry point inside it, resolved per-kernel by pocl_vortex_create
    * _kernel via vx_module_get_kernel. */
   vx_module_h vx_module;
+  /* Code-region slot this program's image is linked/loaded at; returned to
+   * the device's slot pool on free_program. */
+  unsigned module_slot;
 } vortex_program_data_t;
 
 typedef struct {
@@ -120,6 +122,10 @@ typedef struct {
   vx_device_h vx_device;
   vx_buffer_h vx_buffer;
   uint64_t buf_address;
+  /* Byte offset into vx_buffer. Non-zero only for sub-buffers, whose wrapper
+   * shares the parent's vx_buffer (retained): the core passes sub-relative
+   * offsets, every DMA op adds this. buf_address is already origin-adjusted. */
+  uint64_t origin;
   /* For image mem objects: a device buffer holding the (lifetime-constant)
    * dev_image_t descriptor, built + uploaded once at allocation and referenced
    * by every launch — so binding an image adds no per-launch host<->device
@@ -127,6 +133,9 @@ typedef struct {
   vx_buffer_h img_desc_buffer;
   uint64_t    img_desc_address;
 } vortex_buffer_data_t;
+
+/* Not covered by prototypes.inc (only alloc_subbuffer is). */
+void pocl_vortex_free_subbuffer (cl_device_id dev, cl_mem sub_buf);
 
 /* ---- Fixed-function TEX (Tier-A image sampling) ABI ------------------------
  * These are the device-side contract (VX_types.toml [dcr_tex]/[tex_const] in the
@@ -388,9 +397,14 @@ vortex_build_extensions (uint64_t isa_flags, int is_64bit)
        tok = strtok_r (NULL, " ", &save))
     {
       /* Drop the device-dependent claims the build-time list makes unconditionally. */
-      if (strcmp (tok, "cl_khr_int64") == 0 && !is_64bit)
-        continue;
       if (strstr (tok, "atomics") != NULL && !has_atomics)
+        continue;
+      /* "cl_khr_int64" is not a Khronos extension (64-bit ints are CORE in
+       * full-profile CL; the CTS rejects unapproved cl_khr_* tokens). The
+       * token stays in the build-time list only to feed the kernel library's
+       * #ifdef cl_khr_int64 gates — never advertise it. int64 support is
+       * reported via has_64bit_long / __opencl_c_int64. */
+      if (strcmp (tok, "cl_khr_int64") == 0)
         continue;
       /* 64-bit AMOs additionally need an RV64 device. NOTE: the Vortex kernel library
        * implements the 32-bit AMO builtins only (lib/kernel/vortex/atomics.c), so even
@@ -426,8 +440,10 @@ vortex_build_features (uint64_t isa_flags, int is_64bit, int image_support)
 
   if (image_support)
     strncat (buf, " __opencl_c_images", sizeof (buf) - strlen (buf) - 1);
-  if (is_64bit)
-    strncat (buf, " __opencl_c_int64", sizeof (buf) - strlen (buf) - 1);
+  /* int64 is core in full-profile CL 1.2; on RV32 it is soft-lowered (see
+   * vortex_build_extensions). */
+  (void)is_64bit;
+  strncat (buf, " __opencl_c_int64", sizeof (buf) - strlen (buf) - 1);
   if (isa_flags & VX_ISA_STD_A)
     strncat (buf, " __opencl_c_atomic_order_relaxed __opencl_c_atomic_scope_device",
              sizeof (buf) - strlen (buf) - 1);
@@ -463,8 +479,6 @@ vortex_init_fail (vx_device_h vx_device, vortex_device_data_t *dd, cl_int err)
     vx_device_release (vx_device);
   if (dd != NULL)
     {
-      POCL_MEM_FREE (dd->extensions);
-      POCL_MEM_FREE (dd->features);
       free (dd);
     }
   return err;
@@ -576,6 +590,8 @@ void pocl_vortex_init_device_ops(struct pocl_device_ops *ops) {
 
   ops->alloc_mem_obj = pocl_vortex_alloc_mem_obj;
   ops->free = pocl_vortex_free;
+  ops->alloc_subbuffer = pocl_vortex_alloc_subbuffer;
+  ops->free_subbuffer = pocl_vortex_free_subbuffer;
 
   ops->build_source = pocl_driver_build_source;
   ops->link_program = pocl_driver_link_program;
@@ -709,14 +725,25 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
                   "unavailable (rebuild the device with -DVX_CFG_EXT_A_ENABLE).\n");
   }
 
-  dd->extensions = vortex_build_extensions(isa_flags, is_64bit);
-  dd->features = vortex_build_features(isa_flags, is_64bit, /*image_support=*/1);
-  if (dd->extensions == NULL || dd->features == NULL) {
-    return vortex_init_fail(vx_device, dd, CL_OUT_OF_HOST_MEMORY);
+  /* CL_DEVICE_EXTENSIONS / CL_DEVICE_OPENCL_C_FEATURES strings. The cl_device_id
+   * and its info queries outlive the last context (which tears dd down via
+   * pocl_vortex_free_context), so these are built once and kept for the process
+   * lifetime; pocl_init_default_device_infos aliases the pointer, no copy. */
+  if (dev->extensions == NULL) {
+    char *extensions = vortex_build_extensions(isa_flags, is_64bit);
+    char *features = vortex_build_features(isa_flags, is_64bit, /*image_support=*/1);
+    if (extensions == NULL || features == NULL) {
+      POCL_MEM_FREE(extensions);
+      POCL_MEM_FREE(features);
+      return vortex_init_fail(vx_device, dd, CL_OUT_OF_HOST_MEMORY);
+    }
+    pocl_init_default_device_infos(dev, extensions);
+    dev->features = features;
+  } else {
+    const char *features = dev->features;
+    pocl_init_default_device_infos(dev, dev->extensions);
+    dev->features = features;
   }
-
-  pocl_init_default_device_infos(dev, dd->extensions);
-  dev->features = dd->features;
 
   SETUP_DEVICE_CL_VERSION (dev, VORTEX_DEVICE_CL_VERSION_MAJOR,
                            VORTEX_DEVICE_CL_VERSION_MINOR);
@@ -736,7 +763,9 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   dev->autolocals_to_args = POCL_AUTOLOCALS_TO_ARGS_ALWAYS;
   dev->device_alloca_locals = CL_FALSE;
   dev->device_side_printf = 0;
-  dev->has_64bit_long = is_64bit;
+  /* Core in full-profile CL 1.2 on every XLEN; RV32 soft-lowers (see
+   * vortex_build_extensions). */
+  dev->has_64bit_long = 1;
 
   /* Phase 1 (pocl_vortex_v3_proposal.md): opt the Vortex device into the
    * SPIR-V code path. POCL's central pipeline parses SPIR-V into LLVM IR
@@ -831,7 +860,16 @@ pocl_vortex_init (unsigned j, cl_device_id dev, const char* parameters)
   uint64_t max_work_group_size = num_warps * num_threads;
 
   dev->global_mem_size = global_mem_size;
-  dev->max_mem_alloc_size = global_mem_size;
+  /* CL 1.2 requires >= max(global/4, 128MB). Reporting the full global size
+   * is conformance-hostile: the device reserves code/stack regions, so a
+   * max-size allocation can never succeed. */
+  dev->max_mem_alloc_size = global_mem_size / 4;
+  if (dev->max_mem_alloc_size < 128 * 1024 * 1024)
+    dev->max_mem_alloc_size = 128 * 1024 * 1024;
+  if (dev->max_mem_alloc_size > global_mem_size)
+    dev->max_mem_alloc_size = global_mem_size;
+  /* CL 1.2 full-profile floor (64KB); constants live in global memory. */
+  dev->max_constant_buffer_size = 64 * 1024;
   /* VX_CAPS_LOCAL_MEM_SIZE is decoded from the config word whether or not the
    * scratchpad is built, so report a size only when the device actually has one.
    * Kernels with __local args then fail at enqueue instead of addressing nothing. */
@@ -897,11 +935,8 @@ cl_int pocl_vortex_uninit (unsigned j, cl_device_id dev) {
   POCL_DESTROY_COND (dd->idle_cond);
   POCL_DESTROY_LOCK (dd->compile_lock);
   POCL_DESTROY_LOCK (dd->cq_lock);
-  /* dev->extensions/features point into dd (built from the device ISA at init). */
-  dev->extensions = NULL;
-  dev->features = NULL;
-  POCL_MEM_FREE(dd->extensions);
-  POCL_MEM_FREE(dd->features);
+  /* dev->extensions/features stay valid: clGetDeviceInfo must keep working
+   * between contexts (the strings have process lifetime, see init). */
   POCL_MEM_FREE(dd);
   dev->data = NULL;
   return CL_SUCCESS;
@@ -946,12 +981,29 @@ int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
   vortex_device_data_t *ddata = (vortex_device_data_t *)dev->data;
   vortex_program_data_t *pdata = NULL;
 
+  /* Only fully-linked executables become device ELFs. Libraries
+   * (clLinkProgram -create-library) and compiled objects (clCompileProgram)
+   * are bitcode-only by design — their builtins are still unresolved, and
+   * they are never launched directly. */
+  if (program->binary_type != CL_PROGRAM_BINARY_TYPE_EXECUTABLE)
+    return CL_SUCCESS;
+
   POCL_LOCK (ddata->compile_lock);
 
   do {
+    if (vortex_verify_module (program->llvm_irs[device_i],
+                              "post_build entry (before run_passes)")) {
+      result = CL_BUILD_PROGRAM_FAILURE;
+      break;
+    }
     result = pocl_llvm_run_passes_on_program (program, device_i);
     if (result != 0)
       break;
+    if (vortex_verify_module (program->llvm_irs[device_i],
+                              "post_build after run_passes")) {
+      result = CL_BUILD_PROGRAM_FAILURE;
+      break;
+    }
 
     /* Capability gate (see vortex_isa_check): a device without 'A' cannot execute the
      * AMOs that the OpenCL atomic builtins compile to, and neither -march nor the
@@ -980,14 +1032,26 @@ int pocl_vortex_post_build_program (cl_program program, cl_uint device_i) {
     strcpy(sz_program_vxbin, sz_program_bc);
     strncat(sz_program_vxbin, ".vxbin", POCL_MAX_PATHNAME_LENGTH - 1);
 
+    /* Grab the first free code-region slot (compile_lock is held). */
+    unsigned slot = 0;
+    while (slot < VORTEX_NUM_MODULE_SLOTS && ddata->module_slot_used[slot])
+      ++slot;
+    if (slot == VORTEX_NUM_MODULE_SLOTS) {
+      POCL_MSG_ERR ("vortex: all %u program code slots in use\n",
+                    VORTEX_NUM_MODULE_SLOTS);
+      result = CL_OUT_OF_RESOURCES;
+      break;
+    }
+
     result = compile_vortex_program(sz_program_vxbin,
                                     program->llvm_irs[device_i],
-                                    ddata->module_slot);
+                                    slot);
     if (result != 0)
       break;
-    /* Consume this slot only on a successful build so a failed compile
-     * doesn't leak a code region. */
-    ddata->module_slot++;
+    /* Mark the slot only on a successful build so a failed compile
+     * doesn't leak a code region; freed in pocl_vortex_free_program. */
+    ddata->module_slot_used[slot] = 1;
+    pdata->module_slot = slot;
 
     /* Load the freshly-compiled .vxbin as a vortex2 module up front. Each
      * kernel is its own named entry point; pocl_vortex_create_kernel
@@ -1016,8 +1080,16 @@ int pocl_vortex_free_program (cl_device_id dev, cl_program program,
   pocl_driver_free_program (dev, program, device_i);
 
   /* Per-kernel vx_kernel handles are released by pocl_vortex_free_kernel. */
-  if (pdata->vx_module != NULL)
+  if (pdata->vx_module != NULL) {
     vx_module_release (pdata->vx_module);
+    /* The module's code region is gone; return its slot to the pool. The
+     * program held a context ref, so dd is still live here. */
+    if (dd != NULL) {
+      POCL_LOCK (dd->compile_lock);
+      dd->module_slot_used[pdata->module_slot] = 0;
+      POCL_UNLOCK (dd->compile_lock);
+    }
+  }
 
   POCL_MEM_FREE (pdata);
   program->data[device_i] = NULL;
@@ -1208,7 +1280,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
   for (int i = 0; i < meta->num_args; ++i) {
     struct pocl_argument* al = &(cmd->command.run.arguments[i]);
     if (ARG_IS_LOCAL(meta->arg_info[i])) {
-      local_mem_size += al->size;
+      local_mem_size = ALIGN_OFFSET(local_mem_size, VX_LOCAL_ALIGN) + al->size;
       abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
     } else
     if ((meta->arg_info[i].type == POCL_ARG_TYPE_POINTER)
@@ -1223,7 +1295,8 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
 
   // local buffers
   for (int i = 0; i < meta->num_locals; ++i) {
-    local_mem_size += meta->local_sizes[i];
+    local_mem_size =
+        ALIGN_OFFSET(local_mem_size, VX_LOCAL_ALIGN) + meta->local_sizes[i];
     abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
   }
 
@@ -1276,6 +1349,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
         memcpy(host_args_ptr + host_args_offset, &local_mem_size, 4); // local_size
         host_args_offset = ALIGN_OFFSET(host_args_offset + 4, ptr_size);
       }
+      local_mem_offset = ALIGN_OFFSET(local_mem_offset, VX_LOCAL_ALIGN);
       memcpy(host_args_ptr + host_args_offset, &local_mem_offset, 4); // arg offset
       host_args_offset = ALIGN_OFFSET(host_args_offset + 4, ptr_size);
       local_mem_offset += al->size;
@@ -1301,8 +1375,9 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
       } else {
         cl_mem m = (*(cl_mem *)(al->value));
         vortex_buffer_data_t* buf_data = (vortex_buffer_data_t *) m->device_ptrs[cmd->device->global_mem_id].extra_ptr;
+        /* buf_address is origin-adjusted for sub-buffers (alloc_subbuffer). */
         uint64_t dev_mem_addr = buf_data->buf_address + al->offset;
-        memcpy(host_args_ptr + host_args_offset, &buf_data->buf_address, ptr_size); // pointer value
+        memcpy(host_args_ptr + host_args_offset, &dev_mem_addr, ptr_size); // pointer value
         host_args_offset = ALIGN_OFFSET(host_args_offset + ptr_size, ptr_size);
       }
     } else
@@ -1338,6 +1413,7 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
       memcpy(host_args_ptr + host_args_offset, &local_mem_size, 4); // local_size
       host_args_offset = ALIGN_OFFSET(host_args_offset + 4, ptr_size);
     }
+    local_mem_offset = ALIGN_OFFSET(local_mem_offset, VX_LOCAL_ALIGN);
     memcpy(host_args_ptr + host_args_offset, &local_mem_offset, 4); // arg offset
     host_args_offset = ALIGN_OFFSET(host_args_offset + 4, ptr_size);
     local_mem_offset += meta->local_sizes[i];
@@ -1465,6 +1541,7 @@ cl_int pocl_vortex_alloc_mem_obj(cl_device_id dev, cl_mem mem_obj, void *host_pt
     buf_data->vx_device = dd->vx_device;
     buf_data->vx_buffer = vx_buffer;
     buf_data->buf_address = buf_address;
+    buf_data->origin = 0;
     buf_data->img_desc_buffer = NULL;
     buf_data->img_desc_address = 0;
 
@@ -1557,6 +1634,46 @@ void pocl_vortex_free(cl_device_id dev, cl_mem mem_obj) {
   p->version = 0;
 }
 
+/* Sub-buffers: no device allocation of their own. The wrapper shares the
+ * parent's vx_buffer (retained) and records the region origin; the core has
+ * already set p->mem_ptr = parent + origin. */
+cl_int pocl_vortex_alloc_subbuffer(cl_device_id dev, cl_mem sub_buf) {
+  pocl_mem_identifier *p = &sub_buf->device_ptrs[dev->global_mem_id];
+  vortex_buffer_data_t *parent_data =
+      (vortex_buffer_data_t *)sub_buf->parent->device_ptrs[dev->global_mem_id].extra_ptr;
+  if (parent_data == NULL)
+    return CL_MEM_OBJECT_ALLOCATION_FAILURE;
+
+  vortex_buffer_data_t *buf_data =
+      (vortex_buffer_data_t *)malloc(sizeof(vortex_buffer_data_t));
+  if (buf_data == NULL)
+    return CL_OUT_OF_HOST_MEMORY;
+
+  vx_buffer_retain(parent_data->vx_buffer);
+  buf_data->vx_device = parent_data->vx_device;
+  buf_data->vx_buffer = parent_data->vx_buffer;
+  buf_data->origin = parent_data->origin + sub_buf->origin;
+  buf_data->buf_address = parent_data->buf_address + sub_buf->origin;
+  buf_data->img_desc_buffer = NULL;
+  buf_data->img_desc_address = 0;
+
+  p->extra_ptr = buf_data;
+  p->version = 0;
+  return CL_SUCCESS;
+}
+
+void pocl_vortex_free_subbuffer(cl_device_id dev, cl_mem sub_buf) {
+  pocl_mem_identifier *p = &sub_buf->device_ptrs[dev->global_mem_id];
+  vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)p->extra_ptr;
+  if (buf_data) {
+    vx_buffer_release(buf_data->vx_buffer); /* drop the parent retain */
+    free(buf_data);
+  }
+  p->mem_ptr = NULL;
+  p->extra_ptr = NULL;
+  p->version = 0;
+}
+
 void pocl_vortex_copy(void *data,
                       pocl_mem_identifier *dst_mem_id,
                       cl_mem dst_buf,
@@ -1572,8 +1689,8 @@ void pocl_vortex_copy(void *data,
   vortex_buffer_data_t *dst_buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
   vx_event_h ev = NULL;
   vx_err = vx_enqueue_copy(dd->vx_queue,
-                           dst_buf_data->vx_buffer, dst_offset,
-                           src_buf_data->vx_buffer, src_offset,
+                           dst_buf_data->vx_buffer, dst_offset + dst_buf_data->origin,
+                           src_buf_data->vx_buffer, src_offset + src_buf_data->origin,
                            size, 0, NULL, &ev);
   if (vx_err == 0)
     vx_err = vx_sync_event(ev);
@@ -1593,7 +1710,8 @@ void pocl_vortex_write(void *data,
   vortex_device_data_t *dd = (vortex_device_data_t *)data;
   vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
   vx_event_h ev = NULL;
-  vx_err = vx_enqueue_write(dd->vx_queue, buf_data->vx_buffer, offset,
+  vx_err = vx_enqueue_write(dd->vx_queue, buf_data->vx_buffer,
+                            offset + buf_data->origin,
                             host_ptr, size, 0, NULL, &ev);
   if (vx_err == 0)
     vx_err = vx_sync_event(ev);
@@ -1613,7 +1731,7 @@ void pocl_vortex_read(void *data,
   vortex_buffer_data_t* buf_data = (vortex_buffer_data_t*)src_mem_id->extra_ptr;
   vx_event_h ev = NULL;
   vx_err = vx_enqueue_read(dd->vx_queue, host_ptr, buf_data->vx_buffer,
-                           offset, size, 0, NULL, &ev);
+                           offset + buf_data->origin, size, 0, NULL, &ev);
   if (vx_err == 0)
     vx_err = vx_sync_event(ev);
   if (vx_err != 0) {
@@ -1632,7 +1750,8 @@ cl_int pocl_vortex_map_mem(void *data, pocl_mem_identifier *src_mem_id,
   vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)src_mem_id->extra_ptr;
   vx_event_h ev = NULL;
   int vx_err = vx_enqueue_read(dd->vx_queue, map->host_ptr, buf_data->vx_buffer,
-                               map->offset, map->size, 0, NULL, &ev);
+                               map->offset + buf_data->origin, map->size,
+                               0, NULL, &ev);
   if (vx_err == 0)
     vx_err = vx_sync_event(ev);
   return (vx_err == 0) ? CL_SUCCESS : CL_MAP_FAILURE;
@@ -1647,7 +1766,8 @@ cl_int pocl_vortex_unmap_mem(void *data, pocl_mem_identifier *dst_mem_id,
   vortex_device_data_t *dd = (vortex_device_data_t *)data;
   vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
   vx_event_h ev = NULL;
-  int vx_err = vx_enqueue_write(dd->vx_queue, buf_data->vx_buffer, map->offset,
+  int vx_err = vx_enqueue_write(dd->vx_queue, buf_data->vx_buffer,
+                                map->offset + buf_data->origin,
                                 map->host_ptr, map->size, 0, NULL, &ev);
   if (vx_err == 0)
     vx_err = vx_sync_event(ev);
@@ -1680,6 +1800,7 @@ void pocl_vortex_read_rect(void *data,
     rect.host_origin[i]   = host_origin[i];
     rect.region[i]        = region[i];
   }
+  rect.buffer_origin[0]  += buf_data->origin; /* sub-buffer origin, bytes */
   rect.buffer_row_pitch   = buffer_row_pitch;
   rect.buffer_slice_pitch = buffer_slice_pitch;
   rect.host_row_pitch     = host_row_pitch;
@@ -1715,6 +1836,7 @@ void pocl_vortex_write_rect(void *data,
     rect.host_origin[i]   = host_origin[i];
     rect.region[i]        = region[i];
   }
+  rect.buffer_origin[0]  += buf_data->origin; /* sub-buffer origin, bytes */
   rect.buffer_row_pitch   = buffer_row_pitch;
   rect.buffer_slice_pitch = buffer_slice_pitch;
   rect.host_row_pitch     = host_row_pitch;
@@ -1754,6 +1876,8 @@ void pocl_vortex_copy_rect(void *data,
     rect.host_origin[i]   = src_origin[i];
     rect.region[i]        = region[i];
   }
+  rect.buffer_origin[0]  += dst_data->origin; /* sub-buffer origins, bytes */
+  rect.host_origin[0]    += src_data->origin;
   rect.buffer_row_pitch   = dst_row_pitch;
   rect.buffer_slice_pitch = dst_slice_pitch;
   rect.host_row_pitch     = src_row_pitch;
@@ -1779,8 +1903,8 @@ void pocl_vortex_memfill(void *data,
   vortex_buffer_data_t *buf_data = (vortex_buffer_data_t *)dst_mem_id->extra_ptr;
   vx_event_h ev = NULL;
   int vx_err = vx_enqueue_fill_buffer(dd->vx_queue, buf_data->vx_buffer,
-                                      offset, size, pattern, pattern_size,
-                                      0, NULL, &ev);
+                                      offset + buf_data->origin, size,
+                                      pattern, pattern_size, 0, NULL, &ev);
   if (vx_err == 0)
     vx_err = vx_sync_event(ev);
   if (vx_err != 0) {
@@ -1818,8 +1942,6 @@ cl_int pocl_vortex_write_image_rect(void *data, cl_mem dst_image,
                                     const size_t *origin, const size_t *region,
                                     size_t src_row_pitch, size_t src_slice_pitch,
                                     size_t src_offset) {
-  const void *__restrict__ ptr = src_host_ptr ? src_host_ptr : src_mem_id->mem_ptr;
-  ptr = (const char *)ptr + src_offset;
   const size_t zero_origin[3] = { 0, 0, 0 };
   size_t px = dst_image->image_elem_size * dst_image->image_channels;
   if (src_row_pitch == 0)
@@ -1828,6 +1950,18 @@ cl_int pocl_vortex_write_image_rect(void *data, cl_mem dst_image,
     src_slice_pitch = src_row_pitch * region[1];
   const size_t adj_origin[3] = { origin[0] * px, origin[1], origin[2] };
   const size_t adj_region[3] = { region[0] * px, region[1], region[2] };
+  if (src_host_ptr == NULL && src_mem_id != NULL) {
+    /* CopyBufferToImage: the source is a device buffer (mem_ptr holds a
+     * device address, not host memory) -- device-to-device rect copy. */
+    const size_t buf_origin[3] = { src_offset, 0, 0 };
+    pocl_vortex_copy_rect(data, dst_mem_id, dst_image, src_mem_id, NULL,
+                          adj_origin, buf_origin, adj_region,
+                          dst_image->image_row_pitch,
+                          dst_image->image_slice_pitch, src_row_pitch,
+                          src_slice_pitch);
+    return CL_SUCCESS;
+  }
+  const void *__restrict__ ptr = (const char *)src_host_ptr + src_offset;
   pocl_vortex_write_rect(data, ptr, dst_mem_id, dst_image, adj_origin, zero_origin,
                          adj_region, dst_image->image_row_pitch,
                          dst_image->image_slice_pitch, src_row_pitch, src_slice_pitch);
@@ -1841,8 +1975,6 @@ cl_int pocl_vortex_read_image_rect(void *data, cl_mem src_image,
                                    const size_t *origin, const size_t *region,
                                    size_t dst_row_pitch, size_t dst_slice_pitch,
                                    size_t dst_offset) {
-  void *__restrict__ ptr = dst_host_ptr ? dst_host_ptr : dst_mem_id->mem_ptr;
-  ptr = (char *)ptr + dst_offset;
   const size_t zero_origin[3] = { 0, 0, 0 };
   size_t px = src_image->image_elem_size * src_image->image_channels;
   if (dst_row_pitch == 0)
@@ -1851,6 +1983,18 @@ cl_int pocl_vortex_read_image_rect(void *data, cl_mem src_image,
     dst_slice_pitch = dst_row_pitch * region[1];
   const size_t adj_origin[3] = { origin[0] * px, origin[1], origin[2] };
   const size_t adj_region[3] = { region[0] * px, region[1], region[2] };
+  if (dst_host_ptr == NULL && dst_mem_id != NULL) {
+    /* CopyImageToBuffer: the destination is a device buffer (mem_ptr holds a
+     * device address, not host memory) -- device-to-device rect copy. */
+    const size_t buf_origin[3] = { dst_offset, 0, 0 };
+    pocl_vortex_copy_rect(data, dst_mem_id, NULL, src_mem_id, src_image,
+                          buf_origin, adj_origin, adj_region,
+                          dst_row_pitch, dst_slice_pitch,
+                          src_image->image_row_pitch,
+                          src_image->image_slice_pitch);
+    return CL_SUCCESS;
+  }
+  void *__restrict__ ptr = (char *)dst_host_ptr + dst_offset;
   pocl_vortex_read_rect(data, ptr, src_mem_id, src_image, adj_origin, zero_origin,
                         adj_region, src_image->image_row_pitch,
                         src_image->image_slice_pitch, dst_row_pitch, dst_slice_pitch);
