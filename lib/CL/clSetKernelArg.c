@@ -333,10 +333,13 @@ POname(clSetKernelArg)(cl_kernel kernel,
       "arg_value != NULL and arg %u is in local address space\n", arg_index);
 
   /* Trigger CL_INVALID_ARG_VALUE if arg_value specified is NULL
-   * for an argument that is not declared with the __local qualifier. */
+   * for an argument that is not declared with the __local qualifier.
+   * NULL sampler args are excluded: the sampler check below must report
+   * CL_INVALID_SAMPLER for them. */
   POCL_RETURN_ERROR_ON (
       ((arg_value == NULL) && (!is_local)
-       && (pi->type != POCL_ARG_TYPE_POINTER)),
+       && (pi->type != POCL_ARG_TYPE_POINTER)
+       && (pi->type != POCL_ARG_TYPE_SAMPLER)),
       CL_INVALID_ARG_VALUE,
       "arg_value == NULL and arg %u is not in local address space\n",
       arg_index);
@@ -361,10 +364,49 @@ POname(clSetKernelArg)(cl_kernel kernel,
           arg_index, arg_size, sizeof (cl_mem));
       if (ptr_value)
         {
-          POCL_RETURN_ERROR_ON (
-              !IS_CL_OBJECT_VALID ((const cl_mem)ptr_value),
-              CL_INVALID_ARG_VALUE,
-              "Arg %u is not a valid CL object\n", arg_index);
+          /* The invalid-object error code depends on the declared arg type:
+           * CL_INVALID_SAMPLER for sampler_t args, CL_INVALID_MEM_OBJECT for
+           * memory-object args. */
+          if (pi->type == POCL_ARG_TYPE_SAMPLER)
+            POCL_RETURN_ERROR_ON (
+                !IS_CL_OBJECT_VALID ((const cl_sampler)ptr_value),
+                CL_INVALID_SAMPLER,
+                "Arg %u is not a valid cl_sampler\n", arg_index);
+          else
+            POCL_RETURN_ERROR_ON (
+                !IS_CL_OBJECT_VALID ((const cl_mem)ptr_value),
+                CL_INVALID_ARG_VALUE,
+                "Arg %u is not a valid CL object\n", arg_index);
+          /* An image-typed arg must be fed an image object. */
+          if (pi->type == POCL_ARG_TYPE_IMAGE)
+            {
+              const cl_mem img = (const cl_mem)ptr_value;
+              POCL_RETURN_ERROR_ON (
+                  !img->is_image, CL_INVALID_MEM_OBJECT,
+                  "Arg %u is declared as an image, but arg_value is not an "
+                  "image object\n", arg_index);
+              /* The image's creation flags must allow the arg's declared
+               * access: READ_ONLY images can't feed write_only args and
+               * vice versa. */
+              if (kernel->meta->has_arg_metadata
+                  & POCL_HAS_KERNEL_ARG_ACCESS_QUALIFIER)
+                {
+                  POCL_RETURN_ERROR_ON (
+                      ((img->flags & CL_MEM_READ_ONLY)
+                       && (pi->access_qualifier
+                           == CL_KERNEL_ARG_ACCESS_WRITE_ONLY)),
+                      CL_INVALID_ARG_VALUE,
+                      "Arg %u: CL_MEM_READ_ONLY image passed to a "
+                      "write_only image argument\n", arg_index);
+                  POCL_RETURN_ERROR_ON (
+                      ((img->flags & CL_MEM_WRITE_ONLY)
+                       && (pi->access_qualifier
+                           == CL_KERNEL_ARG_ACCESS_READ_ONLY)),
+                      CL_INVALID_ARG_VALUE,
+                      "Arg %u: CL_MEM_WRITE_ONLY image passed to a "
+                      "read_only image argument\n", arg_index);
+                }
+            }
         }
     }
   else if (pi->type_size)

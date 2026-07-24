@@ -430,12 +430,15 @@ bool isKernelToProcess(const llvm::Function &F) {
 
   const Module *m = F.getParent();
 
+  /* Declarations are never processable kernels — clLinkProgram flows can
+   * carry kernel declarations (with arg metadata attached); processing one
+   * would generate a bodyless wrapper with an unterminated entry block. */
+  if (F.isDeclaration())
+    return false;
+
   if (F.getMetadata("kernel_arg_access_qual") &&
       F.getMetadata("pocl_generated") == nullptr)
     return true;
-
-  if (F.isDeclaration())
-    return false;
   if (!F.hasName())
     return false;
   if (F.getName().starts_with("@llvm"))

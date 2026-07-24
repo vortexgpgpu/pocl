@@ -175,11 +175,29 @@ pocl_kernel_calc_wg_size (cl_device_id dev, cl_kernel kernel,
   if (kernel->meta->reqd_wg_size[0] > 0 && kernel->meta->reqd_wg_size[1] > 0
       && kernel->meta->reqd_wg_size[2] > 0)
     {
-      POCL_RETURN_ERROR_COND ((local_work_size == NULL
-                               || local_x != kernel->meta->reqd_wg_size[0]
-                               || local_y != kernel->meta->reqd_wg_size[1]
-                               || local_z != kernel->meta->reqd_wg_size[2]),
-                              CL_INVALID_WORK_GROUP_SIZE);
+      if (local_work_size == NULL)
+        {
+          /* OpenCL 3.0 clarification (enforced by the unified CTS on all
+           * versions): a NULL local size resolves to the kernel's
+           * reqd_work_group_size. */
+          local_x = kernel->meta->reqd_wg_size[0];
+          local_y = kernel->meta->reqd_wg_size[1];
+          local_z = kernel->meta->reqd_wg_size[2];
+          POCL_RETURN_ERROR_ON (
+              (local_x * local_y * local_z > max_group_size
+               || local_x > max_local_x || local_y > max_local_y
+               || local_z > max_local_z || global_x % local_x != 0
+               || global_y % local_y != 0 || global_z % local_z != 0),
+              CL_INVALID_WORK_GROUP_SIZE,
+              "reqd_work_group_size attribute (%zu, %zu, %zu) is not "
+              "compatible with the device limits or global size\n",
+              local_x, local_y, local_z);
+        }
+      else
+        POCL_RETURN_ERROR_COND ((local_x != kernel->meta->reqd_wg_size[0]
+                                 || local_y != kernel->meta->reqd_wg_size[1]
+                                 || local_z != kernel->meta->reqd_wg_size[2]),
+                                CL_INVALID_WORK_GROUP_SIZE);
     }
   /* Otherwise, if the local work size was not specified find the optimal one.
    * Note that at some point we also checked for local > global. This doesn't

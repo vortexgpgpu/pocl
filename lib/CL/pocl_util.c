@@ -1245,6 +1245,65 @@ int pocl_buffers_overlap(cl_mem src_buffer,
  * THE MATERIALS.
  */
 
+/* Exact overlap test for two rects laid over the same buffer.
+ *
+ * The bytes a rect touches are the union of region[1]*region[2] row intervals
+ * of length region[0]. The spec's start/end comparison used below is
+ * deliberately conservative and reports an overlap whenever the two coarse
+ * linear spans intersect -- which happens for rects whose rows merely
+ * interleave without ever sharing a byte, making a legal copy fail with
+ * CL_MEM_COPY_OVERLAP. This confirms an actual shared byte before rejecting.
+ *
+ * A src row (z,y) and a dst row (z',y') start dz*slice_pitch + dy*row_pitch +
+ * (src_x - dst_x) apart, where dz = (src_z - dst_z) + (z - z') and likewise
+ * for dy. z/z' and y/y' range independently, so dz and dy each sweep a
+ * contiguous integer interval; the rows share a byte iff |delta| < region[0].
+ */
+static long long pocl_floor_div (long long a, long long b)
+{
+  long long q = a / b;
+  if ((a % b != 0) && ((a < 0) != (b < 0)))
+    --q;
+  return q;
+}
+
+static int
+rect_bytes_overlap (const size_t src_offset[3], const size_t dst_offset[3],
+                    const size_t region[3], const size_t row_pitch,
+                    const size_t slice_pitch)
+{
+  const long long w = (long long)region[0];
+  const long long rp = (long long)row_pitch;
+  const long long sp = (long long)slice_pitch;
+
+  if (rp <= 0 || w <= 0)
+    return 1; /* degenerate description -- stay conservative */
+
+  const long long dx = (long long)src_offset[0] - (long long)dst_offset[0];
+  const long long dz0 = (long long)src_offset[2] - (long long)dst_offset[2];
+  const long long dy0 = (long long)src_offset[1] - (long long)dst_offset[1];
+  const long long dy_lo = dy0 - (long long)(region[1] - 1);
+  const long long dy_hi = dy0 + (long long)(region[1] - 1);
+
+  for (long long k = 0; k < (long long)(2 * region[2] - 1); ++k)
+    {
+      const long long dz = dz0 - (long long)(region[2] - 1) + k;
+      const long long base = dz * sp + dx;
+      /* integers dy with -w < base + dy*rp < w */
+      /* smallest integer strictly above (-w - base)/rp */
+      long long lo = pocl_floor_div (-w - base, rp) + 1;
+      /* largest integer strictly below (w - base)/rp */
+      long long hi = pocl_floor_div (w - base, rp);
+      if (hi * rp == (w - base))
+        --hi;
+      const long long lo_c = lo > dy_lo ? lo : dy_lo;
+      const long long hi_c = hi < dy_hi ? hi : dy_hi;
+      if (lo_c <= hi_c)
+        return 1;
+    }
+  return 0;
+}
+
 int
 check_copy_overlap(const size_t src_offset[3],
                    const size_t dst_offset[3],
@@ -1309,6 +1368,13 @@ check_copy_overlap(const size_t src_offset[3],
       }
     }
   }
+
+  /* The tests above compare coarse linear spans, so they can flag rects whose
+   * rows interleave without sharing a byte. Only reject once an actual shared
+   * byte is confirmed -- rejecting a legal copy is itself a spec violation. */
+  if (overlap)
+    overlap = rect_bytes_overlap (src_offset, dst_offset, region, row_pitch,
+                                  slice_pitch);
 
   return overlap;
 }

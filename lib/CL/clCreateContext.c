@@ -84,6 +84,16 @@ context_set_properties (cl_context context,
               break;
 
             case CL_CONTEXT_INTEROP_USER_SYNC:
+              /* Value must be a valid cl_bool. */
+              if (p[1] != CL_TRUE && p[1] != CL_FALSE)
+                {
+                  POCL_MSG_ERR ("Invalid CL_CONTEXT_INTEROP_USER_SYNC value: "
+                                "%lu\n", (unsigned long)p[1]);
+                  return CL_INVALID_PROPERTY;
+                }
+              p += 2;
+              break;
+
             case CL_GL_CONTEXT_KHR:
             case CL_EGL_DISPLAY_KHR:
             case CL_GLX_DISPLAY_KHR:

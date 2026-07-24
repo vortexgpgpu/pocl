@@ -481,6 +481,15 @@ pocl_exec_command (_cl_command_node *node)
               {
                 size_t region[3] = { mem->image_width, mem->image_height,
                                      mem->image_depth };
+                /* Array images keep their layer count in image_array_size,
+                   not image_depth (which is 0): 1D-array layers index dim 1,
+                   2D-array layers index dim 2. Without this the full-image
+                   migration copies only a single layer, leaving the rest of a
+                   host-ptr/COPY_HOST_PTR array image uninitialized on-device. */
+                if (mem->type == CL_MEM_OBJECT_IMAGE1D_ARRAY)
+                  region[1] = mem->image_array_size;
+                else if (mem->type == CL_MEM_OBJECT_IMAGE2D_ARRAY)
+                  region[2] = mem->image_array_size;
                 if (region[2] == 0)
                   region[2] = 1;
                 if (region[1] == 0)
@@ -508,6 +517,15 @@ pocl_exec_command (_cl_command_node *node)
               {
                 size_t region[3] = { mem->image_width, mem->image_height,
                                      mem->image_depth };
+                /* Array images keep their layer count in image_array_size,
+                   not image_depth (which is 0): 1D-array layers index dim 1,
+                   2D-array layers index dim 2. Without this the full-image
+                   migration copies only a single layer, leaving the rest of a
+                   host-ptr/COPY_HOST_PTR array image uninitialized on-device. */
+                if (mem->type == CL_MEM_OBJECT_IMAGE1D_ARRAY)
+                  region[1] = mem->image_array_size;
+                else if (mem->type == CL_MEM_OBJECT_IMAGE2D_ARRAY)
+                  region[2] = mem->image_array_size;
                 if (region[2] == 0)
                   region[2] = 1;
                 if (region[1] == 0)

@@ -113,9 +113,18 @@ ERROR:
     {
       return program;
     }
+  else if (errcode == CL_LINK_PROGRAM_FAILURE && program != NULL)
+    {
+      /* A failure to link is not an argument error: return the (valid)
+       * program object so the caller can query its build log/status, with
+       * errcode_ret = CL_LINK_PROGRAM_FAILURE (CL 3.0 clarification,
+       * enforced by the CTS on all versions). */
+      return program;
+    }
   else
     {
-      POname (clReleaseProgram) (program);
+      if (program != NULL)
+        POname (clReleaseProgram) (program);
       return NULL;
     }
 }
