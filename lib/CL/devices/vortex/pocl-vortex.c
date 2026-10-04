@@ -1273,13 +1273,17 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
 
   uint32_t aligned_kernel_args_size = ALIGN_OFFSET(sizeof(kernel_args_t), ptr_size);
 
-  // calculate kernel arguments buffer size
+  // calculate kernel arguments buffer size, laying slots out in the same order
+  // as the write pass below: by-value slot alignment depends on position.
   uint32_t local_mem_size = 0;
   size_t abuf_size = 0;
 
   for (int i = 0; i < meta->num_args; ++i) {
     struct pocl_argument* al = &(cmd->command.run.arguments[i]);
     if (ARG_IS_LOCAL(meta->arg_info[i])) {
+      if (local_mem_size == 0) {
+        abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size); // local_size
+      }
       local_mem_size = ALIGN_OFFSET(local_mem_size, VX_LOCAL_ALIGN) + al->size;
       abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
     } else
@@ -1288,20 +1292,19 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
      || (meta->arg_info[i].type == POCL_ARG_TYPE_SAMPLER)) {
       abuf_size = ALIGN_OFFSET(abuf_size + ptr_size, ptr_size);
     } else {
-      // scalar argument
+      // by-value argument
+      abuf_size = ALIGN_OFFSET(abuf_size, VX_ARG_ALIGN(al->size));
       abuf_size = ALIGN_OFFSET(abuf_size + al->size, ptr_size);
     }
   }
 
   // local buffers
   for (int i = 0; i < meta->num_locals; ++i) {
+    if (local_mem_size == 0) {
+      abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size); // local_size
+    }
     local_mem_size =
         ALIGN_OFFSET(local_mem_size, VX_LOCAL_ALIGN) + meta->local_sizes[i];
-    abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
-  }
-
-  // add local size
-  if (local_mem_size != 0) {
     abuf_size = ALIGN_OFFSET(abuf_size + 4, ptr_size);
   }
 
@@ -1401,8 +1404,9 @@ void pocl_vortex_run (void *data, _cl_command_node *cmd) {
       memcpy(host_args_ptr + host_args_offset, &sv, ptr_size);
       host_args_offset = ALIGN_OFFSET(host_args_offset + ptr_size, ptr_size);
     } else {
-      // scalar argument
-      memcpy(host_args_ptr + host_args_offset, al->value, al->size); // scalar value
+      // by-value argument (scalar, vector or struct), stored inline
+      host_args_offset = ALIGN_OFFSET(host_args_offset, VX_ARG_ALIGN(al->size));
+      memcpy(host_args_ptr + host_args_offset, al->value, al->size);
       host_args_offset = ALIGN_OFFSET(host_args_offset + al->size, ptr_size);
     }
   }

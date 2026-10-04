@@ -20,6 +20,17 @@ typedef struct {
 
 #define ALIGN_OFFSET(offset, alignment) (((offset) + (alignment) - 1) & ~((alignment) - 1))
 
+/* Placement of a by-value argument (scalar, vector or struct) in the argument
+ * block. The host knows only the argument's size, so both sides derive the slot
+ * alignment from it: a type's alignment always divides its size, so the largest
+ * power of two dividing the size is at least the natural alignment. It is capped
+ * at the alignment of the block itself, which starts 16 bytes into a
+ * cache-line-aligned allocation. */
+#define VX_ARG_MAX_ALIGN 16
+#define VX_ARG_ALIGN(size) \
+  ((((size) & -(size)) == 0 || ((size) & -(size)) > VX_ARG_MAX_ALIGN) \
+       ? VX_ARG_MAX_ALIGN : ((size) & -(size)))
+
 /* Start every __local allocation on a boundary that suits any OpenCL type the
  * kernel may store there. The widest is long16/double16 at 16 * 8 = 128 bytes,
  * and the driver cannot know the pointee type of a __local pointer argument.

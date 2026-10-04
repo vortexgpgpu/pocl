@@ -14,6 +14,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
@@ -104,6 +105,33 @@ static std::string generateKernelEntries(
   return ss.str();
 }
 
+// True when the memory behind Ptr is only ever read, directly or through
+// derived pointers, and the pointer does not escape.
+static bool isReadOnlyPointer(const llvm::Value *Ptr) {
+  llvm::SmallVector<const llvm::Value *, 8> Worklist{Ptr};
+  llvm::SmallPtrSet<const llvm::Value *, 8> Visited;
+  while (!Worklist.empty()) {
+    auto V = Worklist.pop_back_val();
+    if (!Visited.insert(V).second)
+      continue;
+    for (auto U : V->users()) {
+      if (llvm::isa<llvm::LoadInst>(U))
+        continue;
+      if (llvm::isa<llvm::GetElementPtrInst>(U) || llvm::isa<llvm::PHINode>(U) ||
+          llvm::isa<llvm::SelectInst>(U) || llvm::isa<llvm::AddrSpaceCastInst>(U)) {
+        Worklist.push_back(U);
+        continue;
+      }
+      if (auto MT = llvm::dyn_cast<llvm::MemTransferInst>(U)) {
+        if (MT->getRawDest() != V)
+          continue;
+      }
+      return false;
+    }
+  }
+  return true;
+}
+
 // Store function arguments in a single argument buffer.
 static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module, llvm::SmallVector<std::string, 8>& funcNames) {
   auto &Context = module->getContext();
@@ -170,14 +198,33 @@ static bool createArgumentsBuffer(llvm::Function *function, llvm::Module *module
       arg_offset = ALIGN_OFFSET(arg_offset + 4, BaseAlignment);
       // Apply the byte offset into the CTA-local memory block.
       Arg = Builder.CreateGEP(I8Ty, allocated_local_mem, offset, OldArg.getName() + "_byte_ptr");
+    } else if (OldArg.hasByValAttr()) {
+      // The host stores the aggregate inline. It is shared by every work-item,
+      // so a kernel that may modify its copy gets a private one.
+      auto ByValTy = OldArg.getParamByValType();
+      uint64_t Size = DL.getTypeAllocSize(ByValTy);
+      arg_offset = ALIGN_OFFSET(arg_offset, VX_ARG_ALIGN(Size));
+      auto slot_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, llvm::ConstantInt::get(I32Ty, arg_offset), OldArg.getName() + "_byval_ptr");
+      if (isReadOnlyPointer(&OldArg)) {
+        Arg = slot_ptr;
+      } else {
+        auto Alignment = DL.getPrefTypeAlign(ByValTy);
+        auto copy = Builder.CreateAlloca(ByValTy, nullptr, OldArg.getName() + "_byval_copy");
+        copy->setAlignment(Alignment);
+        Builder.CreateMemCpy(copy, Alignment, slot_ptr, llvm::Align(VX_ARG_ALIGN(Size)), Size);
+        Arg = copy;
+      }
+      arg_offset = ALIGN_OFFSET(arg_offset + Size, BaseAlignment);
     } else {
-      auto offset_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, ArgOffset, OldArg.getName() + "_offset_ptr");
-      Arg = Builder.CreateLoad(ArgType, offset_ptr, OldArg.getName() + "_loaded");
-      arg_offset = ALIGN_OFFSET(arg_offset + DL.getTypeAllocSize(ArgType), BaseAlignment);
+      uint64_t Size = DL.getTypeAllocSize(ArgType);
+      arg_offset = ALIGN_OFFSET(arg_offset, VX_ARG_ALIGN(Size));
+      auto offset_ptr = Builder.CreateGEP(I8Ty, ArgBuffer, llvm::ConstantInt::get(I32Ty, arg_offset), OldArg.getName() + "_offset_ptr");
+      Arg = Builder.CreateAlignedLoad(ArgType, offset_ptr, llvm::Align(VX_ARG_ALIGN(Size)), OldArg.getName() + "_loaded");
+      arg_offset = ALIGN_OFFSET(arg_offset + Size, BaseAlignment);
     }
     auto instr = llvm::cast<llvm::Instruction>(Arg);
-    assert(instr != nullptr);
-    instr->setMetadata("vortex.uniform", MDS);
+    if (!llvm::isa<llvm::AllocaInst>(instr))
+      instr->setMetadata("vortex.uniform", MDS);
 
     OldArg.replaceAllUsesWith(Arg);
     arg_idx += 1;
