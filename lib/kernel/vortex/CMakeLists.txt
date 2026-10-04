@@ -51,6 +51,10 @@ endforeach()
 # so they must resolve inside the kernel bitcode library.
 list(APPEND KERNEL_SOURCES "vortex/vxlibm.c")
 
+# Single-precision exp in float arithmetic instead of libm's double-based expf.
+list(REMOVE_ITEM KERNEL_SOURCES "exp.cl")
+list(APPEND KERNEL_SOURCES "vortex/exp.cl")
+
 # wait_group_events must be a real work-group barrier here: a Vortex work-group
 # spans multiple hardware warps, so the generic empty stub (sound only for the
 # work-item-loop model) lets non-copying warps read the data early.
