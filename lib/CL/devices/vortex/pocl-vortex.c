@@ -145,7 +145,7 @@ void pocl_vortex_free_subbuffer (cl_device_id dev, cl_mem sub_buf);
  */
 #define VX_DCR_TEX_STAGE   0x040u  /* stage-select (latches the target bank)     */
 #define VX_DCR_TEX_ADDR    0x041u  /* texture base >> 6 (64-byte blocks)         */
-#define VX_DCR_TEX_LOGDIM  0x042u  /* (log2h << 16) | log2w                      */
+#define VX_DCR_TEX_DIM     0x042u  /* (height << 16) | width, mip-0 texels       */
 #define VX_DCR_TEX_FORMAT  0x043u  /* VX_TEX_FORMAT_*                            */
 #define VX_DCR_TEX_FILTER  0x044u  /* POINT=0 / BILINEAR=1 (| MIP_LINEAR=2)      */
 #define VX_DCR_TEX_WRAP    0x045u  /* (wrap_v << 16) | wrap_u                    */
@@ -153,6 +153,7 @@ void pocl_vortex_free_subbuffer (cl_device_id dev, cl_mem sub_buf);
 
 #define VX_TEX_FMT_A8R8G8B8 0u     /* only FF format the OpenCL mapping uses now  */
 #define VX_TEX_STAGE_COUNT  2u
+#define VX_TEX_DIM_MAX      32768u /* 1 << VX_TEX_DIM_BITS                         */
 
 #define VX_TEXF_POINT     0u
 #define VX_TEXF_BILINEAR  1u
@@ -201,13 +202,6 @@ static int vx_tex_map_sampler(uint32_t smp, uint32_t* filter, uint32_t* wrap) {
   default: return 0; /* CLK_ADDRESS_CLAMP (border) is not FF-representable */
   }
   return 1;
-}
-
-/* Integer log2 for POT dims; returns -1 if not a power of two. */
-static int vx_ilog2_pot(uint32_t v) {
-  if (v == 0 || (v & (v - 1)) != 0) return -1;
-  int l = 0; while (v > 1) { v >>= 1; ++l; }
-  return l;
 }
 
 /* ---- Batched CP submission (Phase 3) --------------------------------------
@@ -1197,11 +1191,11 @@ static uint32_t vx_tex_bind_images(vortex_device_data_t* dd, _cl_command_node* c
 
     uint32_t vx_fmt = 0;
     cl_image_format fmt = { m->image_channel_order, m->image_channel_data_type };
-    int lw = vx_ilog2_pot((uint32_t)m->image_width);
-    int lh = vx_ilog2_pot((uint32_t)m->image_height);
+    const uint32_t iw = (uint32_t)m->image_width;
+    const uint32_t ih = (uint32_t)m->image_height;
     if (have_smp && bd && next_stage < VX_TEX_STAGE_COUNT
         && m->type == CL_MEM_OBJECT_IMAGE2D
-        && lw >= 0 && lh >= 0
+        && iw <= VX_TEX_DIM_MAX && ih <= VX_TEX_DIM_MAX
         /* FF addressing assumes tightly-packed rows. image_elem_size is
          * bytes-per-channel, so the pixel stride is channels * elem_size. */
         && m->image_row_pitch
@@ -1211,7 +1205,7 @@ static uint32_t vx_tex_bind_images(vortex_device_data_t* dd, _cl_command_node* c
         && (bd->buf_address & 63u) == 0) {
       uint32_t stage = next_stage++;
       VX_TEX_EMIT(VX_DCR_TEX_STAGE,  stage);
-      VX_TEX_EMIT(VX_DCR_TEX_LOGDIM, ((uint32_t)lh << 16) | (uint32_t)lw);
+      VX_TEX_EMIT(VX_DCR_TEX_DIM,    (ih << 16) | iw);
       VX_TEX_EMIT(VX_DCR_TEX_FORMAT, vx_fmt);
       VX_TEX_EMIT(VX_DCR_TEX_FILTER, smp_filter);
       VX_TEX_EMIT(VX_DCR_TEX_WRAP,   (smp_wrap << 16) | smp_wrap);
@@ -1221,15 +1215,15 @@ static uint32_t vx_tex_bind_images(vortex_device_data_t* dd, _cl_command_node* c
       patch[1] = (int32_t)smp_bits;
       if (getenv("POCL_VORTEX_TEX_DEBUG"))
         fprintf(stderr, "[vortex-tex] bound image arg %d -> stage %u "
-                "(logdim=%dx%d fmt=%u filt=%u wrap=%u smp=0x%x addr=0x%lx)\n",
-                i, stage, lw, lh, vx_fmt, smp_filter, smp_wrap, smp_bits,
+                "(dim=%ux%u fmt=%u filt=%u wrap=%u smp=0x%x addr=0x%lx)\n",
+                i, stage, iw, ih, vx_fmt, smp_filter, smp_wrap, smp_bits,
                 (unsigned long)bd->buf_address);
     } else if (getenv("POCL_VORTEX_TEX_DEBUG")) {
       fprintf(stderr, "[vortex-tex] image arg %d NOT FF-bound "
-              "(have_smp=%d stage_avail=%d 2d=%d pot=%d,%d pitch=%zu/%zu "
+              "(have_smp=%d stage_avail=%d 2d=%d dim=%u,%u pitch=%zu/%zu "
               "fmt_ok=%d wo=%d aligned=%d)\n",
               i, have_smp, next_stage < VX_TEX_STAGE_COUNT,
-              m->type == CL_MEM_OBJECT_IMAGE2D, lw, lh,
+              m->type == CL_MEM_OBJECT_IMAGE2D, iw, ih,
               (size_t)m->image_row_pitch,
               (size_t)m->image_width * m->image_channels * m->image_elem_size,
               vx_tex_map_format(&fmt, &vx_fmt), (m->flags & CL_MEM_WRITE_ONLY) != 0,
